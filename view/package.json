@@ -1,0 +1,10 @@
+{
+  "name": "treewriter-view",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.12.4",
+  "scripts": {
+    "dev": "pnpm --parallel --recursive dev",
+    "build": "pnpm --recursive build"
+  }
+}

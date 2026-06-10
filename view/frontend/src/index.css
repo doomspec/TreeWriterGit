@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 99%;
+    --foreground: 222 18% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 18% 12%;
+    --primary: 187 82% 26%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 42 29% 91%;
+    --secondary-foreground: 222 18% 12%;
+    --muted: 210 18% 93%;
+    --muted-foreground: 218 11% 39%;
+    --accent: 42 35% 88%;
+    --accent-foreground: 222 18% 12%;
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 18% 84%;
+    --input: 214 18% 84%;
+    --ring: 187 82% 30%;
+    --radius: 0.5rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    min-width: 320px;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+.xterm {
+  height: 100%;
+}
+
+.xterm-viewport {
+  border-radius: 6px;
+}
+
+@media (max-width: 760px) {
+  main > section {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(260px, 42vh) 1fr;
+  }
+
+  aside {
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+}
+
