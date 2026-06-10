@@ -125,6 +125,23 @@ function stripFrontmatter(markdown: string) {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
 
+function parseMarkdownPreview(markdown: string) {
+  const withoutFrontmatter = stripFrontmatter(markdown);
+  const headingMatch = withoutFrontmatter.match(/^\s*#(?!#)\s+(.+?)\s*(?:\r?\n|$)/);
+
+  if (!headingMatch) {
+    return {
+      title: null,
+      body: withoutFrontmatter
+    };
+  }
+
+  return {
+    title: headingMatch[1],
+    body: withoutFrontmatter.slice(headingMatch[0].length)
+  };
+}
+
 function TreeNode({
   node,
   currentParentPath,
@@ -193,7 +210,8 @@ function MarkdownCard({
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirty = content !== loadedContent;
-  const previewContent = useMemo(() => stripFrontmatter(content), [content]);
+  const preview = useMemo(() => parseMarkdownPreview(content), [content]);
+  const displayTitle = preview.title ?? item.title;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -301,7 +319,7 @@ function MarkdownCard({
             ) : (
               <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             )}
-            <h3 className="truncate text-sm font-semibold">{item.title}</h3>
+            <h3 className="truncate text-sm font-semibold">{displayTitle}</h3>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -348,7 +366,7 @@ function MarkdownCard({
         />
       ) : (
         <div className="markdown-body min-h-[180px] rounded-b-md px-4 py-3">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{previewContent}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview.body}</ReactMarkdown>
         </div>
       )}
       {error ? <div className="border-t border-border px-3 py-2 text-xs text-destructive">{error}</div> : null}
