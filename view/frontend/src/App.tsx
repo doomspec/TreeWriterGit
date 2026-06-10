@@ -469,7 +469,7 @@ export default function App() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-background text-foreground">
+    <main className="flex h-screen overflow-hidden flex-col bg-background text-foreground">
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex min-w-0 items-center gap-2">
           <TerminalSquare className="h-4 w-4 shrink-0" aria-hidden="true" />
