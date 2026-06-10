@@ -3,6 +3,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import {
   ArrowUp,
+  Check,
+  Copy,
   Eye,
   FileText,
   Folder,
@@ -119,6 +121,10 @@ function cardsForParent(tree: ModelNode[], currentParentPath: string): CardItem[
   ];
 }
 
+function stripFrontmatter(markdown: string) {
+  return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+}
+
 function TreeNode({
   node,
   currentParentPath,
@@ -183,9 +189,11 @@ function MarkdownCard({
   const [loadedContent, setLoadedContent] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [isEditing, setIsEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirty = content !== loadedContent;
+  const previewContent = useMemo(() => stripFrontmatter(content), [content]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -273,6 +281,16 @@ function MarkdownCard({
     textarea.style.height = `${textarea.scrollHeight}px`;
   }, [content, isEditing]);
 
+  const copyPath = async () => {
+    try {
+      await navigator.clipboard.writeText(item.filePath);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch (copyError: unknown) {
+      setError(copyError instanceof Error ? copyError.message : String(copyError));
+    }
+  };
+
   return (
     <article className="flex min-h-[260px] flex-col rounded-md border border-border bg-card text-card-foreground">
       <header className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-3">
@@ -285,10 +303,19 @@ function MarkdownCard({
             )}
             <h3 className="truncate text-sm font-semibold">{item.title}</h3>
           </div>
-          <p className="truncate text-xs text-muted-foreground">{item.subtitle}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="text-xs text-muted-foreground">{saveState === "idle" && isDirty ? "dirty" : saveState}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label={`Copy ${item.filePath}`}
+            title={copied ? "Copied path" : "Copy path"}
+            onClick={() => void copyPath()}
+          >
+            {copied ? <Check className="h-4 w-4" aria-hidden="true" /> : <Copy className="h-4 w-4" aria-hidden="true" />}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -321,7 +348,7 @@ function MarkdownCard({
         />
       ) : (
         <div className="markdown-body min-h-[180px] rounded-b-md px-4 py-3">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{previewContent}</ReactMarkdown>
         </div>
       )}
       {error ? <div className="border-t border-border px-3 py-2 text-xs text-destructive">{error}</div> : null}
