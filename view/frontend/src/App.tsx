@@ -179,6 +179,7 @@ function MarkdownCard({
   const [loadedContent, setLoadedContent] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirty = content !== loadedContent;
 
   useEffect(() => {
@@ -253,6 +254,16 @@ function MarkdownCard({
     return () => window.clearTimeout(timeout);
   }, [content, isDirty, item.filePath]);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [content]);
+
   return (
     <article className="flex min-h-[260px] flex-col rounded-md border border-border bg-card text-card-foreground">
       <header className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-3">
@@ -282,7 +293,8 @@ function MarkdownCard({
         </div>
       </header>
       <textarea
-        className="min-h-0 flex-1 resize-none rounded-b-md border-0 bg-card p-3 font-mono text-sm leading-6 outline-none"
+        ref={textareaRef}
+        className="min-h-[180px] resize-none overflow-hidden rounded-b-md border-0 bg-card p-3 font-mono text-sm leading-6 outline-none"
         value={content}
         spellCheck={false}
         onChange={(event) => setContent(event.target.value)}
