@@ -145,7 +145,7 @@ async function runGitSync(reason = "interval") {
     const modelStatus = await git(["status", "--porcelain", "--", "model"]);
     if (modelStatus) {
       output.push(await git(["add", "model"]));
-      output.push(await git(["commit", "--allow-empty-message", "-m", ""]));
+      output.push(await git(["commit", "-m", "Automated sync"]));
     }
 
     output.push(await git(["rebase", "origin/main"]));

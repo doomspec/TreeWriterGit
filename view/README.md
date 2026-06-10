@@ -45,7 +45,7 @@ The frontend uses these endpoints to display `model/`, edit Markdown files, save
 Git sync is enabled by default in the backend. Every 120 seconds it:
 
 1. Fetches `origin`.
-2. Commits pending `model/` changes with an empty commit message.
+2. Commits pending `model/` changes with the message `Automated sync`.
 3. Rebases onto `origin/main`.
 4. Pushes `HEAD` to `origin/main`.
 
