@@ -493,47 +493,42 @@ export default function App() {
         </div>
       </header>
 
-      <section className="grid min-h-0 flex-1 grid-cols-[minmax(280px,32vw)_minmax(420px,1fr)]">
-        <aside className="grid min-h-0 grid-rows-[42%_58%] border-r border-border bg-muted/20">
-          <div className="min-h-0 border-b border-border">
-            <div ref={terminalElementRef} className="h-full w-full p-2" />
-          </div>
-          <div className="min-h-0 overflow-auto p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase text-muted-foreground">Model</h2>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Refresh model tree"
-                title="Refresh model tree"
-                onClick={() => void loadTree()}
-              >
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-            </div>
-            <button
+      <section className="grid min-h-0 flex-1 grid-cols-[260px_minmax(420px,1fr)_minmax(320px,34vw)]">
+        <aside className="min-h-0 overflow-auto border-r border-border bg-muted/20 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase text-muted-foreground">Model</h2>
+            <Button
               type="button"
-              className={cn(
-                "mb-1 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left text-xs font-medium hover:bg-accent",
-                currentParentPath === "" ? "bg-accent text-accent-foreground" : "text-muted-foreground"
-              )}
-              onClick={() => setCurrentParentPath("")}
+              variant="ghost"
+              size="icon"
+              aria-label="Refresh model tree"
+              title="Refresh model tree"
+              onClick={() => void loadTree()}
             >
-              <Folder className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">model</span>
-            </button>
-            <ul className="space-y-1">
-              {tree.map((node) => (
-                <TreeNode
-                  key={node.path}
-                  node={node}
-                  currentParentPath={currentParentPath}
-                  onOpenParent={setCurrentParentPath}
-                />
-              ))}
-            </ul>
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
           </div>
+          <button
+            type="button"
+            className={cn(
+              "mb-1 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left text-xs font-medium hover:bg-accent",
+              currentParentPath === "" ? "bg-accent text-accent-foreground" : "text-muted-foreground"
+            )}
+            onClick={() => setCurrentParentPath("")}
+          >
+            <Folder className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">model</span>
+          </button>
+          <ul className="space-y-1">
+            {tree.map((node) => (
+              <TreeNode
+                key={node.path}
+                node={node}
+                currentParentPath={currentParentPath}
+                onOpenParent={setCurrentParentPath}
+              />
+            ))}
+          </ul>
         </aside>
 
         <section className="grid min-h-0 grid-rows-[auto_1fr_auto]">
@@ -596,6 +591,26 @@ export default function App() {
             </span>
           </footer>
         </section>
+
+        <aside className="grid min-h-0 grid-rows-[auto_1fr] border-l border-border bg-muted/20">
+          <div className="flex h-10 items-center justify-between border-b border-border px-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <TerminalSquare className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <h2 className="truncate text-xs font-semibold uppercase text-muted-foreground">Terminal</h2>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Reconnect terminal"
+              title="Reconnect terminal"
+              onClick={() => setSessionKey((key) => key + 1)}
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+          </div>
+          <div ref={terminalElementRef} className="min-h-0 h-full w-full p-2" />
+        </aside>
       </section>
 
       {error ? (

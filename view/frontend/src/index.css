@@ -53,12 +53,12 @@
 @media (max-width: 760px) {
   main > section {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(260px, 42vh) 1fr;
+    grid-template-rows: minmax(180px, 28vh) 1fr minmax(260px, 34vh);
   }
 
   aside {
-    border-right: 0;
+    border-right: 0 !important;
+    border-left: 0 !important;
     border-bottom: 1px solid hsl(var(--border));
   }
 }
-

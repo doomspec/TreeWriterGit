@@ -43,12 +43,19 @@ const modelRoot = path.join(repoRoot, "model");
 const port = Number(process.env.PORT ?? 4000);
 const gitSyncIntervalMs = Number(process.env.GIT_SYNC_INTERVAL_MS ?? 120_000);
 const gitSyncEnabled = process.env.GIT_SYNC_ENABLED !== "false";
-const shell = process.env.TREEWRITER_SHELL ?? "/bin/bash";
+const shell = process.env.TREEWRITER_SHELL ?? "/bin/zsh";
 const shellArgs = shell.endsWith("zsh")
   ? ["-f", "-i"]
   : shell.endsWith("bash")
     ? ["--noprofile", "--norc", "-i"]
     : ["-i"];
+const terminalCommand = process.env.TREEWRITER_TERMINAL_COMMAND ?? "python3";
+const terminalArgs = [
+  path.join(__dirname, "pty_bridge.py"),
+  modelRoot,
+  shell,
+  ...shellArgs
+];
 const execFileAsync = promisify(execFile);
 const gitSyncState: GitSyncState = {
   enabled: gitSyncEnabled,
@@ -305,11 +312,12 @@ if (gitSyncEnabled) {
 }
 
 terminalServer.on("connection", (socket) => {
-  const term = spawn(shell, shellArgs, {
+  const term = spawn(terminalCommand, terminalArgs, {
     cwd: modelRoot,
     env: {
       ...process.env,
       TERM: "xterm-256color",
+      COLORTERM: "truecolor",
       HISTFILE: "/dev/null",
       BASH_SILENCE_DEPRECATION_WARNING: "1"
     },
@@ -323,7 +331,10 @@ terminalServer.on("connection", (socket) => {
   });
 
   term.stderr.on("data", (data: Buffer) => {
-    const text = data.toString().replace("bash: no job control in this shell\n", "");
+    const text = data
+      .toString()
+      .replace("bash: no job control in this shell\n", "")
+      .replace(/\r?\nThe default interactive shell is now zsh\.[\s\S]*?HT208050\.\r?\n/, "");
     if (!text) {
       return;
     }
