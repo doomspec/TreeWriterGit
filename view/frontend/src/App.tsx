@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import {
+  ArrowUp,
   FileText,
   Folder,
+  FolderOpen,
   GitBranch,
   RefreshCw,
-  Save,
   TerminalSquare
 } from "lucide-react";
 
@@ -35,31 +36,116 @@ type GitSyncState = {
   lastError: string | null;
 };
 
+type CardItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  filePath: string;
+  kind: "index" | "directory" | "file";
+  openParentPath: string | null;
+};
+
 function flattenFiles(nodes: ModelNode[]): ModelNode[] {
-  return nodes.flatMap((node) =>
-    node.type === "file" ? [node] : flattenFiles(node.children ?? [])
-  );
+  return nodes.flatMap((node) => (node.type === "file" ? [node] : flattenFiles(node.children ?? [])));
+}
+
+function parentPath(pathValue: string) {
+  const parts = pathValue.split("/").filter(Boolean);
+  parts.pop();
+  return parts.join("/");
+}
+
+function indexPathFor(directoryPath: string) {
+  return directoryPath ? `${directoryPath}/INDEX.md` : "INDEX.md";
+}
+
+function findNode(nodes: ModelNode[], pathValue: string): ModelNode | null {
+  for (const node of nodes) {
+    if (node.path === pathValue) {
+      return node;
+    }
+
+    const child = node.children ? findNode(node.children, pathValue) : null;
+    if (child) {
+      return child;
+    }
+  }
+
+  return null;
+}
+
+function cardsForParent(tree: ModelNode[], currentParentPath: string): CardItem[] {
+  const parentNode = currentParentPath ? findNode(tree, currentParentPath) : null;
+  const children = currentParentPath ? parentNode?.children ?? [] : tree;
+  const parentTitle = currentParentPath ? currentParentPath.split("/").at(-1) ?? "model" : "model";
+
+  return [
+    {
+      id: `index:${currentParentPath || "root"}`,
+      title: `${parentTitle}/INDEX.md`,
+      subtitle: currentParentPath || "model",
+      filePath: indexPathFor(currentParentPath),
+      kind: "index",
+      openParentPath: currentParentPath
+    },
+    ...children
+      .filter((child) => child.type === "directory" || child.name.endsWith(".md"))
+      .filter((child) => child.name !== "INDEX.md")
+      .map((child) => {
+        if (child.type === "directory") {
+          return {
+            id: `directory:${child.path}`,
+            title: child.name,
+            subtitle: `${child.path}/INDEX.md`,
+            filePath: indexPathFor(child.path),
+            kind: "directory" as const,
+            openParentPath: child.path
+          };
+        }
+
+        return {
+          id: `file:${child.path}`,
+          title: child.name,
+          subtitle: child.path,
+          filePath: child.path,
+          kind: "file" as const,
+          openParentPath: parentPath(child.path)
+        };
+      })
+  ];
 }
 
 function TreeNode({
   node,
-  selectedPath,
-  onSelect
+  currentParentPath,
+  onOpenParent
 }: {
   node: ModelNode;
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
+  currentParentPath: string;
+  onOpenParent: (path: string) => void;
 }) {
   if (node.type === "directory") {
     return (
       <li>
-        <div className="flex h-7 items-center gap-2 px-2 text-xs font-medium text-muted-foreground">
-          <Folder className="h-3.5 w-3.5" aria-hidden="true" />
+        <button
+          type="button"
+          className={cn(
+            "flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left text-xs font-medium hover:bg-accent",
+            currentParentPath === node.path ? "bg-accent text-accent-foreground" : "text-muted-foreground"
+          )}
+          onClick={() => onOpenParent(node.path)}
+        >
+          <Folder className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span className="truncate">{node.name}</span>
-        </div>
+        </button>
         <ul className="ml-3 border-l border-border pl-2">
           {(node.children ?? []).map((child) => (
-            <TreeNode key={child.path} node={child} selectedPath={selectedPath} onSelect={onSelect} />
+            <TreeNode
+              key={child.path}
+              node={child}
+              currentParentPath={currentParentPath}
+              onOpenParent={onOpenParent}
+            />
           ))}
         </ul>
       </li>
@@ -70,16 +156,139 @@ function TreeNode({
     <li>
       <button
         type="button"
-        className={cn(
-          "flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left text-xs hover:bg-accent",
-          selectedPath === node.path && "bg-accent text-accent-foreground"
-        )}
-        onClick={() => onSelect(node.path)}
+        className="flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left text-xs hover:bg-accent"
+        onClick={() => onOpenParent(parentPath(node.path))}
       >
-        <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span className="truncate">{node.name}</span>
       </button>
     </li>
+  );
+}
+
+function MarkdownCard({
+  item,
+  refreshVersion,
+  onOpenParent
+}: {
+  item: CardItem;
+  refreshVersion: number;
+  onOpenParent: (path: string) => void;
+}) {
+  const [content, setContent] = useState("");
+  const [loadedContent, setLoadedContent] = useState("");
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const isDirty = content !== loadedContent;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const shouldReload = content === loadedContent;
+
+    if (!shouldReload) {
+      return () => controller.abort();
+    }
+
+    fetch(`${apiBaseUrl}/api/model/file?path=${encodeURIComponent(item.filePath)}`, {
+      signal: controller.signal
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to load ${item.filePath}`);
+        }
+        return (await response.json()) as { content: string };
+      })
+      .then((data) => {
+        setContent(data.content);
+        setLoadedContent(data.content);
+        setSaveState("idle");
+        setError(null);
+      })
+      .catch((loadError: unknown) => {
+        if (!controller.signal.aborted) {
+          setError(loadError instanceof Error ? loadError.message : String(loadError));
+          setSaveState("error");
+        }
+      });
+
+    return () => controller.abort();
+  }, [content, item.filePath, loadedContent, refreshVersion]);
+
+  useEffect(() => {
+    if (!isDirty) {
+      return;
+    }
+
+    setSaveState("dirty");
+    const timeout = window.setTimeout(async () => {
+      setSaveState("saving");
+      const nextContent = content;
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/model/file`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            path: item.filePath,
+            content: nextContent
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to save ${item.filePath}`);
+        }
+
+        setLoadedContent(nextContent);
+        setSaveState("saved");
+        setError(null);
+        window.setTimeout(() => setSaveState("idle"), 900);
+      } catch (saveError: unknown) {
+        setSaveState("error");
+        setError(saveError instanceof Error ? saveError.message : String(saveError));
+      }
+    }, 800);
+
+    return () => window.clearTimeout(timeout);
+  }, [content, isDirty, item.filePath]);
+
+  return (
+    <article className="flex min-h-[260px] flex-col rounded-md border border-border bg-card text-card-foreground">
+      <header className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {item.kind === "directory" ? (
+              <Folder className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            ) : (
+              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            )}
+            <h3 className="truncate text-sm font-semibold">{item.title}</h3>
+          </div>
+          <p className="truncate text-xs text-muted-foreground">{item.subtitle}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-xs text-muted-foreground">{saveState === "idle" && isDirty ? "dirty" : saveState}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label={`Open ${item.title} parent`}
+            title={item.kind === "directory" ? `Open ${item.title} as parent` : "Open containing parent"}
+            onClick={() => item.openParentPath !== null && onOpenParent(item.openParentPath)}
+          >
+            <FolderOpen className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
+      </header>
+      <textarea
+        className="min-h-0 flex-1 resize-none rounded-b-md border-0 bg-card p-3 font-mono text-sm leading-6 outline-none"
+        value={content}
+        spellCheck={false}
+        onChange={(event) => setContent(event.target.value)}
+      />
+      {error ? <div className="border-t border-border px-3 py-2 text-xs text-destructive">{error}</div> : null}
+    </article>
   );
 }
 
@@ -91,16 +300,21 @@ export default function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [sessionKey, setSessionKey] = useState(0);
   const [tree, setTree] = useState<ModelNode[]>([]);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [content, setContent] = useState("");
-  const [loadedContent, setLoadedContent] = useState("");
-  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [currentParentPath, setCurrentParentPath] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [gitSync, setGitSync] = useState<GitSyncState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const files = useMemo(() => flattenFiles(tree), [tree]);
-  const selectedFileName = selectedPath?.split("/").at(-1) ?? "Select a file";
-  const isDirty = content !== loadedContent;
+  const currentParentNode = currentParentPath ? findNode(tree, currentParentPath) : null;
+  const currentParentName = currentParentPath
+    ? currentParentPath.split("/").at(-1) ?? "model"
+    : "model";
+  const currentCards = useMemo(
+    () => cardsForParent(tree, currentParentPath),
+    [currentParentPath, tree]
+  );
+  const canGoUp = Boolean(currentParentPath);
 
   const loadTree = useCallback(async () => {
     const response = await fetch(`${apiBaseUrl}/api/model/tree`);
@@ -109,14 +323,7 @@ export default function App() {
     }
     const data = (await response.json()) as { tree: ModelNode[] };
     setTree(data.tree);
-
-    if (!selectedPath) {
-      const firstFile = flattenFiles(data.tree).find((file) => file.name.endsWith(".md"));
-      if (firstFile) {
-        setSelectedPath(firstFile.path);
-      }
-    }
-  }, [selectedPath]);
+  }, []);
 
   const loadGitSyncStatus = useCallback(async () => {
     const response = await fetch(`${apiBaseUrl}/api/git-sync/status`);
@@ -133,41 +340,10 @@ export default function App() {
   }, [loadGitSyncStatus, loadTree]);
 
   useEffect(() => {
-    if (!selectedPath) {
-      return;
+    if (currentParentPath && (!currentParentNode || currentParentNode.type !== "directory")) {
+      setCurrentParentPath("");
     }
-
-    const controller = new AbortController();
-    fetch(`${apiBaseUrl}/api/model/file?path=${encodeURIComponent(selectedPath)}`, {
-      signal: controller.signal
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Failed to load file: ${response.status}`);
-        }
-        return (await response.json()) as { content: string };
-      })
-      .then((data) => {
-        setContent(data.content);
-        setLoadedContent(data.content);
-        setSaveState("idle");
-        setError(null);
-      })
-      .catch((loadError: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(loadError instanceof Error ? loadError.message : String(loadError));
-        }
-      });
-
-    return () => controller.abort();
-  }, [selectedPath]);
-
-  useEffect(() => {
-    if (!selectedPath || !isDirty || saveState === "saving") {
-      return;
-    }
-    setSaveState("dirty");
-  }, [isDirty, saveState, selectedPath]);
+  }, [currentParentNode, currentParentPath]);
 
   useEffect(() => {
     const socket = new WebSocket(modelEventsUrl);
@@ -178,16 +354,7 @@ export default function App() {
       reloadTimer = window.setTimeout(() => {
         loadTree().catch(() => {});
         loadGitSyncStatus().catch(() => {});
-
-        if (selectedPath && !isDirty) {
-          fetch(`${apiBaseUrl}/api/model/file?path=${encodeURIComponent(selectedPath)}`)
-            .then((response) => response.json())
-            .then((data: { content: string }) => {
-              setContent(data.content);
-              setLoadedContent(data.content);
-            })
-            .catch(() => {});
-        }
+        setRefreshVersion((version) => version + 1);
       }, 150);
     });
 
@@ -195,7 +362,7 @@ export default function App() {
       window.clearTimeout(reloadTimer);
       socket.close();
     };
-  }, [isDirty, loadGitSyncStatus, loadTree, selectedPath]);
+  }, [loadGitSyncStatus, loadTree]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -282,35 +449,6 @@ export default function App() {
     };
   }, [sessionKey]);
 
-  const saveFile = async () => {
-    if (!selectedPath) {
-      return;
-    }
-
-    setSaveState("saving");
-    const response = await fetch(`${apiBaseUrl}/api/model/file`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        path: selectedPath,
-        content
-      })
-    });
-
-    if (!response.ok) {
-      setSaveState("error");
-      setError(`Failed to save file: ${response.status}`);
-      return;
-    }
-
-    setLoadedContent(content);
-    setSaveState("saved");
-    setError(null);
-    window.setTimeout(() => setSaveState("idle"), 1200);
-  };
-
   const runGitSync = async () => {
     const response = await fetch(`${apiBaseUrl}/api/git-sync/run`, { method: "POST" });
     if (response.ok) {
@@ -355,7 +493,7 @@ export default function App() {
         </div>
       </header>
 
-      <section className="grid min-h-0 flex-1 grid-cols-[minmax(280px,32vw)_minmax(360px,1fr)]">
+      <section className="grid min-h-0 flex-1 grid-cols-[minmax(280px,32vw)_minmax(420px,1fr)]">
         <aside className="grid min-h-0 grid-rows-[42%_58%] border-r border-border bg-muted/20">
           <div className="min-h-0 border-b border-border">
             <div ref={terminalElementRef} className="h-full w-full p-2" />
@@ -374,46 +512,87 @@ export default function App() {
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             </div>
+            <button
+              type="button"
+              className={cn(
+                "mb-1 flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left text-xs font-medium hover:bg-accent",
+                currentParentPath === "" ? "bg-accent text-accent-foreground" : "text-muted-foreground"
+              )}
+              onClick={() => setCurrentParentPath("")}
+            >
+              <Folder className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">model</span>
+            </button>
             <ul className="space-y-1">
               {tree.map((node) => (
-                <TreeNode key={node.path} node={node} selectedPath={selectedPath} onSelect={setSelectedPath} />
+                <TreeNode
+                  key={node.path}
+                  node={node}
+                  currentParentPath={currentParentPath}
+                  onOpenParent={setCurrentParentPath}
+                />
               ))}
             </ul>
           </div>
         </aside>
 
         <section className="grid min-h-0 grid-rows-[auto_1fr_auto]">
-          <div className="flex h-12 items-center justify-between border-b border-border px-4">
+          <div className="flex h-14 items-center justify-between gap-3 border-b border-border px-4">
             <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold">{selectedFileName}</h2>
-              <p className="truncate text-xs text-muted-foreground">{selectedPath ?? "No file selected"}</p>
+              <h2 className="truncate text-sm font-semibold">{currentParentName}</h2>
+              <p className="truncate text-xs text-muted-foreground">
+                {currentParentPath || "model"} · {currentCards.length} cards · autosave enabled
+              </p>
             </div>
-            <Button
-              type="button"
-              disabled={!selectedPath || saveState === "saving" || !isDirty}
-              onClick={() => void saveFile()}
-            >
-              <Save className="mr-2 h-4 w-4" aria-hidden="true" />
-              Save
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="Open parent folder"
+                title="Open parent folder"
+                disabled={!canGoUp}
+                onClick={() => setCurrentParentPath(parentPath(currentParentPath))}
+              >
+                <ArrowUp className="h-4 w-4" aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="Refresh cards"
+                title="Refresh cards"
+                onClick={() => {
+                  void loadTree();
+                  setRefreshVersion((version) => version + 1);
+                }}
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </div>
           </div>
 
-          <textarea
-            className="min-h-0 w-full resize-none border-0 bg-background p-4 font-mono text-sm leading-6 outline-none"
-            value={content}
-            disabled={!selectedPath}
-            spellCheck={false}
-            onChange={(event) => setContent(event.target.value)}
-          />
+          <div className="min-h-0 overflow-auto p-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-4">
+              {currentCards.map((item) => (
+                <MarkdownCard
+                  key={item.id}
+                  item={item}
+                  refreshVersion={refreshVersion}
+                  onOpenParent={setCurrentParentPath}
+                />
+              ))}
+            </div>
+          </div>
 
           <footer className="flex h-9 items-center justify-between border-t border-border px-4 text-xs text-muted-foreground">
-            <span>{saveState === "idle" && isDirty ? "dirty" : saveState}</span>
+            <span>{files.length} files</span>
             <span>
               {gitSync?.lastError
                 ? `git error: ${gitSync.lastError}`
                 : gitSync?.lastSuccessAt
                   ? `last git sync ${new Date(gitSync.lastSuccessAt).toLocaleTimeString()}`
-                  : `${files.length} files`}
+                  : "waiting for git sync"}
             </span>
           </footer>
         </section>
@@ -427,4 +606,3 @@ export default function App() {
     </main>
   );
 }
-
