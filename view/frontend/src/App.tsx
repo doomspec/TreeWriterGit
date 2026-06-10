@@ -3,13 +3,17 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import {
   ArrowUp,
+  Eye,
   FileText,
   Folder,
   FolderOpen,
   GitBranch,
+  Pencil,
   RefreshCw,
   TerminalSquare
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -178,6 +182,7 @@ function MarkdownCard({
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirty = content !== loadedContent;
@@ -255,6 +260,10 @@ function MarkdownCard({
   }, [content, isDirty, item.filePath]);
 
   useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
     const textarea = textareaRef.current;
     if (!textarea) {
       return;
@@ -262,7 +271,7 @@ function MarkdownCard({
 
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [content]);
+  }, [content, isEditing]);
 
   return (
     <article className="flex min-h-[260px] flex-col rounded-md border border-border bg-card text-card-foreground">
@@ -284,6 +293,16 @@ function MarkdownCard({
             type="button"
             variant="outline"
             size="icon"
+            aria-label={isEditing ? `Preview ${item.title}` : `Edit ${item.title}`}
+            title={isEditing ? "Preview Markdown" : "Edit Markdown"}
+            onClick={() => setIsEditing((editing) => !editing)}
+          >
+            {isEditing ? <Eye className="h-4 w-4" aria-hidden="true" /> : <Pencil className="h-4 w-4" aria-hidden="true" />}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
             aria-label={`Open ${item.title} parent`}
             title={item.kind === "directory" ? `Open ${item.title} as parent` : "Open containing parent"}
             onClick={() => item.openParentPath !== null && onOpenParent(item.openParentPath)}
@@ -292,13 +311,19 @@ function MarkdownCard({
           </Button>
         </div>
       </header>
-      <textarea
-        ref={textareaRef}
-        className="min-h-[180px] resize-none overflow-hidden rounded-b-md border-0 bg-card p-3 font-mono text-sm leading-6 outline-none"
-        value={content}
-        spellCheck={false}
-        onChange={(event) => setContent(event.target.value)}
-      />
+      {isEditing ? (
+        <textarea
+          ref={textareaRef}
+          className="min-h-[180px] resize-none overflow-hidden rounded-b-md border-0 bg-card p-3 font-mono text-sm leading-6 outline-none"
+          value={content}
+          spellCheck={false}
+          onChange={(event) => setContent(event.target.value)}
+        />
+      ) : (
+        <div className="markdown-body min-h-[180px] rounded-b-md px-4 py-3">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
+      )}
       {error ? <div className="border-t border-border px-3 py-2 text-xs text-destructive">{error}</div> : null}
     </article>
   );
