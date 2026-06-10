@@ -14,7 +14,13 @@ cd view
 pnpm install
 ```
 
-Run both services together:
+Run both services together from the repository root:
+
+```sh
+pnpm dev
+```
+
+Or run them from `view/`:
 
 ```sh
 cd view
