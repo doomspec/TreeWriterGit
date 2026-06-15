@@ -50,7 +50,7 @@ title: "ML Cell Counting Reproducibility Study"
 journal: PLOS ONE
 status: Drafting          # Planning | Drafting | Reviewing | Submitted | Published
 authors:
-  - Ilya Kavets
+  - Ilya Yakavets
   - [co-author]
 target_words: 5000
 section_order:

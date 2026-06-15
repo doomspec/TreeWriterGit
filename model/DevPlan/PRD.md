@@ -3,7 +3,7 @@ title: PRD — TreeWriter Scientific Writing Platform
 summary: Product requirements with code-level implementation details, grounded in the actual repo. Supersedes the phase docs as the build authority.
 composed_at_commit: null
 status: draft
-owner: Ilya Kavets
+owner: Ilya Yakavets
 ---
 
 # PRD — TreeWriter Scientific Writing Platform
@@ -260,7 +260,7 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 title: "…"
 journal: "PLOS ONE"
 status: "Drafting"          # Planning|Drafting|Reviewing|Submitted|Published
-authors: ["Ilya Kavets"]
+authors: ["Ilya Yakavets"]
 target_words: 5000
 section_order: ["outlines/abstract.md","outlines/introduction.md","outlines/methods.md","outlines/results.md","outlines/discussion.md"]
 overleaf_repo_path: null

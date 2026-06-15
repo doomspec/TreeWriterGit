@@ -31,7 +31,7 @@ Add a comment layer to `model/` that doesn't modify file content:
     "id": "abc123",
     "file": "papers/ml-study/drafts/introduction-v2.md",
     "line": 14,
-    "author": "Ilya Kavets",
+    "author": "Ilya Yakavets",
     "text": "Need to cite the 2023 biomanufacturing review here",
     "resolved": false,
     "created_at": "2026-06-15T10:22:00Z"

@@ -7,7 +7,7 @@ composed_at_commit: null
 # Scientific Paper Collaborative Writing — Development Plan
 
 **Branch:** `iy_dev`  
-**Author:** Ilya Kavets (Acceleration Consortium / University of Toronto)  
+**Author:** Ilya Yakavets (Acceleration Consortium / University of Toronto)  
 **Goal:** Replace the fragmented Overleaf + Claude Code workflow with a unified platform where human collaborators work in LaTeX/Overleaf and AI assistants work in Markdown — synced, version-controlled, and Git-native.
 
 ## Problem Statement
