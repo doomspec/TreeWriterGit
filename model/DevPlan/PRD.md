@@ -233,23 +233,26 @@ Keep sidebar tree (cheap, complements graph). Graph replaces nothing destructive
 | Method | Path | Returns |
 |--------|------|---------|
 | GET | `/api/agent/providers` | parsed `aiProviders` (or built-in default if file absent) |
-| POST | `/api/agent/preview` | `{ provider, paperSlug, section, action, contextFiles[], options }` → `{ prompt, command, outputPath }` (no execution) |
+| POST | `/api/agent/preview` | `{ provider, unitPath, action, contextFiles[], options }` → `{ prompt, command, outputPath }` (no execution) |
 
-`preview` builds the prompt from action templates (draft / revise / expand / cite-check / custom) using:
-- outline file for the section,
-- `notes/literature/*` whose frontmatter `relevance` includes the section,
-- `notes/data/*` whose `sections` includes the section,
-- unresolved `notes/feedback/*` for the section.
-`outputPath` = `papers/{slug}/drafts/{section}-v{N+1}.md` (scan existing `-v*.md`).
+The dispatch target is a **unit** (`unitPath` = e.g. `papers/ml-study/sections/introduction/problem`). `preview` builds the prompt from action templates (draft / revise / expand / cite-check / custom) using:
+- the unit's `INDEX.md` **idea** (the comment — what this paragraph must say),
+- comments on the unit's `INDEX.md` and `draft.md` (steer generation/revision),
+- wikilinked nodes in the unit `links:` (e.g. the results unit a claim depends on),
+- `notes/literature/*` whose `relevance` includes this section, `notes/data/*` whose `sections` includes it,
+- unresolved `notes/feedback/*` for the section,
+- for **revise**: the current `draft.md`.
+`outputPath` = the unit's `draft.md` (overwritten in place; Git history is the version trail — no `-vN` files). A "draft section" action fans out over every unit via the section's `child_order`.
 
-**Execution path (minimal, no new process management):** the frontend already owns a terminal WebSocket (`App.tsx:478`). Dispatch = (1) call `/api/agent/preview`, (2) optionally show prompt in a modal to edit, (3) write the returned `command` into the terminal socket as `input` (`:501`). The user sees the AI run live in the existing terminal; Claude Code writes the file itself; `fs.watch` → model-event → tree/graph refresh.
-- For `writesFiles:false` providers (Codex), append a shell redirect in the built command: `codex "<prompt>" > "papers/.../drafts/section-vN.md"`.
+**Execution path (minimal, no new process management):** the frontend already owns a terminal WebSocket (`App.tsx:478`). Dispatch = (1) call `/api/agent/preview`, (2) optionally show prompt in a modal to edit, (3) write the returned `command` into the terminal socket as `input` (`:501`). The user sees the AI run live in the existing terminal; Claude Code writes `draft.md` itself; `fs.watch` → model-event → tree/graph/card refresh.
+- For `writesFiles:false` providers (Codex), the built command appends a redirect to the unit's `draft.md`.
+- On a successful draft/revise, the unit `INDEX.md` `status` advances `outline→drafted`; `approved` stays a human action in the UI.
 
 This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY job tracking is a v1.1 option if we want cancellation + history.)
 
-**Frontend — dispatch panel** (in right column, above/below terminal): selectors Paper / Section / Stage / Provider / Action, auto-filled from the graph/editor selection (F3); checklist of auto-selected context files; "Preview prompt" and "Run" buttons. Run writes to the terminal socket.
+**Frontend — dispatch panel** (in right column, above/below terminal): selectors Unit / Provider / Action, auto-filled from the graph/editor selection (F3); checklist of auto-selected context files; "Preview prompt" and "Run" buttons. Run writes to the terminal socket.
 
-**Acceptance:** select a section, choose Claude Code + Draft, Run; terminal shows `claude -p "…"`; a new `drafts/{section}-v1.md` appears and shows in tree/graph; switching provider to Codex changes the command; Preview shows the full prompt and is editable before Run.
+**Acceptance:** select a unit, choose Claude Code + Draft, Run; terminal shows `claude -p "…"`; the unit's `draft.md` fills in and the card refreshes; unit `status` flips to `drafted`; switching provider to Codex changes the command; Preview shows the full prompt and is editable before Run.
 
 ---
 
@@ -257,28 +260,15 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 
 **Why:** structure the model for papers; powers context auto-selection (F4) and export ordering (F6). See [[phase-2-paper-model]].
 
-**Scaffold** (via F2 endpoints) under `model/papers/{slug}/` with `outlines/ notes/{literature,data,feedback}/ drafts/ final/`, each with `INDEX.md`.
+**Structure** is the recursive section→unit tree defined in [[phase-2-paper-model]] (containers with `child_order`; units = folder of `INDEX.md` idea + `draft.md` text; `status` per unit replaces the old `drafts/`/`final/` split). Frontmatter schemas (paper / container / unit / notes) live in that doc.
 
-**Paper `INDEX.md` frontmatter (canonical):**
-```yaml
-title: "…"
-journal: "PLOS ONE"
-status: "Drafting"          # Planning|Drafting|Reviewing|Submitted|Published
-authors: ["Ilya Yakavets"]
-target_words: 5000
-section_order: ["outlines/abstract.md","outlines/introduction.md","outlines/methods.md","outlines/results.md","outlines/discussion.md"]
-overleaf_repo_path: null
-last_export: null
-```
+**Scaffold** (via F2 `POST /api/model/node`) under `model/papers/{slug}/`: paper `INDEX.md`, `sections/` containing the journal's standard sections as empty containers (Introduction, Methods, Results, Discussion, Conclusion, Supporting Information), and `notes/{literature,data,feedback}/`. Section set + order come from `model/templates/{journal}.md`.
 
-**Outline / section file frontmatter:** `section`, `target_words`, `status` (outline|drafted|approved|final), `ai_context: []`, `citations_required: []`.
-**Note frontmatter:** literature → `cite_key, authors, year, claim, relevance[]`; data → `figure, path, caption_draft, sections[]`; feedback → `source, date, reviewer, section, resolved`.
+**Backend:** `POST /api/paper` `{ title, journal, authors, slug? }` → scaffold from journal template. `GET /api/papers` → list with status + per-status unit roll-up (walk each paper's `child_order`, count unit `status`).
 
-**Backend:** `POST /api/paper` `{ title, journal, authors, slug? }` → creates scaffold from a journal template in `model/templates/{journal}.md`. `GET /api/papers` → list with status + section counts (read each paper `INDEX.md`).
+**Frontend:** "New Paper" modal; Papers dashboard (journal, status, units `approved/drafted/outline`, last export); per-section roll-up on drill-in. "New section/subsection/unit" via F2.
 
-**Frontend:** "New Paper" button → modal; a Papers dashboard (status, sections drafted/approved, last export).
-
-**Acceptance:** create paper → full tree appears; dashboard shows 0/5 approved; section frontmatter `status` editable; context auto-selection (F4) reads `relevance`/`sections` correctly.
+**Acceptance:** create paper → recursive tree with standard sections appears; dashboard shows `0 approved / 0 drafted / N outline`; adding a unit and drafting it (F4) moves the count; context auto-selection (F4) reads unit `links` + notes `relevance`/`sections` correctly.
 
 ---
 
@@ -286,9 +276,9 @@ last_export: null
 
 **Why:** produce the Overleaf-facing artifact. See [[phase-3-overleaf]]. Requires `brew install pandoc` (+ MacTeX for PDF).
 
-**Endpoint:** `POST /api/export` `{ paperSlug, format: "latex"|"pdf" }` →
-1. Read paper `INDEX.md` `section_order`.
-2. Concatenate `final/` files in that order into a temp `combined.md` (insert `\section{}`-friendly headers).
+**Endpoint:** `POST /api/export` `{ paperSlug, format: "latex"|"pdf", includeDrafts?: boolean }` →
+1. Depth-first walk: paper `INDEX.section_order` → each container's `child_order` → recurse. At each **unit**, take `draft.md`.
+2. Include units with `status: approved` (default) or all when `includeDrafts`. Heading level = tree depth (section→`\section`, subsection→`\subsection`, …). Concatenate into a temp `combined.md`.
 3. Collect `[@cite_key]` used; generate `.bib` from `notes/literature/*` (cite_key→entry).
 4. Run `pandoc combined.md --from markdown --to {latex|pdf} --bibliography gen.bib [--csl templates/{journal}.csl] -o out.{tex|pdf}` via `execFile`.
 5. Return `{ path, downloadUrl }`; write `last_export` timestamp back to paper `INDEX.md`.
@@ -297,7 +287,7 @@ last_export: null
 
 **Frontend:** Export dropdown in paper dashboard (Download .tex / .pdf; Open in Overleaf when configured).
 
-**Acceptance:** export assembles sections in `section_order` (not alphabetical); `[@key]` becomes `\cite{key}`; `.tex` compiles in Overleaf; missing pandoc returns a clear install hint, not a 500 stack.
+**Acceptance:** export walks `section_order` then `child_order` (not alphabetical); only `approved` units appear by default; nesting maps to heading depth; `[@key]` becomes `\cite{key}`; `.tex` compiles in Overleaf; missing pandoc returns a clear install hint, not a 500 stack.
 
 ## 4. API Contract (summary)
 
@@ -306,7 +296,9 @@ last_export: null
 | GET | `/api/model/tree` | core | exists `:173` |
 | GET/PUT | `/api/model/file` | core | exists `:184/:205` |
 | POST/DELETE | `/api/model/file` | F2 | new |
-| POST | `/api/model/move` | F2 | new |
+| POST | `/api/model/node` | F2 | new |
+| POST | `/api/model/move` · `/api/model/reorder` | F2 | new |
+| GET/POST/PATCH/DELETE | `/api/comments` | F2 model / F-collab | new |
 | GET | `/api/model/graph` | F3 | new |
 | GET | `/api/agent/providers` | F4 | new |
 | POST | `/api/agent/preview` | F4 | new |

@@ -76,50 +76,49 @@ Overleaf comment → import script → notes/overleaf-feedback.md
 
 ## Model Directory Conventions
 
+Recursive section→unit tree (canonical detail in [[phase-2-paper-model]]):
+
 ```
 model/
 ├── papers/
 │   └── {paper-slug}/
-│       ├── INDEX.md          ← paper metadata (title, journal, authors, status)
-│       ├── outlines/
-│       │   ├── INDEX.md      ← full paper outline, section order
-│       │   ├── abstract.md   ← 150 word target, key contribution
-│       │   ├── intro.md      ← narrative arc, citations to hit
-│       │   ├── methods.md    ← protocol description goals
-│       │   ├── results.md    ← figures to reference, claims to make
-│       │   └── discussion.md ← interpretation, limitations, future work
-│       ├── notes/
-│       │   ├── literature/   ← annotated bibliography entries
-│       │   ├── data/         ← links to figures, stats, CSV summaries
-│       │   └── feedback/     ← imported Overleaf comments, reviewer notes
-│       ├── drafts/
-│       │   └── {section}-v{N}.md  ← AI-generated, versioned
-│       └── final/
-│           └── {section}.md  ← approved, exported to LaTeX
-├── templates/
-│   ├── nature.md             ← Nature journal outline template
-│   ├── cell.md               ← Cell journal outline template
-│   └── plos-one.md           ← PLOS ONE template
-└── shared/
-    ├── abbreviations.md      ← consistent terminology
-    ├── authors.md            ← author list + affiliations
-    └── bibliography.md       ← shared reference pool
+│       ├── INDEX.md                  ← paper meta + section_order + thesis
+│       ├── sections/
+│       │   ├── INDEX.md              ← ordered sections
+│       │   ├── introduction/
+│       │   │   ├── INDEX.md          ← section idea + child_order + cross-links
+│       │   │   ├── problem/          ← unit (leaf)
+│       │   │   │   ├── INDEX.md      ← idea (the "comment") + status + links
+│       │   │   │   └── draft.md      ← generated, editable text
+│       │   │   └── contribution/ …
+│       │   ├── methods/
+│       │   │   └── cell-culture/     ← subsection (container, recursive)
+│       │   │       └── seeding/      ← unit (INDEX.md + draft.md)
+│       │   ├── results/ …  ├── discussion/ …  └── supporting-information/ …
+│       │   └── .comments/            ← comment sidecars for any INDEX.md / draft.md
+│       └── notes/
+│           ├── literature/  ├── data/  └── feedback/
+├── templates/   ← per-journal section sets (nature, cell, plos-one)
+└── shared/      ← abbreviations, authors, bibliography
 ```
+
+Container nodes (paper/section/subsection) order children via `child_order`; unit nodes hold idea (`INDEX.md`) + text (`draft.md`) with a `status` flag (outline→drafted→approved) that replaces a separate `final/` dir.
 
 ## Key Architectural Decisions
 
 | Decision | Choice | Reason |
 |----------|--------|--------|
 | Source of truth | Git Markdown + wikilinks | Version history, diff, graph indexing |
-| Navigation UI | Quartz (replaces React nav) | Graph view, backlinks, search — already built |
+| Navigation UI | Native d3 graph panel in React | Live + queryable; Quartz run as a server rejected ([[tool-assessment]]) |
 | LaTeX export | pandoc | Battle-tested, handles citations, cross-refs |
 | Overleaf sync | Git bridge (Overleaf premium) or file upload API | Preserves Overleaf UX for non-technical collaborators |
 | AI interface | Terminal PTY + UI dispatch panel | Any CLI AI; UI builds prompt from model context |
 | AI providers | Configurable (Claude Code, Codex, Aider, custom) | No lock-in; swap AI per task |
-| Cross-paper links | Wikilinks `[[...]]` | Quartz graph renders edges automatically |
-| Comment import | Python script → model/notes/feedback/ | Simple, auditable, no vendor lock |
-| Section order | `section_order` in paper INDEX.md | Separate from filesystem; controls pandoc assembly |
-| Graph hosting | Quartz → public/ → GitHub Pages / Cloudflare | Collaborators read without running anything |
+| Cross-branch links | Wikilinks `[[...]]` → `/api/model/graph` | Native parser builds adjacency; graph renders edges |
+| Unit lifecycle | `status` flag per unit (outline→drafted→approved) | Replaces separate drafts/final dirs |
+| Comment storage | `.comments/` sidecar on any file | Comments on both idea + text; never pollutes content |
+| Order | `section_order` (paper) + `child_order` (container) | Editorial order, separate from filesystem; drives export |
+| Static share | Quartz `build` on-demand → GitHub Pages | Read-only handoff for remote reviewers; not in dev loop |
 
 ## Port Map
 
