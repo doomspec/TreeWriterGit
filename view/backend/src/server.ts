@@ -9,6 +9,16 @@ import cors from "cors";
 import express from "express";
 import { WebSocket, WebSocketServer } from "ws";
 
+import {
+  ModelFsError,
+  createFile,
+  createNode,
+  deleteNode,
+  moveNode,
+  reorderChildren,
+  type NodeKind
+} from "./modelFs.js";
+
 type ClientMessage =
   | {
       type: "input";
@@ -251,6 +261,72 @@ app.put("/api/model/file", async (request, response, next) => {
   }
 });
 
+app.post("/api/model/file", async (request, response, next) => {
+  try {
+    const relativePath = String(request.body?.path ?? "");
+    const content = String(request.body?.content ?? "");
+    const created = await createFile(modelRoot, relativePath, content);
+    broadcastModelEvent({ type: "model-changed", path: created });
+    response.status(201).json({ ok: true, path: created });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/node", async (request, response, next) => {
+  try {
+    const parent = String(request.body?.parent ?? "");
+    const name = String(request.body?.name ?? "");
+    const kind = String(request.body?.kind ?? "") as NodeKind;
+    if (!["section", "subsection", "unit"].includes(kind)) {
+      response.status(400).json({ error: "kind must be section, subsection, or unit" });
+      return;
+    }
+    const created = await createNode(modelRoot, parent, name, kind);
+    broadcastModelEvent({ type: "model-changed", path: created });
+    response.status(201).json({ ok: true, path: created, kind });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/model/file", async (request, response, next) => {
+  try {
+    const relativePath = String(request.query.path ?? "");
+    const recursive = request.query.recursive === "true";
+    await deleteNode(modelRoot, relativePath, recursive);
+    broadcastModelEvent({ type: "model-changed", path: relativePath });
+    response.json({ ok: true, path: relativePath });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/move", async (request, response, next) => {
+  try {
+    const from = String(request.body?.from ?? "");
+    const to = String(request.body?.to ?? "");
+    await moveNode(modelRoot, from, to);
+    broadcastModelEvent({ type: "model-changed", path: from });
+    broadcastModelEvent({ type: "model-changed", path: to });
+    response.json({ ok: true, from, to });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/reorder", async (request, response, next) => {
+  try {
+    const parent = String(request.body?.parent ?? "");
+    const childOrder = request.body?.child_order;
+    await reorderChildren(modelRoot, parent, childOrder);
+    broadcastModelEvent({ type: "model-changed", path: parent });
+    response.json({ ok: true, parent });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/git-sync/status", (_request, response) => {
   response.json(gitSyncState);
 });
@@ -260,7 +336,8 @@ app.post("/api/git-sync/run", async (_request, response) => {
 });
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  response.status(500).json({
+  const status = error instanceof ModelFsError ? error.status : 500;
+  response.status(status).json({
     error: error instanceof Error ? error.message : String(error)
   });
 });
