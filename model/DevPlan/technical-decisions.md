@@ -41,17 +41,36 @@ composed_at_commit: null
 
 **Fallback:** If not available, use `overleaf-sync` Python package or manual zip upload.
 
-## TD-4: Claude Code via terminal, not API
+## TD-4: Quartz replaces React navigation UI
 
-**Decision:** AI agents run as `claude` CLI processes spawned in the TreeWriter terminal, not via direct Anthropic API calls.
+**Decision:** Use Quartz as the read/navigate layer. Retain React frontend only for the editor pane and AI dispatch panel.
 
 **Rationale:**
-- Claude Code has file read/write tools, search, and multi-file context built in
-- No API key management needed in the server
-- Agents can autonomously traverse `model/` without being told exact file paths
-- The terminal is already there — zero new infrastructure
+- Quartz graph view is the core differentiator — it shows semantic connections across papers that no custom file tree can
+- Wikilinks (`[[note]]`) are the mechanism: zero-cost to add, Quartz indexes them automatically
+- Existing quartz-vault at `~/Documents/quartz-vault` proves the setup works; just point Quartz at `model/`
+- Quartz builds to static HTML → remote collaborators can browse the graph without running anything (GitHub Pages)
+- Saves ~300 lines of React nav code that Quartz obsoletes
 
-**Tradeoff:** Less programmatic control than direct API calls. Streaming output to frontend is text-only. Acceptable for v1.
+**Tradeoff:** Two ports to run locally (5173 editor + 8888 Quartz). Mitigated by embedding Quartz in an iframe in the TreeWriter layout, or accepting two-tab workflow.
+
+**Wikilink convention for cross-paper graph edges:**
+- Shared literature: `[[shared/bibliography/hemocytometer-1962]]` — appears in multiple paper graphs
+- Shared figures: `[[papers/ml-study/notes/data/fig-time-stats]]` referenced from `[[papers/lh-study]]`
+- Methods overlap: `[[papers/ml-study/outlines/methods]]` linked from related paper's intro
+
+## TD-4b: AI provider abstraction, not Claude Code lock-in
+
+**Decision:** AI agents run as CLI processes (Claude Code, Codex, Aider, custom) in the TreeWriter terminal PTY. Provider is user-selectable per-dispatch from the UI panel.
+
+**Rationale:**
+- Claude Code: file read/write tools built in, traverses `model/` autonomously
+- Codex CLI: OpenAI alternative, same terminal approach
+- Aider: strong at multi-file edits, good for revision passes across sections
+- No API key in server — user's shell environment provides credentials
+- Provider templates configurable in `.treewriter.json` — no code change to add a new AI
+
+**Tradeoff:** Stdout-only streaming. Provider-specific behaviors (Claude writes files itself; Codex outputs to stdout) handled by dispatch logic. Acceptable for v1.
 
 ## TD-5: section_order in INDEX.md, not filesystem naming
 

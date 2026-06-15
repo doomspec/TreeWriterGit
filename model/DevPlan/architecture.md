@@ -9,40 +9,43 @@ composed_at_commit: null
 ## Component Map
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     model/ (Git, Markdown)                      │
-│                                                                 │
-│  outlines/          notes/           drafts/        final/      │
-│  ──────────         ──────           ──────          ──────     │
-│  paper structure    research         AI-written      approved   │
-│  section goals      evidence         section text    text       │
-│  key claims         citations        revision log    LaTeX-ready│
-│  word budgets       overleaf comments                           │
-└───────────┬────────────────┬──────────────────┬────────────────┘
-            │                │                  │
-            ▼                ▼                  ▼
-     ┌─────────────┐  ┌────────────┐   ┌──────────────────┐
-     │ TreeWriter  │  │ Claude Code│   │  LaTeX Export    │
-     │ UI (5173)   │  │  Agents    │   │  (pandoc)        │
-     │             │  │            │   │                  │
-     │ Human view: │  │ reads:     │   │ model/final/ →   │
-     │ edit notes  │  │ outlines + │   │ sections.tex     │
-     │ approve     │  │ notes      │   │ main.tex         │
-     │ drafts      │  │ writes:    │   │ bibliography.bib │
-     │ manage      │  │ drafts/    │   └────────┬─────────┘
-     │ structure   │  │ revisions  │            │
-     └─────────────┘  └────────────┘            │
-                                                ▼
-                                    ┌─────────────────────┐
-                                    │  Overleaf (LaTeX)   │
-                                    │                     │
-                                    │  Human collaborator │
-                                    │  views + comments   │
-                                    │  tracked changes    │
-                                    │  ↓ sync back ↓      │
-                                    │  model/notes/       │
-                                    │  overleaf-comments/ │
-                                    └─────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│              model/ (Git, Markdown + wikilinks)                      │
+│                                                                      │
+│  papers/{slug}/                          shared/                     │
+│  ├── outlines/  ← goals, claims, budget  ├── abbreviations.md        │
+│  ├── notes/     ← lit, data, feedback    ├── authors.md              │
+│  ├── drafts/    ← AI-written, versioned  └── bibliography.md         │
+│  └── final/     ← approved, LaTeX-ready                              │
+│                                                                      │
+│  Wikilinks: [[introduction]] [[notes/lit/hemocytometer]] [[methods]] │
+└──────┬──────────────────────────────────────────────┬───────────────┘
+       │  symlink: quartz/content → model/            │  file watch
+       ▼                                              ▼
+┌──────────────────────────┐          ┌───────────────────────────────┐
+│  Quartz (port 8888)      │          │  TreeWriter Backend (port 4000)│
+│  READ / NAVIGATE layer   │  ←→URL→  │  WRITE / AGENT layer          │
+│                          │          │                               │
+│  Global graph view:      │          │  Git sync (120s auto-commit)  │
+│  all papers, sections,   │          │  File CRUD API                │
+│  notes, figures as nodes │          │  Terminal PTY (xterm.js)      │
+│                          │          │  AI Dispatch panel            │
+│  Local graph:            │          │  Export (pandoc → .tex)       │
+│  per-note connections    │          │                               │
+│                          │          │  AI providers:                │
+│  Backlinks panel         │          │  ├── Claude Code              │
+│  Full-text search        │          │  ├── Codex CLI                │
+│  Tags (status, journal)  │          │  ├── Aider                    │
+│  Figure embedding        │          │  └── Custom (config)          │
+└──────────────────────────┘          └───────────────┬───────────────┘
+                                                      │  pandoc export
+                                                      ▼
+                                      ┌───────────────────────────────┐
+                                      │  Overleaf (LaTeX)             │
+                                      │  Human collaborators          │
+                                      │  ↓ comments import back ↓     │
+                                      │  model/notes/feedback/        │
+                                      └───────────────────────────────┘
 ```
 
 ## Data Flow: Writing a Section
@@ -107,9 +110,21 @@ model/
 
 | Decision | Choice | Reason |
 |----------|--------|--------|
-| Source of truth | Git Markdown | Version history, diff, multi-agent access |
+| Source of truth | Git Markdown + wikilinks | Version history, diff, graph indexing |
+| Navigation UI | Quartz (replaces React nav) | Graph view, backlinks, search — already built |
 | LaTeX export | pandoc | Battle-tested, handles citations, cross-refs |
 | Overleaf sync | Git bridge (Overleaf premium) or file upload API | Preserves Overleaf UX for non-technical collaborators |
-| AI interface | Claude Code via terminal | Already integrated in TreeWriter terminal |
-| Comment import | Python script → model/notes/ | Simple, auditable, no vendor lock |
-| Section order | INDEX.md outline order | Single source for document structure |
+| AI interface | Terminal PTY + UI dispatch panel | Any CLI AI; UI builds prompt from model context |
+| AI providers | Configurable (Claude Code, Codex, Aider, custom) | No lock-in; swap AI per task |
+| Cross-paper links | Wikilinks `[[...]]` | Quartz graph renders edges automatically |
+| Comment import | Python script → model/notes/feedback/ | Simple, auditable, no vendor lock |
+| Section order | `section_order` in paper INDEX.md | Separate from filesystem; controls pandoc assembly |
+| Graph hosting | Quartz → public/ → GitHub Pages / Cloudflare | Collaborators read without running anything |
+
+## Port Map
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| Quartz | 8888 | Read / navigate / graph |
+| TreeWriter frontend | 5173 | Edit + AI dispatch panel |
+| TreeWriter backend | 4000 | API + terminal PTY + Git sync |
