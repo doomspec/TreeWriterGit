@@ -135,17 +135,21 @@ output.push(await git(["push", "origin", "HEAD:main"]));
 
 ### F2 — File CRUD
 
-**Why:** foundation for paper scaffolding (F5) and everyday authoring. No create/delete/move today.
+**Why:** foundation for the recursive paper tree ([[phase-2-paper-model]]) and everyday authoring. Sections, subsections, sub-subsections, and units are all created from the UI. No create/delete/move today.
 
 **Endpoints (all reuse `toModelPath` `server.ts:73` for safety):**
 
 | Method | Path | Body / Query | Behavior |
 |--------|------|--------------|----------|
-| POST | `/api/model/file` | `{ path, content? }` | Create file; `mkdir -p` parents; 409 if exists. If `path` ends `/`, create dir + `INDEX.md` skeleton. |
-| DELETE | `/api/model/file` | `?path=` | Delete file; 409 if directory non-empty; recursive only with `?recursive=true`. |
-| POST | `/api/model/move` | `{ from, to }` | `fs.rename`; `mkdir -p` target parent; broadcast both paths. |
+| POST | `/api/model/file` | `{ path, content? }` | Create a single file; `mkdir -p` parents; 409 if exists. |
+| POST | `/api/model/node` | `{ parent, name, kind }` | Create a tree node. `kind: "container"` → `parent/name/INDEX.md` (section/subsection skeleton). `kind: "unit"` → `parent/name/{INDEX.md (idea, status:outline), draft.md (empty)}`. Appends `name` to the parent `INDEX.md` `child_order`. 409 if exists. |
+| DELETE | `/api/model/file` | `?path=` | Delete file/dir; 409 if non-empty dir unless `?recursive=true`. Removes the entry from parent `child_order`. |
+| POST | `/api/model/move` | `{ from, to }` | `fs.rename`; `mkdir -p` target parent; update both parents' `child_order`; broadcast both paths. |
+| POST | `/api/model/reorder` | `{ parent, child_order[] }` | Rewrite a container `INDEX.md` `child_order` (drag-reorder in UI). |
 
 Each mutation calls `broadcastModelEvent({ type: "model-changed", path })` (same as `:218`). Git sync picks up via existing `git add model` (`:147`).
+
+**`child_order` maintenance is required (not optional):** node order is editorial and drives export (F6) and rendering. The create/delete/move/reorder endpoints keep each container's `INDEX.md` `child_order` in sync. Containers are recursive — a "New subsection" under a section and a "New unit" under a subsection are the same operation at different depths.
 
 **Implementation sketch (POST):**
 ```ts
@@ -166,13 +170,13 @@ app.post("/api/model/file", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 ```
-`indexSkeleton(rel)` returns frontmatter (`title` from last path segment, `summary: ""`, `composed_at_commit: null`) + `# Title` + `## Outline`.
+`indexSkeleton(rel, kind)` returns the frontmatter + body for the node kind ([[phase-2-paper-model]] schemas): container → `kind, title, child_order: []`, body = idea placeholder; unit → `kind: unit, title, status: outline, links: []`, body = idea placeholder. Unit create also writes an empty `draft.md`.
 
-**Frontend:** `App.tsx` sidebar (`:579`) gets a `+` button → modal (file vs folder, name). Card header (`:325`) gets rename + delete buttons (delete behind confirm). On success, existing model-events reload (`:430`) refreshes tree.
+**Comments sidecar (data model fixed here):** comments attach to **any** `.md` — both a unit's `INDEX.md` (idea) and its `draft.md` (text) — stored in `sections/.comments/{relative-path}.comments.json`. Endpoints `GET/POST/PATCH/DELETE /api/comments` land with F5/F-collab; the path scheme is reserved now so nothing else writes there ([[phase-2-paper-model]], [[phase-5-collaboration]]).
 
-**INDEX.md auto-maintenance (optional, v1.1):** on create/delete/move, patch the parent `INDEX.md` `## Outline` list. Defer if it complicates v1 — Quartz/graph reads links live regardless.
+**Frontend:** sidebar (`:579`) context actions — "New section / subsection / unit" (kind inferred from the selected node's depth, overridable) → `POST /api/model/node`. Card header (`:325`) gets rename + delete (delete behind confirm). Drag-reorder siblings → `POST /api/model/reorder`. On success, existing model-events reload (`:430`) refreshes tree + graph.
 
-**Acceptance:** create nested file via UI; appears in tree; delete removes it; rename updates path; all reflected after one model-event cycle; path traversal (`../`) rejected with 400.
+**Acceptance:** create a section, then a unit inside it, from the UI; both appear; parent `child_order` updated; a unit has `INDEX.md`+`draft.md`; delete removes node and its `child_order` entry; reorder persists; path traversal (`../`) rejected with 400.
 
 ---
 
