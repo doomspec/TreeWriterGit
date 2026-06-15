@@ -6,19 +6,23 @@ import {
   Check,
   Copy,
   Eye,
+  FilePlus,
   FileText,
   Folder,
   FolderOpen,
+  FolderPlus,
   GitBranch,
   Pencil,
   RefreshCw,
-  TerminalSquare
+  TerminalSquare,
+  Trash2
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { ApiError, createNode, deleteNode, moveNode, type NodeKind } from "@/modelApi";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 const terminalUrl = import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://localhost:4000/terminal";
@@ -197,12 +201,57 @@ function TreeNode({
 function MarkdownCard({
   item,
   refreshVersion,
-  onOpenParent
+  onOpenParent,
+  onChanged,
+  onError
 }: {
   item: CardItem;
   refreshVersion: number;
   onOpenParent: (path: string) => void;
+  onChanged: () => void;
+  onError: (message: string) => void;
 }) {
+  const nodePath = item.kind === "directory" ? item.openParentPath ?? item.filePath : item.filePath;
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete ${nodePath}?`)) {
+      return;
+    }
+    try {
+      await deleteNode(nodePath);
+      onChanged();
+    } catch (deleteError) {
+      if (deleteError instanceof ApiError && deleteError.status === 409) {
+        if (window.confirm(`${nodePath} is not empty. Delete it and everything inside?`)) {
+          try {
+            await deleteNode(nodePath, true);
+            onChanged();
+          } catch (recursiveError) {
+            onError(recursiveError instanceof Error ? recursiveError.message : String(recursiveError));
+          }
+        }
+        return;
+      }
+      onError(deleteError instanceof Error ? deleteError.message : String(deleteError));
+    }
+  };
+
+  const handleRename = async () => {
+    const current = nodePath.split("/").at(-1) ?? "";
+    const next = window.prompt(`Rename ${nodePath} to:`, current);
+    if (!next || next === current || next.includes("/")) {
+      return;
+    }
+    const parent = nodePath.split("/").slice(0, -1).join("/");
+    const to = parent ? `${parent}/${next}` : next;
+    try {
+      await moveNode(nodePath, to);
+      onChanged();
+    } catch (renameError) {
+      onError(renameError instanceof Error ? renameError.message : String(renameError));
+    }
+  };
+
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
@@ -355,6 +404,30 @@ function MarkdownCard({
           >
             <FolderOpen className="h-4 w-4" aria-hidden="true" />
           </Button>
+          {item.kind !== "index" ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label={`Rename ${item.title}`}
+                title="Rename"
+                onClick={() => void handleRename()}
+              >
+                <Pencil className="h-4 w-4 rotate-90" aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label={`Delete ${item.title}`}
+                title="Delete"
+                onClick={() => void handleDelete()}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
+              </Button>
+            </>
+          ) : null}
         </div>
       </header>
       {isEditing ? (
@@ -539,6 +612,31 @@ export default function App() {
     }
   };
 
+  const reloadModel = useCallback(() => {
+    loadTree().catch(() => {});
+    setRefreshVersion((version) => version + 1);
+  }, [loadTree]);
+
+  const containerKind: NodeKind =
+    currentParentPath === "" || /(^|\/)sections$/.test(currentParentPath) ? "section" : "subsection";
+
+  const createChild = async (kind: NodeKind) => {
+    const label = kind === "unit" ? "unit" : kind;
+    const name = window.prompt(`New ${label} name (folder-safe, e.g. "introduction"):`, "");
+    if (!name) {
+      return;
+    }
+    try {
+      const created = await createNode(currentParentPath, name.trim(), kind);
+      reloadModel();
+      if (kind !== "unit") {
+        setCurrentParentPath(created.path);
+      }
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : String(createError));
+    }
+  };
+
   return (
     <main className="flex h-screen overflow-hidden flex-col bg-background text-foreground">
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
@@ -627,6 +725,26 @@ export default function App() {
                 type="button"
                 variant="outline"
                 size="icon"
+                aria-label={`New ${containerKind} here`}
+                title={`New ${containerKind} here`}
+                onClick={() => void createChild(containerKind)}
+              >
+                <FolderPlus className="h-4 w-4" aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="New unit here"
+                title="New unit here"
+                onClick={() => void createChild("unit")}
+              >
+                <FilePlus className="h-4 w-4" aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
                 aria-label="Open parent folder"
                 title="Open parent folder"
                 disabled={!canGoUp}
@@ -658,6 +776,8 @@ export default function App() {
                   item={item}
                   refreshVersion={refreshVersion}
                   onOpenParent={setCurrentParentPath}
+                  onChanged={reloadModel}
+                  onError={setError}
                 />
               ))}
             </div>
