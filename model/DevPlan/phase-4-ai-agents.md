@@ -6,6 +6,8 @@ composed_at_commit: null
 
 # Phase 4 — AI Writing Agents
 
+> **Path note:** this doc predates the recursive unit model. The prompt templates and agent roles below are current, but **paths are stale** — wherever it says `outlines/{section}.md` or `drafts/{section}-v{N}.md`, the real targets are a unit's `INDEX.md` (idea) and `draft.md` (text), with `status` instead of `-vN` files. [[phase-2-paper-model]] + [[PRD]] F4 are authoritative.
+
 **Effort:** 3–4 days  
 **Dependencies:** Phase 2 (paper model), Phase 3 (export to validate output)
 
