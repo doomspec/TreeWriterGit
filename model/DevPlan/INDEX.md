@@ -56,10 +56,27 @@ Overleaf (LaTeX — collaborator-facing)
 
 **Key upgrade:** Quartz replaces the custom React navigation UI. Its graph view navigates both within a paper (outline → draft → final) and across papers (shared methods, figures, literature nodes connected by wikilinks). The existing React frontend shrinks to an editor + AI dispatch panel only.
 
+## Minimal Dev Stack
+
+```
+Runs locally:
+  TreeWriter backend  (4000) — Git sync, file API, terminal PTY
+  TreeWriter frontend (5173) — editor + graph panel + AI dispatch
+
+AI writing (terminal, no extra integration):
+  claude skills: wiki-ingest, wiki-query, autoresearch, wiki-lint
+
+On-demand sharing only:
+  npx quartz build → static site → GitHub Pages for collaborators
+```
+
+**Not running during dev:** Quartz server, PageIndex, separate nav frontend.  
+See [[tool-assessment]] for full rationale on PageIndex, claude-obsidian, and Quartz.
+
 ## Outline
 
+* [Tool Assessment](tool-assessment.md)
 * [Architecture](architecture.md)
-* [Quartz Graph Integration](quartz-integration.md)
 * [AI Terminal Controls](ai-terminal-controls.md)
 * [Phase 0 — Fix Existing Bugs](phase-0-fixes.md)
 * [Phase 1 — File CRUD and Search](phase-1-crud.md)
@@ -68,3 +85,4 @@ Overleaf (LaTeX — collaborator-facing)
 * [Phase 4 — AI Writing Agents](phase-4-ai-agents.md)
 * [Phase 5 — Collaborative Review](phase-5-collaboration.md)
 * [Technical Decisions](technical-decisions.md)
+* [Quartz Graph Integration](quartz-integration.md) _(reference only — not in dev stack)_
