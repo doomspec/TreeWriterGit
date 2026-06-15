@@ -23,27 +23,44 @@ The gap: human collaborators who prefer Overleaf cannot see AI-generated drafts 
 ## Vision
 
 ```
-model/ (Git, Markdown — source of truth)
-  ├── outlines/      ← paper structure, section goals, key claims
-  ├── notes/         ← research notes, evidence, citations, raw ideas
-  ├── drafts/        ← AI-generated section text (Markdown)
-  └── final/         ← approved text, ready for LaTeX export
+model/ (Git, Markdown + wikilinks — single source of truth)
+  ├── papers/{slug}/
+  │   ├── outlines/   ← section goals, key claims, word budgets
+  │   ├── notes/      ← literature, data, Overleaf feedback
+  │   ├── drafts/     ← AI-generated text (versioned)
+  │   └── final/      ← approved, exports to LaTeX
+  └── shared/         ← abbreviations, authors, bibliography
 
-        ↕ pandoc + sync
+        ↕  wikilinks define semantic graph
 
-Overleaf (LaTeX — human-facing view)
-  ├── main.tex       ← assembled from model/final/ on export
-  ├── comments       ← human reviewer notes flow back as model/notes/
-  └── tracked changes ← diff fed back to model/drafts/ for AI revision
+Quartz (graph view — read/navigate layer)
+  ├── global graph    ← all papers, sections, notes as nodes
+  ├── local graph     ← per-section: what links to/from this node
+  ├── cross-paper     ← shared notes/figures appear in multiple papers
+  └── figure nodes    ← data files as navigable graph nodes
+
+        ↕  file watch + rebuild
+
+TreeWriter backend (write/agent layer)
+  ├── Git sync (120s auto-commit + push)
+  ├── Terminal PTY (any AI CLI: Claude Code, Codex, Cursor, custom)
+  ├── AI Dispatch panel (UI → selects section + action → sends to AI)
+  └── Export pipeline (pandoc → .tex → Overleaf Git Bridge)
+
+        ↕  comment import
+
+Overleaf (LaTeX — collaborator-facing)
+  ├── main.tex        ← assembled from final/ on export
+  └── comments        ← imported back as notes/feedback/
 ```
 
-AI reads `outlines/` + `notes/` → writes to `drafts/` → human approves → moves to `final/` → exports to Overleaf LaTeX.
-
-Human reviewers comment in Overleaf → comments imported as `notes/` items → AI revises `drafts/`.
+**Key upgrade:** Quartz replaces the custom React navigation UI. Its graph view navigates both within a paper (outline → draft → final) and across papers (shared methods, figures, literature nodes connected by wikilinks). The existing React frontend shrinks to an editor + AI dispatch panel only.
 
 ## Outline
 
 * [Architecture](architecture.md)
+* [Quartz Graph Integration](quartz-integration.md)
+* [AI Terminal Controls](ai-terminal-controls.md)
 * [Phase 0 — Fix Existing Bugs](phase-0-fixes.md)
 * [Phase 1 — File CRUD and Search](phase-1-crud.md)
 * [Phase 2 — Scientific Paper Model](phase-2-paper-model.md)
