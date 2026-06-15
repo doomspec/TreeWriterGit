@@ -75,6 +75,7 @@ See [[tool-assessment]] for full rationale on PageIndex, claude-obsidian, and Qu
 
 ## Outline
 
+* [**PRD — Build Authority**](PRD.md) ← code-level spec, grounded in actual repo; supersedes phase docs for implementation
 * [Tool Assessment](tool-assessment.md)
 * [Architecture](architecture.md)
 * [AI Terminal Controls](ai-terminal-controls.md)
