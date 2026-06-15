@@ -34,6 +34,7 @@ type GitSyncState = {
   lastSuccessAt: string | null;
   lastError: string | null;
   lastOutput: string | null;
+  conflictDetected: boolean;
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -63,7 +64,8 @@ const gitSyncState: GitSyncState = {
   lastRunAt: null,
   lastSuccessAt: null,
   lastError: null,
-  lastOutput: null
+  lastOutput: null,
+  conflictDetected: false
 };
 
 const app = express();
@@ -140,6 +142,7 @@ async function runGitSync(reason = "interval") {
 
   try {
     const output: string[] = [`sync reason: ${reason}`];
+    const branch = (await git(["rev-parse", "--abbrev-ref", "HEAD"])).trim();
     output.push(await git(["fetch", "origin"]));
 
     const modelStatus = await git(["status", "--porcelain", "--", "model"]);
@@ -148,8 +151,30 @@ async function runGitSync(reason = "interval") {
       output.push(await git(["commit", "-m", "Automated sync"]));
     }
 
-    output.push(await git(["rebase", "origin/main"]));
-    output.push(await git(["push", "origin", "HEAD:main"]));
+    let remoteBranchExists = false;
+    try {
+      await git(["rev-parse", "--verify", "--quiet", `origin/${branch}`]);
+      remoteBranchExists = true;
+    } catch {
+      remoteBranchExists = false;
+    }
+
+    if (remoteBranchExists) {
+      try {
+        output.push(await git(["rebase", `origin/${branch}`]));
+        gitSyncState.conflictDetected = false;
+      } catch (rebaseError) {
+        await git(["rebase", "--abort"]).catch(() => {});
+        gitSyncState.conflictDetected = true;
+        throw new Error(
+          "Rebase conflict — aborted; resolve manually in the terminal, then run sync again."
+        );
+      }
+    } else {
+      gitSyncState.conflictDetected = false;
+    }
+
+    output.push(await git(["push", "origin", `HEAD:${branch}`]));
 
     gitSyncState.lastSuccessAt = new Date().toISOString();
     gitSyncState.lastOutput = output.filter(Boolean).join("\n");
@@ -321,8 +346,10 @@ terminalServer.on("connection", (socket) => {
       HISTFILE: "/dev/null",
       BASH_SILENCE_DEPRECATION_WARNING: "1"
     },
-    stdio: "pipe"
+    stdio: ["pipe", "pipe", "pipe", "pipe"]
   });
+
+  const controlFd = term.stdio[3] as NodeJS.WritableStream | null;
 
   term.stdout.on("data", (data: Buffer) => {
     if (socket.readyState === WebSocket.OPEN) {
@@ -372,7 +399,12 @@ terminalServer.on("connection", (socket) => {
       return;
     }
 
-    if (message.type === "resize") {}
+    if (message.type === "resize") {
+      const { cols, rows } = message;
+      if (controlFd && Number.isFinite(cols) && Number.isFinite(rows)) {
+        controlFd.write(`${JSON.stringify({ t: "resize", cols, rows })}\n`);
+      }
+    }
   });
 
   socket.on("close", () => {

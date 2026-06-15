@@ -40,6 +40,7 @@ type GitSyncState = {
   lastRunAt: string | null;
   lastSuccessAt: string | null;
   lastError: string | null;
+  conflictDetected?: boolean;
 };
 
 type CardItem = {
@@ -664,13 +665,19 @@ export default function App() {
 
           <footer className="flex h-9 items-center justify-between border-t border-border px-4 text-xs text-muted-foreground">
             <span>{files.length} files</span>
-            <span>
-              {gitSync?.lastError
-                ? `git error: ${gitSync.lastError}`
-                : gitSync?.lastSuccessAt
-                  ? `last git sync ${new Date(gitSync.lastSuccessAt).toLocaleTimeString()}`
-                  : "waiting for git sync"}
-            </span>
+            {gitSync?.conflictDetected ? (
+              <span className="rounded-sm bg-destructive px-2 py-0.5 font-medium text-destructive-foreground">
+                Git conflict — resolve in terminal, then run sync
+              </span>
+            ) : (
+              <span>
+                {gitSync?.lastError
+                  ? `git error: ${gitSync.lastError}`
+                  : gitSync?.lastSuccessAt
+                    ? `last git sync ${new Date(gitSync.lastSuccessAt).toLocaleTimeString()}`
+                    : "waiting for git sync"}
+              </span>
+            )}
           </footer>
         </section>
 
