@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ApiError, createNode, deleteNode, moveNode, type NodeKind } from "@/modelApi";
 import { GraphPanel } from "@/GraphPanel";
+import { DispatchPanel } from "@/DispatchPanel";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 const terminalUrl = import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://localhost:4000/terminal";
@@ -620,6 +621,13 @@ export default function App() {
     setRefreshVersion((version) => version + 1);
   }, [loadTree]);
 
+  const sendToTerminal = useCallback((command: string) => {
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "input", data: command }));
+    }
+  }, []);
+
   const containerKind: NodeKind =
     currentParentPath === "" || /(^|\/)sections$/.test(currentParentPath) ? "section" : "subsection";
 
@@ -826,7 +834,12 @@ export default function App() {
           </footer>
         </section>
 
-        <aside className="grid min-h-0 grid-rows-[auto_1fr] border-l border-border bg-muted/20">
+        <aside className="grid min-h-0 grid-rows-[auto_auto_1fr] border-l border-border bg-muted/20">
+          <DispatchPanel
+            currentPath={currentParentPath}
+            onSendToTerminal={sendToTerminal}
+            onError={setError}
+          />
           <div className="flex h-10 items-center justify-between border-b border-border px-3">
             <div className="flex min-w-0 items-center gap-2">
               <TerminalSquare className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />

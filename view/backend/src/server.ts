@@ -19,6 +19,7 @@ import {
   type NodeKind
 } from "./modelFs.js";
 import { buildGraph } from "./graph.js";
+import { loadProviders, buildPreview, type DispatchAction } from "./agentDispatch.js";
 
 type ClientMessage =
   | {
@@ -332,6 +333,43 @@ app.get("/api/model/graph", async (request, response, next) => {
   try {
     const root = String(request.query.root ?? "");
     response.json(await buildGraph(modelRoot, root));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/agent/providers", async (_request, response, next) => {
+  try {
+    response.json(await loadProviders(repoRoot));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/agent/preview", async (request, response, next) => {
+  try {
+    const { unitPath, action, provider: providerName, customPrompt } = request.body as {
+      unitPath?: string;
+      action?: string;
+      provider?: string;
+      customPrompt?: string;
+    };
+    if (!unitPath) {
+      response.status(400).json({ error: "unitPath required" });
+      return;
+    }
+    const config = await loadProviders(repoRoot);
+    const provider =
+      config.aiProviders.find((p) => p.name === providerName) ?? config.aiProviders[0];
+    const result = await buildPreview(
+      modelRoot,
+      repoRoot,
+      unitPath,
+      (action ?? "draft") as DispatchAction,
+      provider,
+      customPrompt,
+    );
+    response.json(result);
   } catch (error) {
     next(error);
   }
