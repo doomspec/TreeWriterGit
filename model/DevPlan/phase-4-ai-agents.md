@@ -6,6 +6,8 @@ composed_at_commit: null
 
 # Phase 4 — AI Writing Agents
 
+> **Status (2026-06-15):** v1 complete via [[PRD]] F4 terminal-dispatch path. The `/api/agent/run` endpoint and server-side job manager below are **v1.1** — not required for the core loop.
+
 > **Path note:** this doc predates the recursive unit model. The prompt templates and agent roles below are current, but **paths are stale** — wherever it says `outlines/{section}.md` or `drafts/{section}-v{N}.md`, the real targets are a unit's `INDEX.md` (idea) and `draft.md` (text), with `status` instead of `-vN` files. [[phase-2-paper-model]] + [[PRD]] F4 are authoritative.
 
 **Effort:** 3–4 days  

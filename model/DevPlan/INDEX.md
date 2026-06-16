@@ -78,12 +78,12 @@ See [[tool-assessment]] for full rationale on PageIndex, claude-obsidian, and Qu
 * [**PRD — Build Authority**](PRD.md) ← code-level spec, grounded in actual repo; supersedes phase docs for implementation
 * [Tool Assessment](tool-assessment.md)
 * [Architecture](architecture.md)
-* [AI Terminal Controls](ai-terminal-controls.md)
-* [Phase 0 — Fix Existing Bugs](phase-0-fixes.md)
-* [Phase 1 — File CRUD and Search](phase-1-crud.md)
-* [Phase 2 — Scientific Paper Model](phase-2-paper-model.md)
-* [Phase 3 — LaTeX and Overleaf Integration](phase-3-overleaf.md)
-* [Phase 4 — AI Writing Agents](phase-4-ai-agents.md)
+* [AI Terminal Controls](ai-terminal-controls.md) — **F4 v1 done**
+* [Phase 0 — Fix Existing Bugs](phase-0-fixes.md) — **M1 done**
+* [Phase 1 — File CRUD and Search](phase-1-crud.md) — **M2 done** (search deferred)
+* [Phase 2 — Scientific Paper Model](phase-2-paper-model.md) — **M5 done**
+* [Phase 3 — LaTeX and Overleaf Integration](phase-3-overleaf.md) — **M6 next**
+* [Phase 4 — AI Writing Agents](phase-4-ai-agents.md) — **M4 v1 done**
 * [Phase 5 — Collaborative Review](phase-5-collaboration.md)
 * [Technical Decisions](technical-decisions.md)
 * [Quartz Graph Integration](quartz-integration.md) _(reference only — not in dev stack)_

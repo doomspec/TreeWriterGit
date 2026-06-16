@@ -28,20 +28,24 @@ One local app where AI writes scientific paper text in Markdown and humans colla
 
 | Capability | Where | State |
 |------------|-------|-------|
-| Model tree read | `server.ts:173` `GET /api/model/tree`, `readModelTree()` `:88` | works |
-| File read | `server.ts:184` `GET /api/model/file?path=` | works |
-| File write | `server.ts:205` `PUT /api/model/file` | works |
-| Path safety | `server.ts:73` `toModelPath()` blocks `..` escape | works |
-| Git sync loop | `server.ts:132` `runGitSync()`, 120s interval `:308` | works, no conflict handling |
-| Terminal PTY | `server.ts:314` + `pty_bridge.py` | works, resize is a no-op |
-| Model events WS | `server.ts:255` `/model-events`, `fs.watch` `:297` | works |
-| Frontend 3-col UI | `App.tsx:578` `grid-cols-[260px_minmax(420px,1fr)_minmax(320px,34vw)]` | works |
-| Markdown card edit/autosave | `App.tsx:196` `MarkdownCard`, 800ms debounce `:255` | works |
+| Model tree read | `GET /api/model/tree` | works |
+| File read/write | `GET/PUT /api/model/file` | works |
+| File CRUD + nodes | `POST/DELETE /api/model/file`, `/api/model/node`, move, reorder | works |
+| Path safety | `resolveModelPath()` blocks `..` escape | works |
+| Git sync loop | 120s interval + `conflictDetected` flag | works |
+| Terminal PTY + resize | fd-3 control channel in `pty_bridge.py` | works |
+| Model events WS | `/model-events`, `fs.watch` | works |
+| Wikilink graph | `GET /api/model/graph`, `GraphPanel.tsx` | works |
+| AI dispatch (F4 v1) | `DispatchPanel`, `/api/agent/providers`, `/api/agent/preview`, sessions | works |
+| Paper model (F5) | `POST /api/paper`, `GET /api/papers`, `PapersPanel`, journal templates | works |
+| Frontend 3-col UI | editor + graph + dispatch + terminal | works |
 
-**Confirmed gaps (code-level):**
-- `server.ts:375` — `if (message.type === "resize") {}` empty. PTY fixed at 24×80 (`pty_bridge.py:23` calls `set_winsize(slave_fd)` once with defaults).
-- `server.ts:151` — `git rebase` failure caught into `lastError` but repo left mid-rebase; next sync also fails.
-- No create / delete / move endpoints. No wikilink graph. No AI dispatch. No paper model. No export. No `.treewriter.json`. No `d3` / `pandoc` installed.
+**Remaining gaps:**
+- `GET /api/model/search` — full-text search (F2 polish)
+- Comments API (`/api/comments`) — deferred to collaboration phase
+- F4 polish — status auto-advance, context checklist UI, keyboard shortcuts, section fan-out
+- F6 export — `POST /api/export` (pandoc → LaTeX/PDF)
+- Server-side agent job manager — F4 v1.1
 
 ## 3. Feature Specs
 
@@ -215,6 +219,8 @@ Keep sidebar tree (cheap, complements graph). Graph replaces nothing destructive
 
 ### F4 — AI dispatch panel (any CLI)
 
+**Status: v1 complete** (2026-06-15). Terminal-dispatch loop shipped; polish items below are v1.1.
+
 **Why:** trigger generation/revision against a specific section without hand-writing prompts; not locked to Claude. See [[ai-terminal-controls]].
 
 **Config file `.treewriter.json` (repo root), read at startup:**
@@ -252,11 +258,15 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 
 **Frontend — dispatch panel** (in right column, above/below terminal): selectors Unit / Provider / Action, auto-filled from the graph/editor selection (F3); checklist of auto-selected context files; "Preview prompt" and "Run" buttons. Run writes to the terminal socket.
 
-**Acceptance:** select a unit, choose Claude Code + Draft, Run; terminal shows `claude -p "…"`; the unit's `draft.md` fills in and the card refreshes; unit `status` flips to `drafted`; switching provider to Codex changes the command; Preview shows the full prompt and is editable before Run.
+**Acceptance:** select a unit, choose Claude Code + Draft, Run; terminal shows `claude -p "…"`; the unit's `draft.md` fills in and the card refreshes; switching provider to Codex changes the command; Preview shows the full prompt and is editable before Run.
+
+**v1.1 polish (open):** unit `status` auto-advance to `drafted`; context files checklist; keyboard shortcuts; section fan-out draft.
 
 ---
 
 ### F5 — Scientific paper model
+
+**Status: complete** (2026-06-15). Scaffold, list, dashboard, and notes-aware dispatch context shipped.
 
 **Why:** structure the model for papers; powers context auto-selection (F4) and export ordering (F6). See [[phase-2-paper-model]].
 
@@ -300,23 +310,24 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 | POST | `/api/model/move` · `/api/model/reorder` | F2 | new |
 | GET/POST/PATCH/DELETE | `/api/comments` | F2 model / F-collab | new |
 | GET | `/api/model/graph` | F3 | new |
-| GET | `/api/agent/providers` | F4 | new |
-| POST | `/api/agent/preview` | F4 | new |
-| POST | `/api/paper` · GET `/api/papers` | F5 | new |
+| GET | `/api/agent/providers` | F4 | done |
+| POST | `/api/agent/preview` | F4 | done |
+| GET | `/api/paper/templates` | F5 | done |
+| POST | `/api/paper` · GET `/api/papers` | F5 | done |
 | POST | `/api/export` | F6 | new |
 | GET/POST | `/api/git-sync/status` · `/run` | core | exists `:229/:233` (+conflictDetected F1) |
 | WS | `/terminal` · `/model-events` | core | exists `:281/:283` (+resize F0) |
 
 ## 5. Sequencing and Estimates
 
-| Milestone | Features | Est. | Unblocks |
-|-----------|----------|------|----------|
-| M1 — Stabilize | F0, F1 | 1 day | usable terminal + sync |
-| M2 — Authoring base | F2 | 2 days | scaffolding, editing CRUD |
-| M3 — Navigation | F3 | 2–3 days | graph, cross-paper nav |
-| M4 — AI loop | F4 (+ minimal F5 frontmatter) | 2–3 days | the core value prop |
-| M5 — Paper model | F5 full | 1–2 days | dashboard, context rules |
-| M6 — Output | F6 (export), Overleaf v1.1 | 2–3 days | collaborator handoff |
+| Milestone | Features | Est. | Status |
+|-----------|----------|------|--------|
+| M1 — Stabilize | F0, F1 | 1 day | done |
+| M2 — Authoring base | F2 | 2 days | done (search/comments deferred) |
+| M3 — Navigation | F3 | 2–3 days | done |
+| M4 — AI loop | F4 | 2–3 days | done (v1.1 polish open) |
+| M5 — Paper model | F5 full | 1–2 days | done |
+| M6 — Output | F6 (export), Overleaf v1.1 | 2–3 days | **next** |
 
 Total ≈ 10–14 working days for M1–M6. M1–M4 is the demoable core (≈ 7–9 days).
 
