@@ -1,10 +1,10 @@
 ---
-kind: "section"
-title: "Introduction"
+kind: section
+title: Introduction
 child_order:
-  - "background"
-  - "problem-statement"
-  - "contributions"
+  - background
+  - contributions
+  - problem-statement
 ---
 # Introduction
 

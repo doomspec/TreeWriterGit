@@ -8,7 +8,7 @@ composed_at_commit: null
 
 ## Summary
 
-The server continuously synchronizes the local repository with its remote counterpart, treating Git as the primary distributed database.
+The server continuously synchronizes the local repository with its remote counterpart, treating Git as the primary distributed database. Sync commits **`model/` only**; conflicts are detected on real merge markers; non-`model/` changes are autostashed before rebase.
 
 ## Outline
 

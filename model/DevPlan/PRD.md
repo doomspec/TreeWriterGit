@@ -8,7 +8,7 @@ owner: Ilya Yakavets
 
 # PRD — TreeWriter Scientific Writing Platform
 
-This document is the build authority. It is grounded in the actual source (`view/backend/src/server.ts` 382 lines, `view/backend/src/pty_bridge.py` 75 lines, `view/frontend/src/App.tsx` 705 lines). Where the earlier phase docs ([[phase-0-fixes]] … [[phase-5-collaboration]]) describe intent, this document gives the concrete contract: exact endpoints, file changes, schemas, and acceptance criteria.
+This document is the build authority. It is grounded in the actual source (`view/backend/src/server.ts` ~630 lines, `view/backend/src/pty_bridge.py` 75 lines, `view/frontend/src/App.tsx` ~455 lines, `view/frontend/src/components/nav/FolderBrowse.tsx` ~348 lines). Where the earlier phase docs ([[phase-0-fixes]] … [[phase-5-collaboration]]) describe intent, this document gives the concrete contract: exact endpoints, file changes, schemas, and acceptance criteria.
 
 Related: [[tool-assessment]] (why we skip PageIndex / Quartz-as-server), [[architecture]] (system map), [[ai-terminal-controls]] (dispatch UX).
 
@@ -32,19 +32,23 @@ One local app where AI writes scientific paper text in Markdown and humans colla
 | File read/write | `GET/PUT /api/model/file` | works |
 | File CRUD + nodes | `POST/DELETE /api/model/file`, `/api/model/node`, move, reorder | works |
 | Path safety | `resolveModelPath()` blocks `..` escape | works |
-| Git sync loop | 120s interval + `conflictDetected` flag | works |
+| Git sync loop | 120s interval, `gitSync.ts` autostash + conflict detection | works |
 | Terminal PTY + resize | fd-3 control channel in `pty_bridge.py` | works |
 | Model events WS | `/model-events`, `fs.watch` | works |
-| Wikilink graph | `GET /api/model/graph`, `GraphPanel.tsx` | works |
-| AI dispatch (F4 v1) | `DispatchPanel`, `/api/agent/providers`, `/api/agent/preview`, sessions | works |
-| Paper model (F5) | `POST /api/paper`, `GET /api/papers`, `PapersPanel`, journal templates | works |
-| Frontend 3-col UI | editor + graph + dispatch + terminal | works |
+| Wikilink graph | `GET /api/model/graph`, `GraphPanel.tsx`, local graph | works |
+| AI dispatch (F4 v1) | `DispatchPanel`, `/api/agent/*`, `refresh-index` action | works |
+| Paper model (F5) | `papers.ts`, `POST /api/paper`, `GET /api/papers`, `PapersPanel` | works |
+| Hybrid folder browse | `FolderBrowse.tsx` — INDEX hero, child cards, reorder, stale badge | works |
+| Split editor | `EditorWorkspace` — Source / Split / Preview | works |
+| Export (F6 v1) | `POST /api/export`, pandoc → `.tex`/`.pdf`, PapersPanel buttons | works |
+| Frontend 3-col UI | sidebar + center (browse/edit) + hideable Agent panel | works |
 
 **Remaining gaps:**
 - `GET /api/model/search` — full-text search (F2 polish)
 - Comments API (`/api/comments`) — deferred to collaboration phase
 - F4 polish — status auto-advance, context checklist UI, keyboard shortcuts, section fan-out
-- F6 export — `POST /api/export` (pandoc → LaTeX/PDF)
+- F6 polish — CSL/bibliography, approved-only export, batch export
+- AI-autonomous conflict resolution (sync v2) — manual terminal fallback only (v1)
 - Server-side agent job manager — F4 v1.1
 
 ## 3. Feature Specs
