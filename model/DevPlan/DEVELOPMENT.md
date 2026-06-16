@@ -124,10 +124,10 @@ Order is editorial, **separate from filesystem**. Paper uses `section_order`; co
 | `modelFs.ts` | File CRUD + node create/delete/move/reorder; `child_order` maintenance; path safety; lazy file materialization | `resolveModelPath`, `createNode`, `deleteNode`, `moveNode`, `reorderChildren`, `createFile`, `materializeOutline`, `materializeDraft`, `indexSkeleton`, `outlineDocSkeleton`, `ModelFsError` |
 | `agentDispatch.ts` | AI provider config + prompt builder + shell-command builder | `loadProviders`, `buildPreview`, `DispatchAction` |
 | `sessions.ts` | Dispatch-session ledger under `{unit}/.sessions/{stamp}.md` | `listSessions`, `createSession`, `updateSessionStatus` |
-| `compose.ts` | Build composed section views (stitched child outlines + drafts) for read | `composeSectionView`, `parseOutlineSummary` |
+| `compose.ts` | Build composed section views (stitched child summaries + drafts) for read | `composeSectionView`, `parseOutlineSummary`, `displayChildTitle` |
 | `export.ts` | Depth-first `draft.md` assembly → pandoc → `.tex`/PDF; `.bib` from lit notes; PDF-engine fallback | `exportPaper`, `buildCombinedMarkdown`, `buildBibliography`, `extractCiteKeys`, `detectPdfEngine`, `resolveExportDownload` |
 | `papers.ts` | Paper scaffold from journal template; list + per-status roll-up | `scaffoldPaper`, `listPapers`, `getPaperDetail`, `loadJournalTemplate`, `listJournalTemplates`, `slugify` |
-| `graph.ts` | Walk `.md`, parse `[[wikilinks]]` (frontmatter `links` + outline body), resolve targets, emit nodes/edges + `missing:` nodes | `buildGraph`, `parseWikilinks`, `resolveTarget` |
+| `graph.ts` | Walk `.md`, parse wikilinks from INDEX `links:` + `## Outline` section; structural `child_order` edges; resolve targets; emit nodes/edges + `missing:` nodes | `buildGraph`, `parseWikilinks`, `parseOutlineContentLinks`, `parseChildOrder`, `resolveTarget` |
 | `pty_bridge.py` | Fork real PTY for the shell; relay stdin/stdout; fd-3 JSON control channel → `set_winsize` + `SIGWINCH` | — |
 
 **Invariants devs must respect**
@@ -187,21 +187,38 @@ App.tsx                        ← root: state, nav, terminal lifecycle, WS, git
 │   ├── Breadcrumbs.tsx        ← path nav
 │   └── RightPanel.tsx         ← AI dispatch + terminal host (collapsible)
 ├── components/editor/
-│   ├── EditorWorkspace.tsx    ← unit editor (outline.md + draft.md)
-│   ├── MarkdownEditor.tsx     ← textarea + autosave (PUT, debounced)
-│   ├── MarkdownViewer.tsx     ← react-markdown render
-│   └── SectionWorkspace.tsx   ← composed section view (calls /section-compose)
+│   ├── EditorWorkspace.tsx    ← unit editor (outline.md + draft.md dual-pane)
+│   ├── SectionWorkspace.tsx   ← composed section view (calls /section-compose)
+│   ├── MarkdownEditor.tsx     ← textarea + autosave (PUT, debounced); compact pane mode
+│   └── MarkdownViewer.tsx     ← react-markdown; wikilink preprocess; in-app nav links
 ├── components/nav/
-│   ├── FolderBrowse.tsx       ← card grid for a folder
+│   ├── FolderBrowse.tsx       ← card grid for non-paper / generic folders
 │   └── OutlineList.tsx        ← outline link list
 ├── DispatchPanel.tsx          ← provider/action selectors, preview, run-to-terminal, session history
-├── GraphPanel.tsx             ← d3-force SVG graph (embedded in Graph tab)
-├── PapersPanel.tsx            ← paper select, roll-up, export buttons, drag-reorder sections
+├── GraphPanel.tsx             ← d3-force SVG graph (outline vs contains edge styles)
+├── PapersPanel.tsx            ← paper select, roll-up, export, drag-reorder, nested subsections
 ├── NewPaperModal.tsx          ← scaffold form
-├── lib/modelTree.ts           ← tree/path/frontmatter/outline helpers (40+ exports)
+├── lib/modelTree.ts           ← tree/path/frontmatter/outline helpers; isUnitFolder, isSectionContainer
 ├── lib/graphLocal.ts          ← local-neighbourhood graph helpers
 └── modelApi.ts                ← typed fetch client (ApiError) for all endpoints
 ```
+
+### Center-panel routing (`App.tsx`)
+
+The workspace picks one of three center views based on the current folder node:
+
+| Condition | Component | What user sees |
+|-----------|-----------|----------------|
+| Leaf unit (`isUnitFolder` — has `outline.md`/`draft.md`, no child dirs) | `EditorWorkspace` | Side-by-side outline + draft editors |
+| Paper section container under `papers/` (`isSectionContainer`, no `activeFile`) | `SectionWorkspace` | Composed outline + draft from `/api/model/section-compose` |
+| Everything else (explorer roots, Philosophy, etc.) | `FolderBrowse` | INDEX hero + child cards + outline pills |
+
+`isUnitFolder` / `isSectionContainer` live in [modelTree.ts](../../view/frontend/src/lib/modelTree.ts). Units are detected by **absence of child directories**, not INDEX `kind` (backend compose/export use `kind`).
+
+### Markdown rendering notes
+
+- `MarkdownViewer` converts `[[wikilinks]]` to markdown links, resolves targets via `resolveNavigateTarget`, and navigates in-app with `<a>` + `preventDefault` (not `<button>` inside headings).
+- Dual-pane reading uses `.markdown-pane` CSS — full column width, heading padding, `break-word` (see [index.css](../../view/frontend/src/index.css)).
 
 Layout: CSS grid `workspace-grid` (sidebar | workspace | right-panel); right panel collapses via `--agent-collapsed` modifier.
 
@@ -221,7 +238,13 @@ Layout: CSS grid `workspace-grid` (sidebar | workspace | right-panel); right pan
 `{unit}/.sessions/{ISO-stamp}.md`, frontmatter `{at, provider, action, command, status, notes?}`. Avoids re-running the same AI work; surfaces unresolved `dispatched` sessions as a warning.
 
 ### 9.3 Compose (read section as one doc)
-`composeSectionView` walks `child_order` (+ on-disk extras), stitches each child's `outline.md` summary (outline view) and `draft.md` (draft view) with heading depth + back-links. `SectionWorkspace` renders it.
+`composeSectionView` walks `child_order` (+ on-disk extras). For each child:
+
+- **`displayChildTitle`** — uses `titleCase(folderName)` when INDEX `title` is missing or equals the slug (e.g. `background` → `Background`).
+- **Outline pane** — plain `### Title` heading, separate `[Open Title →](child/INDEX.md)` drill-down link, then `parseOutlineSummary` from child's `outline.md` (no INDEX-body fallback).
+- **Draft pane** — plain `## Title` heading + drill-down link + stitched child `draft.md` bodies (recursive for nested sections).
+
+`SectionWorkspace` fetches `GET /api/model/section-compose?path=` and renders both panes via `MarkdownViewer` with clickable links.
 
 ### 9.4 Export
 `buildCombinedMarkdown` depth-first walks `section_order` → `child_order`, takes each unit's `draft.md` (approved-only unless `includeDrafts`), heading level = depth. `extractCiteKeys` → `buildBibliography` from `notes/literature/*`. `pandoc --citeproc` → `.tex`/PDF. PDF engine auto-detected (`tectonic`→`xelatex`→`pdflatex`→`lualatex`); falls back to `.tex` with a notice if none. `last_export` patched into paper INDEX.
