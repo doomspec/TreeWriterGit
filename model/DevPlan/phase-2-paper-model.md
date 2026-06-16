@@ -6,14 +6,14 @@ composed_at_commit: null
 
 # Phase 2 — Scientific Paper Model
 
-This is the canonical structure reference. It matches the repo's own convention ([[purpose-of-index]], `model-directory.md`): every folder is a tree node, `INDEX.md` is the node's outline/intent + child order + links, and ordinary `.md` files hold content. Here that convention is specialized for papers.
+This is the canonical structure reference. Every folder is a tree node with **`INDEX.md`** (technical metadata, hidden in UI), **`outline.md`** (author-facing overview), and optionally **`draft.md`** (manuscript prose for units).
 
 ## Core Idea
 
 A paper is a **recursive tree of folders**. Two node roles (same mechanism, distinguished by whether a `draft.md` is present):
 
-- **Container node** (paper, section, subsection, sub-subsection): folder whose `INDEX.md` holds the node's *idea/outline* + ordered list of children + cross-links. No prose of its own.
-- **Unit node** (a paragraph or atomic block): folder whose `INDEX.md` holds the *idea (the "comment" — main point, what to say, citations to hit, links)* and whose `draft.md` holds the *generated, editable prose*.
+- **Container node** (paper, section, subsection): `INDEX.md` holds `child_order`, `links`, and status metadata; **`outline.md`** holds the section overview and child link list; no draft.
+- **Unit node** (paragraph): `INDEX.md` holds `status` and cross-links; **`outline.md`** holds what the paragraph must say; **`draft.md`** holds the manuscript text composed into the paper.
 
 Containers nest to whatever depth a section needs (flexible/recursive). A simple section is `section → units`. A complex one is `section → subsection → units`, and deeper where justified.
 
@@ -23,14 +23,18 @@ Containers nest to whatever depth a section needs (flexible/recursive). A simple
 model/
 ├── papers/
 │   └── {paper-slug}/
-│       ├── INDEX.md                      ← paper meta + section_order + thesis
+│       ├── INDEX.md                      ← paper meta (technical)
+│       ├── outline.md                    ← paper summary + section links
 │       ├── sections/
-│       │   ├── INDEX.md                  ← ordered list of sections
+│       │   ├── INDEX.md                  ← section_order, links (technical)
+│       │   ├── outline.md                ← section overview
 │       │   ├── introduction/
-│       │   │   ├── INDEX.md              ← section idea + child_order + cross-links
+│       │   │   ├── INDEX.md              ← child_order, links (technical)
+│       │   │   ├── outline.md            ← section overview + child links
 │       │   │   ├── problem/              ← unit (leaf)
-│       │   │   │   ├── INDEX.md          ← idea (comment) + status + links
-│       │   │   │   └── draft.md          ← generated editable text
+│       │   │   │   ├── INDEX.md          ← status + links (technical)
+│       │   │   │   ├── outline.md        ← paragraph overview
+│       │   │   │   └── draft.md          ← manuscript text
 │       │   │   ├── gap/
 │       │   │   │   ├── INDEX.md
 │       │   │   │   └── draft.md
@@ -79,30 +83,24 @@ overleaf_repo_path: null
 last_export: null
 ```
 
-**Container `INDEX.md`** (section / subsection):
-```yaml
-kind: section              # section | subsection
-title: "Introduction"
-target_words: 800
-child_order: ["problem","gap","contribution"]
-links: ["[[../discussion]]", "[[../results]]"]   # section-level cross-links
-```
-Body = the section's idea/narrative arc (human-authored or AI-expanded).
+**Paper `INDEX.md`:** technical metadata only (`section_order`, `thesis`, authors, journal, `composed_at_commit`, …). Overview text lives in **`outline.md`**.
 
-**Unit `INDEX.md`** (leaf paragraph):
+**Container `outline.md`:**
 ```yaml
-kind: unit
-title: "Problem"
-status: outline            # outline | drafted | approved
-links:                     # cross-branch semantic links (→ graph edges)
-  - "[[../../discussion/addresses-problem]]"
-  - "[[../../../notes/literature/hemocytometer-1962]]"
-citations_required: ["hemocytometer-1962"]
-target_words: 120
-```
-Body = the **idea / comment**: the main point this paragraph must make, what evidence to use, tone. This is what the AI reads to generate `draft.md`.
+# Introduction
 
-**`draft.md`** (the prose): plain Markdown, editable. Optional minimal frontmatter (`words:` auto-updated). Status lives in the unit `INDEX.md`, not here.
+## Summary
+Narrative arc for this section.
+
+## Outline
+* [Problem](problem/INDEX.md)
+```
+
+**Unit `outline.md`:** paragraph overview (what to say, evidence, tone).
+
+**Unit `INDEX.md`:** `kind: unit`, `status`, `links` (graph edges), optional `citations_required`, `target_words`.
+
+**`draft.md`:** manuscript paragraph — plain Markdown, composed into the final document.
 
 ## Comments on Any File (both idea and text)
 

@@ -1,30 +1,26 @@
 ---
-kind: "paper"
+kind: paper
 title: "RoboCulture: A Robotics Platform for Automated Biological Experimentation"
-slug: "roboculture"
+slug: roboculture
 authors:
-  - "Kevin Angers"
-  - "Kourosh Darvish"
-  - "Naruki Yoshikawa"
-  - "Sargol Okhovatian"
-  - "Dawn Bannerman"
-  - "Ilya Yakavets"
-  - "Florian Shkurti"
-  - "Alán Aspuru-Guzik"
-  - "Milica Radisic"
-journal: "Cell Systems / STAR Protocols"
-status: "submitted"
+  - Kevin Angers
+  - Kourosh Darvish
+  - Naruki Yoshikawa
+  - Sargol Okhovatian
+  - Dawn Bannerman
+  - Ilya Yakavets
+  - Florian Shkurti
+  - Alán Aspuru-Guzik
+  - Milica Radisic
+journal: Cell Systems / STAR Protocols
+status: submitted
+thesis: A general-purpose robotic manipulator with vision, force feedback, behavior trees, and optical-density monitoring enables fully autonomous, flexible cell culture at lower cost than industrial automation.
 section_order:
-  - "summary"
-  - "introduction"
-  - "results"
-  - "discussion"
-  - "experimental-procedures"
-  - "supplementary"
+  - summary
+  - introduction
+  - results
+  - discussion
+  - experimental-procedures
+  - supplementary
+composed_at_commit: d80bdd8e306399b7be7f39d5e95f2f63e1f8b430
 ---
-# RoboCulture
-
-RoboCulture is a cost-effective, flexible robotics platform for automated biological experimentation. It uses a general-purpose robotic manipulator with vision and force feedback, behavior trees for experiment state management, and optical density-based growth monitoring to achieve fully autonomous cell culture.
-
-**arXiv:** 2505.14941v2
-

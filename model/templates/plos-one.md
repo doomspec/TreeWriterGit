@@ -11,4 +11,6 @@ section_order:
 ---
 # PLOS ONE
 
+Paper-level outline preset: `section_order` scaffolds top-level section folders when creating a new paper. Each section gets its own outline (`INDEX.md`) with `child_order` and unit outlines for paragraphs.
+
 Standard IMRaD structure with supporting information section.

@@ -10,4 +10,6 @@ section_order:
 ---
 # Nature
 
+Paper-level outline preset: `section_order` scaffolds top-level section folders when creating a new paper. Each section gets its own outline (`INDEX.md`) with `child_order` and unit outlines for paragraphs.
+
 Results-forward structure typical for Nature-family journals.

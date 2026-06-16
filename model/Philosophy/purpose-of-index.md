@@ -14,14 +14,13 @@ tree-shaped document model.
 
 `INDEX.md` enables two complementary ways of writing: top down and bottom up.
 
-In top-down writing, a human writes the outline, story, and summary in
-`INDEX.md`. An agent can then expand that plan into lower-level Markdown files
-and folders. The index acts as the specification for the subtree.
+In top-down writing, a human writes the overview in **`outline.md`**. An agent
+then expands that plan into `draft.md` and child folders. The INDEX file tracks
+structure (`child_order`, links) for the system.
 
-In bottom-up writing, a human writes the child Markdown files first. An agent can
-then create or refresh `INDEX.md` by reading those children and summarizing their
-shared purpose, structure, and relationships. The index acts as the synthesized
-map of the subtree.
+In bottom-up writing, a human writes `draft.md` (and child content) first. An
+agent refreshes **`outline.md`** from those files and updates INDEX metadata as
+needed.
 
 The same file supports both directions because it sits between intent and
 implementation. It can be written before the children exist, or regenerated after
@@ -41,15 +40,11 @@ repository. A nested `INDEX.md` describes only the section beneath its own
 folder. This keeps each node small enough to edit, summarize, regenerate, and
 review.
 
-## Metadata
+## Metadata (INDEX.md — technical, not shown in UI)
 
-Each `INDEX.md` should have frontmatter with a `composed_at_commit` field saying
-which Git commit it was composed from. When child files change after that commit,
-the index can be treated as stale and regenerated.
+Each folder's **`INDEX.md`** holds coordination metadata only: `composed_at_commit`, `child_order`, `links`, `status`, and similar fields. Authors edit **`outline.md`** for the readable overview and **`draft.md`** for manuscript text.
 
-This turns the index into a cached summary with provenance. It does not need to
-be trusted blindly; it can be checked against Git history and refreshed when the
-subtree has moved on.
+When child files change after the commit recorded in `composed_at_commit`, the outline can be treated as stale and regenerated.
 
 ## Agent Contract
 
@@ -67,11 +62,15 @@ make the index more accurate, not erase useful editorial decisions.
 
 ## Role in Generated Views
 
-Generated views can use `INDEX.md` as the display model for each folder. The
-title, summary, outline, and child links provide a natural navigation surface
-without requiring a separate application database.
+Generated views can use each folder's outline as the display model. The
+title, summary, outline links, and child order provide a natural navigation
+surface without requiring a separate application database.
+
+In TreeWriter, **`INDEX.md` is hidden** from the file tree. Authors see
+**Outline** (`outline.md`) and **Draft** (`draft.md`). The graph uses INDEX
+`links` plus outline structure — not draft wikilinks.
 
 Because the repository remains the source of truth, the view can be discarded and
 rebuilt. The durable model is the Git-backed tree of Markdown files, with
-`INDEX.md` files providing the summaries and structure needed to make that tree
-usable.
+outline files (`INDEX.md`) providing the summaries and structure needed to make
+that tree usable.
