@@ -9,9 +9,9 @@ related: ["[[PRD]]", "[[architecture]]", "[[phase-2-paper-model]]", "[[tool-asse
 
 # TreeWriter — Development Doc
 
-This is the **as-built** reference. Where [[architecture]] and the phase docs describe *intent*, this doc describes *what the code does today*, grounded in the source. It also carries the verified-issue catalogue (§12) and the fix roadmap (§13).
+This is the **as-built** reference. Where phase docs describe *intent*, this doc describes *what the code does today*, grounded in the source. It also carries the verified-issue catalogue (§12) and the fix roadmap (§13).
 
-> **Authority note.** The Component Map and Data-Flow steps at the top of [[architecture]] still describe the abandoned flat `outlines/ notes/ drafts/ final/` layout. That is stale. The recursive 3-file model below (§4) is canonical. Update or delete those sections of architecture.md.
+> **Doc map.** [[architecture]] is the high-level system map (component diagram, data flows, ports). [[PRD]] §2 is the capability checklist. This file is the detailed as-built authority.
 
 ---
 
@@ -104,7 +104,7 @@ links: ["results/yeast-experiment", …] # cross-branch wikilink targets
 
 ### 4.4 Status enum (INVARIANT)
 
-Units: **`outline` → `drafted` → `approved`** only. `countUnitsUnder` buckets anything else as `outline`. Scaffold currently writes `"draft"` (wrong) — §12.19. Export defaults to `approved`-only unless `includeDrafts`.
+Units: **`outline` → `drafted` → `approved`** only. `countUnitsUnder` buckets anything else as `outline`. Export defaults to `approved`-only unless `includeDrafts`. Status auto-advances on dispatch complete (M8).
 
 ### 4.5 Ordering (INVARIANT)
 
@@ -112,7 +112,7 @@ Order is editorial, **separate from filesystem**. Paper uses `section_order`; co
 
 ### 4.6 Naming (INVARIANT)
 
-`assertNodeName` ([modelFs.ts:37](../../view/backend/src/modelFs.ts)) — folder-safe slugs. **Currently too loose**: allows shell metacharacters (§12.5). Should be `[a-z0-9-_]` only.
+`assertNodeName` ([modelFs.ts:37](../../view/backend/src/modelFs.ts)) — folder-safe slugs: `[a-z0-9-_]+` only (M7).
 
 ---
 
@@ -315,19 +315,20 @@ Severity scoped to **localhost single-user**. Each verified against source.
 - **12.17 (low)** No loading skeletons.
 
 ### Docs / devex
-- **12.18 (medium)** [[architecture]] self-contradicts (old flat layout up top vs recursive tree below); port drift (8888 vs 8080). PRD/phase-2 predate the `outline.md` split; PRD endpoint table missing 4 routes.
-- **12.19 (high)** `scaffold-roboculture.mjs` still writes idea into `INDEX.md` body (no `outline.md`) and unit `status:"draft"` (not `drafted`) + paper `"submitted"` → fresh scaffolds show "No summary yet" in compose and all units bucket as `outline` in dashboard. **Note:** the live `model/papers/roboculture/` tree was migrated to `outline.md` (29 files) but INDEX titles remain lowercase slugs and `status:"draft"`. Fix scaffold script; optionally normalize roboculture INDEX metadata. ([scaffold-roboculture.mjs](../../scripts/scaffold-roboculture.mjs))
+- **12.19 (fixed)** `scaffold-roboculture.mjs` wrote idea into `INDEX.md` body and `status:"draft"`. Fixed in M7; live roboculture tree may still have legacy metadata.
 - **12.20 (medium)** Test gaps — see §11.
 - **12.21 (low)** `.treewriter-prompt.txt` not gitignored (untracked clutter; not auto-committed since sync does `git add model` only). No CI/typecheck gate. Graph endpoint rebuilds every request (PRD F3 promised cache+invalidate-on-watch).
 
 ### Recently fixed
-- **12.22 (fixed)** Section workspace heading text clipped first letter (`Summary` → `ummary`, link-in-h3 titles → `ackground`). Caused by inline `<button>` inside ATX headings + link embedded in `### [title](…)`. Fixed: plain `### Title` + separate drill-down link in `compose.ts`, nav links as `<a>` in `MarkdownViewer`, `.markdown-pane` CSS. (commit `dff1749`)
+- **12.22 (fixed)** Section workspace heading text clipped first letter. Fixed in M6.5. (commit `dff1749`)
+- **12.18 (fixed)** Architecture doc + PRD API table synced to as-built (M-docs).
+- **M7–M11 (fixed)** Path safety, scaffold, per-session prompts, unified modelFs, authoring UX, export/Overleaf, search/graph cache, comments/presence — see §13 milestone notes.
 
 ---
 
 ## 13. Roadmap
 
-> **M11 collab shipped.** Roadmap M1–M11 complete; M-docs remains parallel/low urgency.
+> **Roadmap M1–M11 + M-docs complete.** Remaining work is polish (F4/F6), test gaps (§11), and optional roboculture metadata normalization.
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
@@ -339,6 +340,7 @@ Severity scoped to **localhost single-user**. Each verified against source.
 | **M9 — Export + Overleaf v1.1** | Duplicate-heading skip, cite warnings, CSL/bib from literature notes, Overleaf push | **done** |
 | **M10 — Navigation polish** | Search API (F2), graph zoom/pan/cache, subsection reorder | **done** |
 | **M11 — Collab** | Comments sidecar, Overleaf round-trip, presence | **done** |
+| **M-docs** | Rewrite [[architecture]], sync [[PRD]] §2/§4 | **done** |
 
 ### M7 — Hardening (~2–3 days)
 
@@ -384,9 +386,11 @@ Backend + correctness only. No UI redesign.
 - Overleaf feedback import (`POST /api/overleaf/import`).
 - In-memory presence (`/api/presence/*`), edit-lock banner.
 
-### M-docs (parallel, low urgency)
+### M-docs — **done**
 
-Rewrite top half of [[architecture]] (§12.18); keep [[PRD]] §2 capability table in sync; this doc stays the as-built authority.
+- Rewrote [[architecture]] component map + data flows (recursive 3-file model; no flat `drafts/`/`final/`).
+- Synced [[PRD]] §4 API contract (search, section-compose, sessions, Overleaf, comments, presence).
+- Fixed port map (TreeWriter 5173/4000; Quartz optional 8080).
 
 ---
 

@@ -189,11 +189,11 @@ app.post("/api/model/file", async (req, res, next) => {
 ```
 `indexSkeleton(rel, kind)` returns the frontmatter + body for the node kind ([[phase-2-paper-model]] schemas): container → `kind, title, child_order: []`, body = idea placeholder; unit → `kind: unit, title, status: outline, links: []`, body = idea placeholder. Unit create also writes an empty `draft.md`.
 
-**Comments sidecar (data model fixed here):** comments attach to **any** `.md` — both a unit's `INDEX.md` (idea) and its `draft.md` (text) — stored in `sections/.comments/{relative-path}.comments.json`. Endpoints `GET/POST/PATCH/DELETE /api/comments` land with F5/F-collab; the path scheme is reserved now so nothing else writes there ([[phase-2-paper-model]], [[phase-5-collaboration]]).
+**Comments sidecar:** comments attach to **any** `.md` — both a unit's `outline.md` / `INDEX.md` (idea) and its `draft.md` (text) — stored in `sections/.comments/{relative-path}.comments.json`. Implemented: `GET/POST/PATCH/DELETE /api/comments`, `CommentsPanel` in the editor ([[phase-5-collaboration]]).
 
-**Frontend:** sidebar (`:579`) context actions — "New section / subsection / unit" (kind inferred from the selected node's depth, overridable) → `POST /api/model/node`. Card header (`:325`) gets rename + delete (delete behind confirm). Drag-reorder siblings → `POST /api/model/reorder`. On success, existing model-events reload (`:430`) refreshes tree + graph.
+**Frontend:** sidebar context actions — "New section / subsection / unit" → `POST /api/model/node`. Inline rename/delete via `NamePromptDialog`. Drag-reorder siblings → `POST /api/model/reorder`. Model-events reload refreshes tree + graph.
 
-**Acceptance:** create a section, then a unit inside it, from the UI; both appear; parent `child_order` updated; a unit has `INDEX.md`+`draft.md`; delete removes node and its `child_order` entry; reorder persists; path traversal (`../`) rejected with 400.
+**Acceptance:** create a section, then a unit inside it, from the UI; both appear; parent `child_order` updated; a unit has `INDEX.md` + `outline.md` + `draft.md`; delete removes node and its `child_order` entry; reorder persists; path traversal (`../`) rejected with 400.
 
 ---
 
@@ -314,22 +314,28 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 
 ## 4. API Contract (summary)
 
-| Method | Endpoint | Feature | New? |
-|--------|----------|---------|------|
-| GET | `/api/model/tree` | core | exists `:173` |
-| GET/PUT | `/api/model/file` | core | exists `:184/:205` |
-| POST/DELETE | `/api/model/file` | F2 | new |
-| POST | `/api/model/node` | F2 | new |
-| POST | `/api/model/move` · `/api/model/reorder` | F2 | new |
-| GET/POST/PATCH/DELETE | `/api/comments` | F2 model / F-collab | new |
-| GET | `/api/model/graph` | F3 | new |
+| Method | Endpoint | Feature | Status |
+|--------|----------|---------|--------|
+| GET | `/health` | health check | exists |
+| GET | `/api/model/tree` | core | exists |
+| GET/PUT | `/api/model/file` | core | exists |
+| POST/DELETE | `/api/model/file` | F2 CRUD | done |
+| POST | `/api/model/node` | F2 create section/subsection/unit | done |
+| POST | `/api/model/move` · `/api/model/reorder` | F2 | done |
+| GET | `/api/model/graph` | F3 wikilink graph (cached) | done |
+| GET | `/api/model/search` | F2 full-text search | done |
+| GET | `/api/model/section-compose` | M6.5 section stitch | done |
 | GET | `/api/agent/providers` | F4 | done |
-| POST | `/api/agent/preview` | F4 | done |
+| POST | `/api/agent/preview` | F4 dispatch preview | done |
+| GET/POST/PATCH | `/api/sessions` | F4 session audit | done |
 | GET | `/api/paper/templates` | F5 | done |
 | POST | `/api/paper` · GET `/api/papers` | F5 | done |
 | POST | `/api/export` · GET `/api/export/download` | F6 | done |
-| GET/POST | `/api/git-sync/status` · `/run` | core | exists `:229/:233` (+conflictDetected F1) |
-| WS | `/terminal` · `/model-events` | core | exists `:281/:283` (+resize F0) |
+| POST | `/api/overleaf/push` · `/api/overleaf/import` | M9/M11 | done |
+| GET/POST/PATCH/DELETE | `/api/comments` · GET `/api/comments/summary` | M11 | done |
+| GET/POST/DELETE | `/api/presence/*` | M11 edit locks | done |
+| GET/POST | `/api/git-sync/status` · `/run` | core | exists |
+| WS | `/terminal` · `/model-events` | core + F0 resize | exists |
 
 ## 5. Sequencing and Estimates
 
@@ -347,8 +353,9 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 | M9 — Export + Overleaf | Duplicate headings, cite warnings, CSL/bib, Overleaf push | 3–5 days | **done** |
 | M10 — Nav polish | Search API, graph zoom/pan/cache, subsection reorder | 2–3 days | **done** |
 | M11 — Collab | Comments, Overleaf round-trip, presence | — | **done** |
+| M-docs | Architecture rewrite, PRD API sync | — | **done** |
 
-Total ≈ 18–24 working days for M1–M10. M1–M6.5 is the demoable core (≈ 10–12 days).
+Total ≈ 18–24 working days for M1–M11.
 
 ## 6. Dependencies to Install
 - Frontend: `d3-force d3-selection d3-zoom` (F3).
@@ -366,5 +373,6 @@ Total ≈ 18–24 working days for M1–M10. M1–M6.5 is the demoable core (≈
 ## 8. Out of Scope (deferred, with trigger)
 - PageIndex RAG — revisit when model exceeds ~50 files ([[tool-assessment]]).
 - Quartz static export for remote reviewers — on-demand `npx quartz build` only, not in dev loop.
-- Auth / presence / inline comments — [[phase-5-collaboration]]; add when team > ~5 or exposed beyond localhost.
+- Full auth / multi-tenant — revisit before exposing beyond localhost.
+- Overleaf API thread import — v1 uses `\todo` parse from `main.tex`; API scrape deferred.
 - Server-side agent job manager with cancel/history — v1.1 upgrade to F4.
