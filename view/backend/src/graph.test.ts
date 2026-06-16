@@ -74,20 +74,26 @@ describe("buildGraph", () => {
     expect(graph.nodes.find((n) => n.id === "discussion")?.links).toBe(1);
   });
 
-  it("builds an edge from a body wikilink", async () => {
+  it("builds an edge from a plain frontmatter link path", async () => {
+    await writeUnit("intro", { kind: "unit", links: ["discussion"] });
+    await writeUnit("discussion", { kind: "section" });
+    const graph = await buildGraph(root);
+    expect(graph.edges).toContainEqual({ source: "intro", target: "discussion" });
+  });
+
+  it("builds an edge from a body wikilink in the outline", async () => {
     await writeUnit("problem", { kind: "unit" }, "addressed in [[../solution]]");
     await writeUnit("solution", { kind: "unit" });
     const graph = await buildGraph(root);
     expect(graph.edges).toContainEqual({ source: "problem", target: "solution" });
   });
 
-  it("folds draft.md links into the unit node", async () => {
+  it("does not build edges from draft.md wikilinks", async () => {
     await writeUnit("problem", { kind: "unit" });
     await writeFile(path.join(root, "problem", "draft.md"), "see [[../evidence]]\n", "utf8");
     await writeUnit("evidence", { kind: "unit" });
     const graph = await buildGraph(root);
-    expect(graph.nodes.some((n) => n.id === "problem/draft")).toBe(false);
-    expect(graph.edges).toContainEqual({ source: "problem", target: "evidence" });
+    expect(graph.edges).not.toContainEqual({ source: "problem", target: "evidence" });
   });
 
   it("emits a missing node for an unresolved link", async () => {

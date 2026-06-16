@@ -36,22 +36,22 @@ export async function loadProviders(repoRoot: string): Promise<ProviderConfig> {
   }
 }
 
-export type DispatchAction = "draft" | "revise" | "expand" | "cite-check" | "custom";
+export type DispatchAction = "draft" | "revise" | "expand" | "cite-check" | "custom" | "refresh-index" | "sync-outline";
 
-// Template variables: {idea}, {draft}, {context}, {outputPath}, {customPrompt}
+// Template variables: {idea}, {draft}, {context}, {outputPath}, {outlinePath}, {customPrompt}
 const TEMPLATES: Record<DispatchAction, string> = {
   draft: `Write a complete, publication-quality paragraph for the following section of a scientific paper.
 
-SECTION IDEA:
+SECTION OVERVIEW (outline.md):
 {idea}
 
 {context}
 
-Write the paragraph directly to file {outputPath}. Overwrite any existing content. Use formal academic language. No preamble or meta-commentary — output only the paragraph text.`,
+Write the manuscript paragraph directly to file {outputPath}. Overwrite any existing content. Use formal academic language. No preamble or meta-commentary — output only the paragraph text that will appear in the final manuscript.`,
 
   revise: `Revise the following draft paragraph for clarity, precision, and scientific rigor.
 
-SECTION IDEA (what this paragraph must convey):
+SECTION OVERVIEW (what this paragraph must convey):
 {idea}
 
 CURRENT DRAFT:
@@ -63,7 +63,7 @@ Write the revised paragraph directly to file {outputPath}. Preserve all factual 
 
   expand: `Expand the following paragraph with additional detail, supporting evidence, and improved transitions.
 
-SECTION IDEA:
+SECTION OVERVIEW:
 {idea}
 
 CURRENT DRAFT:
@@ -85,21 +85,47 @@ Write the annotated paragraph directly to file {outputPath}.`,
   custom: `{customPrompt}
 
 Target file: {outputPath}`,
+
+  "refresh-index": `Regenerate the user-facing section overview (outline.md) from its child folders and files.
+
+CURRENT OVERVIEW:
+{idea}
+
+{context}
+
+Write an updated outline.md to {outlinePath}. Include ## Summary and ## Outline sections with markdown links to children. Do not write to INDEX.md — that file holds technical metadata only.`,
+
+  "sync-outline": `Update the section overview (outline.md) from the current manuscript draft (bottom-up sync).
+
+CURRENT OVERVIEW:
+{idea}
+
+CURRENT DRAFT (manuscript text):
+{draft}
+
+Write an updated outline.md to {outlinePath}. Summarize what the draft actually says — main point, claims, and citations to preserve. The overview guides future draft revisions.`,
 };
 
-async function readUnit(
-  modelRoot: string,
-  unitPath: string,
-): Promise<{ idea: string; links: string[] }> {
+async function readOutlineDoc(modelRoot: string, unitPath: string): Promise<string> {
+  try {
+    return (await readFile(path.join(modelRoot, unitPath, "outline.md"), "utf8")).trim();
+  } catch {
+    try {
+      const raw = await readFile(path.join(modelRoot, unitPath, "INDEX.md"), "utf8");
+      return matter(raw).content.trim();
+    } catch {
+      return "";
+    }
+  }
+}
+
+async function readIndexLinks(modelRoot: string, unitPath: string): Promise<string[]> {
   try {
     const raw = await readFile(path.join(modelRoot, unitPath, "INDEX.md"), "utf8");
     const parsed = matter(raw);
-    return {
-      idea: parsed.content.trim(),
-      links: Array.isArray(parsed.data.links) ? (parsed.data.links as string[]) : [],
-    };
+    return Array.isArray(parsed.data.links) ? (parsed.data.links as string[]) : [];
   } catch {
-    return { idea: "", links: [] };
+    return [];
   }
 }
 
@@ -115,14 +141,17 @@ async function gatherContext(modelRoot: string, links: string[]): Promise<string
   const parts: string[] = [];
   for (const link of links.slice(0, 5)) {
     try {
-      let raw = "";
+      let snippet = "";
       try {
-        raw = await readFile(path.join(modelRoot, link, "INDEX.md"), "utf8");
+        snippet = (await readFile(path.join(modelRoot, link, "outline.md"), "utf8")).trim().slice(0, 500);
       } catch {
-        raw = await readFile(path.join(modelRoot, `${link}.md`), "utf8");
+        try {
+          const raw = await readFile(path.join(modelRoot, link, "INDEX.md"), "utf8");
+          snippet = matter(raw).content.trim().slice(0, 500);
+        } catch {
+          snippet = (await readFile(path.join(modelRoot, `${link}.md`), "utf8")).trim().slice(0, 500);
+        }
       }
-      const parsed = matter(raw);
-      const snippet = parsed.content.trim().slice(0, 500);
       if (snippet) parts.push(`[${link}]\n${snippet}`);
     } catch {
       // unresolved link — skip silently
@@ -146,28 +175,32 @@ export async function buildPreview(
   provider: AiProvider,
   customPrompt?: string,
 ): Promise<PreviewResult> {
-  // outputPath is relative to modelRoot (== terminal cwd)
-  const outputRelPath = `${unitPath}/draft.md`;
+  const outlineRelPath = `${unitPath}/outline.md`;
+  const outputRelPath =
+    action === "refresh-index" || action === "sync-outline"
+      ? outlineRelPath
+      : `${unitPath}/draft.md`;
 
-  const { idea, links } = await readUnit(modelRoot, unitPath);
-  const needsDraft = action !== "draft" && action !== "custom";
+  const idea = await readOutlineDoc(modelRoot, unitPath);
+  const links = await readIndexLinks(modelRoot, unitPath);
+  const needsDraft =
+    action !== "draft" && action !== "custom" && action !== "refresh-index";
   const draft = needsDraft ? await readDraft(modelRoot, unitPath) : "";
   const context = await gatherContext(modelRoot, links);
 
   const prompt = TEMPLATES[action]
-    .replace("{idea}", idea || "(no idea defined)")
+    .replace("{idea}", idea || "(no overview defined)")
     .replace("{draft}", draft || "(no draft yet)")
     .replace("{context}", context)
     .replace("{outputPath}", outputRelPath)
+    .replace("{outlinePath}", outlineRelPath)
     .replace("{customPrompt}", customPrompt ?? "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // Write to file so the shell command avoids inline escaping of multiline text.
-  // Terminal cwd is modelRoot; prompt file is one level up at repoRoot.
   const promptFile = path.join(repoRoot, ".treewriter-prompt.txt");
   await writeFile(promptFile, prompt, "utf8");
-  const promptRef = `../.treewriter-prompt.txt`; // relative from terminal's cwd (model/)
+  const promptRef = `../.treewriter-prompt.txt`;
 
   const argStr = provider.args
     .map((a) =>

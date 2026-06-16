@@ -11,13 +11,15 @@ interface AiProvider {
   writesFiles: boolean;
 }
 
-type DispatchAction = "draft" | "revise" | "expand" | "cite-check" | "custom";
+type DispatchAction = "draft" | "revise" | "expand" | "cite-check" | "custom" | "refresh-index" | "sync-outline";
 
 const ACTIONS: { value: DispatchAction; label: string }[] = [
-  { value: "draft", label: "Draft" },
-  { value: "revise", label: "Revise" },
-  { value: "expand", label: "Expand" },
+  { value: "draft", label: "Draft from outline" },
+  { value: "sync-outline", label: "Sync outline from draft" },
+  { value: "revise", label: "Revise draft" },
+  { value: "expand", label: "Expand draft" },
   { value: "cite-check", label: "Cite-check" },
+  { value: "refresh-index", label: "Refresh outline" },
   { value: "custom", label: "Custom" },
 ];
 
@@ -67,12 +69,16 @@ export function DispatchPanel({
   currentPath,
   onSendToTerminal,
   onError,
+  onToggle,
+  embedded = false,
 }: {
   currentPath: string;
   onSendToTerminal: (command: string) => void;
   onError: (message: string) => void;
+  onToggle?: () => void;
+  embedded?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [providersLoaded, setProvidersLoaded] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState("");
@@ -111,23 +117,32 @@ export function DispatchPanel({
   }, []);
 
   useEffect(() => {
-    if (open) void loadSessions(currentPath);
-  }, [currentPath, open, loadSessions]);
+    if (open || embedded) void loadProviders();
+  }, [embedded, open]);
+
+  useEffect(() => {
+    if (open || embedded) void loadSessions(currentPath);
+  }, [currentPath, embedded, open, loadSessions]);
 
   const handleToggle = () => {
     setOpen((v) => {
-      if (!v) {
+      const next = !v;
+      if (next) {
         void loadProviders();
         void loadSessions(currentPath);
       }
-      return !v;
+      window.requestAnimationFrame(() => onToggle?.());
+      return next;
     });
     setPreview(null);
     setEditedCommand("");
   };
 
   const handlePreview = async (runAfter = false): Promise<void> => {
-    if (!currentPath) { onError("Navigate to a unit first"); return; }
+    if (!currentPath && action !== "refresh-index") {
+      onError("Navigate to a unit or folder first");
+      return;
+    }
     setLoading(true);
     setPreview(null);
     try {
@@ -201,31 +216,32 @@ export function DispatchPanel({
   };
 
   return (
-    <div className="border-b border-border">
-      {/* Header toggle */}
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground hover:bg-accent/50"
-        onClick={handleToggle}
-      >
-        {open ? (
-          <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
-        ) : (
-          <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
-        )}
-        <Bot className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span className="font-semibold uppercase tracking-wide">AI Dispatch</span>
-        {sessions.length > 0 && (
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-            {sessions.length}
-          </span>
-        )}
-        {currentPath && (
-          <span className="ml-auto max-w-[140px] truncate font-mono opacity-60">{currentPath}</span>
-        )}
-      </button>
+    <div className="bg-[hsl(var(--sidebar-bg))]">
+      {!embedded ? (
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-muted-foreground hover:bg-accent/40"
+          onClick={handleToggle}
+        >
+          {open ? (
+            <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+          )}
+          <Bot className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="font-semibold uppercase tracking-wide">AI Dispatch</span>
+          {sessions.length > 0 && (
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+              {sessions.length}
+            </span>
+          )}
+          {currentPath && (
+            <span className="ml-auto max-w-[140px] truncate font-mono opacity-60">{currentPath}</span>
+          )}
+        </button>
+      ) : null}
 
-      {open && (
+      {(open || embedded) && (
         <div className="space-y-2 px-3 pb-3">
           {/* Provider + action */}
           <div className="flex gap-2">

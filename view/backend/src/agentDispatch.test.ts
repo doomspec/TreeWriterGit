@@ -67,8 +67,9 @@ describe("buildPreview", () => {
   async function makeUnit(unitPath: string, idea: string, links: string[] = []) {
     const abs = path.join(modelRoot, unitPath);
     await mkdir(abs, { recursive: true });
-    const fm = `---\nkind: unit\nstatus: outline\nlinks: [${links.map((l) => JSON.stringify(l)).join(", ")}]\n---\n# Title\n\n${idea}\n`;
+    const fm = `---\nkind: unit\nstatus: outline\nlinks: [${links.map((l) => JSON.stringify(l)).join(", ")}]\n---\n`;
     await writeFile(path.join(abs, "INDEX.md"), fm, "utf8");
+    await writeFile(path.join(abs, "outline.md"), `# Title\n\n${idea}\n`, "utf8");
     await writeFile(path.join(abs, "draft.md"), "", "utf8");
   }
 
@@ -78,10 +79,10 @@ describe("buildPreview", () => {
     expect(result.outputPath).toBe("intro/problem/draft.md");
   });
 
-  it("draft action: prompt contains SECTION IDEA", async () => {
+  it("draft action: prompt contains section overview from outline.md", async () => {
     await makeUnit("intro/problem", "State the research gap.");
     const result = await buildPreview(modelRoot, repoRoot, "intro/problem", "draft", provider);
-    expect(result.prompt).toContain("SECTION IDEA");
+    expect(result.prompt).toContain("SECTION OVERVIEW");
     expect(result.prompt).toContain("State the research gap.");
   });
 
@@ -152,7 +153,7 @@ describe("buildPreview", () => {
     const abs = path.join(modelRoot, "orphan/unit");
     await mkdir(abs, { recursive: true });
     const result = await buildPreview(modelRoot, repoRoot, "orphan/unit", "draft", provider);
-    expect(result.prompt).toContain("no idea defined");
+    expect(result.prompt).toContain("no overview defined");
     expect(result.outputPath).toBe("orphan/unit/draft.md");
   });
 });

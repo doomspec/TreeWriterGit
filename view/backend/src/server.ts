@@ -16,11 +16,19 @@ import {
   deleteNode,
   moveNode,
   reorderChildren,
+  materializeOutline,
+  materializeDraft,
   type NodeKind
 } from "./modelFs.js";
 import { buildGraph } from "./graph.js";
 import { loadProviders, buildPreview, type DispatchAction } from "./agentDispatch.js";
 import { listSessions, createSession, updateSessionStatus } from "./sessions.js";
+import {
+  scaffoldPaper,
+  listPapers,
+  getPaperDetail,
+  listJournalTemplates,
+} from "./papers.js";
 
 type ClientMessage =
   | {
@@ -223,7 +231,33 @@ app.get("/api/model/file", async (request, response, next) => {
   try {
     const relativePath = String(request.query.path ?? "");
     const absolutePath = toModelPath(relativePath);
-    const fileStat = await stat(absolutePath);
+    let fileStat;
+    try {
+      fileStat = await stat(absolutePath);
+    } catch (statError) {
+      const errno = statError as NodeJS.ErrnoException;
+      if (errno.code === "ENOENT") {
+        if (relativePath === "outline.md" || relativePath.endsWith("/outline.md")) {
+          const content = await materializeOutline(modelRoot, relativePath);
+          response.json({
+            path: relativePath,
+            content,
+            updatedAt: new Date().toISOString(),
+          });
+          return;
+        }
+        if (relativePath === "draft.md" || relativePath.endsWith("/draft.md")) {
+          const content = await materializeDraft(modelRoot, relativePath);
+          response.json({
+            path: relativePath,
+            content,
+            updatedAt: new Date().toISOString(),
+          });
+          return;
+        }
+      }
+      throw statError;
+    }
 
     if (!fileStat.isFile()) {
       response.status(400).json({ error: "Path is not a file" });
@@ -448,6 +482,52 @@ app.get("/api/git-sync/status", (_request, response) => {
 
 app.post("/api/git-sync/run", async (_request, response) => {
   response.json(await runGitSync("manual"));
+});
+
+app.get("/api/paper/templates", async (_request, response, next) => {
+  try {
+    response.json({ journals: await listJournalTemplates(modelRoot) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/papers", async (request, response, next) => {
+  try {
+    const slug = String(request.query.slug ?? "");
+    if (slug) {
+      response.json({ paper: await getPaperDetail(modelRoot, slug) });
+      return;
+    }
+    response.json({ papers: await listPapers(modelRoot) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/paper", async (request, response, next) => {
+  try {
+    const { title, journal, authors, slug } = request.body as {
+      title?: string;
+      journal?: string;
+      authors?: string[];
+      slug?: string;
+    };
+    if (!title?.trim() || !journal?.trim()) {
+      response.status(400).json({ error: "title and journal required" });
+      return;
+    }
+    const created = await scaffoldPaper(modelRoot, {
+      title: title.trim(),
+      journal: journal.trim(),
+      authors: Array.isArray(authors) ? authors : [],
+      slug,
+    });
+    broadcastModelEvent({ type: "model-changed", path: `${created.path}/INDEX.md` });
+    response.status(201).json({ ok: true, ...created });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {

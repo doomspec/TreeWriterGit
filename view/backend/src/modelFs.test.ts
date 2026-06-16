@@ -11,6 +11,8 @@ import {
   createNode,
   deleteNode,
   indexSkeleton,
+  materializeOutline,
+  materializeDraft,
   moveNode,
   reorderChildren,
   resolveModelPath,
@@ -83,14 +85,16 @@ describe("createNode", () => {
     const rel = await createNode(root, "sections", "introduction", "section");
     expect(rel).toBe("sections/introduction");
     expect(existsSync(path.join(root, rel, "INDEX.md"))).toBe(true);
+    expect(existsSync(path.join(root, rel, "outline.md"))).toBe(true);
     expect(existsSync(path.join(root, rel, "draft.md"))).toBe(false);
     expect(await childOrderOf("sections")).toEqual(["introduction"]);
   });
 
-  it("creates a unit with INDEX.md + draft.md", async () => {
+  it("creates a unit with INDEX.md, outline.md, and draft.md", async () => {
     await createNode(root, "sections", "introduction", "section");
     const rel = await createNode(root, "sections/introduction", "problem", "unit");
     expect(existsSync(path.join(root, rel, "INDEX.md"))).toBe(true);
+    expect(existsSync(path.join(root, rel, "outline.md"))).toBe(true);
     expect(existsSync(path.join(root, rel, "draft.md"))).toBe(true);
     const { data } = matter(await readFile(path.join(root, rel, "INDEX.md"), "utf8"));
     expect(data.status).toBe("outline");
@@ -171,6 +175,21 @@ describe("moveNode", () => {
   });
 });
 
+async function sectionOrderOf(rel: string): Promise<string[]> {
+  const parsed = matter(await readFile(path.join(root, rel, "INDEX.md"), "utf8"));
+  return (parsed.data.section_order as string[]) ?? [];
+}
+
+async function seedPaper(rel: string, sectionOrder: string[] = []): Promise<void> {
+  const abs = path.join(root, rel);
+  await mkdir(abs, { recursive: true });
+  await writeFile(
+    path.join(abs, "INDEX.md"),
+    matter.stringify("\n", { kind: "paper", slug: "test", section_order: sectionOrder }),
+    "utf8",
+  );
+}
+
 describe("reorderChildren", () => {
   beforeEach(async () => {
     await seedContainer("sections", []);
@@ -187,6 +206,55 @@ describe("reorderChildren", () => {
   it("rejects a non-array order with 400", async () => {
     // @ts-expect-error testing runtime guard
     await expect(reorderChildren(root, "sections", "nope")).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("rewrites section_order on paper folders", async () => {
+    await seedPaper("papers/ml-study", []);
+    await createNode(root, "papers/ml-study", "introduction", "section");
+    await createNode(root, "papers/ml-study", "methods", "section");
+    await createNode(root, "papers/ml-study", "results", "section");
+    await reorderChildren(root, "papers/ml-study", ["results", "introduction", "methods"]);
+    expect(await sectionOrderOf("papers/ml-study")).toEqual(["results", "introduction", "methods"]);
+  });
+});
+
+describe("materializeOutline", () => {
+  it("creates outline.md from INDEX body when missing", async () => {
+    await seedContainer("sections", []);
+    const indexBody = "# Intro\n\n## Summary\n\nHello.\n";
+    await writeFile(
+      path.join(root, "sections/INDEX.md"),
+      matter.stringify(indexBody, { kind: "section", child_order: [] }),
+      "utf8",
+    );
+    const content = await materializeOutline(root, "sections/outline.md");
+    expect(content).toContain("Hello.");
+    expect(existsSync(path.join(root, "sections/outline.md"))).toBe(true);
+  });
+});
+
+describe("materializeDraft", () => {
+  it("creates blank draft.md when outline.md exists", async () => {
+    await seedContainer("sections/intro", []);
+    await writeFile(path.join(root, "sections/intro/outline.md"), "# Intro\n\n", "utf8");
+    const content = await materializeDraft(root, "sections/intro/draft.md");
+    expect(content).toBe("");
+    expect(existsSync(path.join(root, "sections/intro/draft.md"))).toBe(true);
+  });
+
+  it("returns existing draft content", async () => {
+    await seedContainer("sections/intro", []);
+    await writeFile(path.join(root, "sections/intro/outline.md"), "# Intro\n\n", "utf8");
+    await writeFile(path.join(root, "sections/intro/draft.md"), "Body text\n", "utf8");
+    const content = await materializeDraft(root, "sections/intro/draft.md");
+    expect(content).toBe("Body text\n");
+  });
+
+  it("404 when outline.md is missing", async () => {
+    await seedContainer("sections/intro", []);
+    await expect(materializeDraft(root, "sections/intro/draft.md")).rejects.toMatchObject({
+      status: 404,
+    });
   });
 });
 

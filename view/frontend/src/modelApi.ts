@@ -17,7 +17,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init
   });
   const text = await response.text();
-  const body = text ? (JSON.parse(text) as unknown) : {};
+  let body: unknown = {};
+  if (text) {
+    const trimmed = text.trim();
+    if (trimmed.startsWith("<")) {
+      throw new ApiError(
+        `API returned HTML instead of JSON (${response.status}). Is the backend running at ${apiBaseUrl}?`,
+        response.status,
+      );
+    }
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      throw new ApiError(`Invalid JSON from API (${response.status})`, response.status);
+    }
+  }
   if (!response.ok) {
     const message =
       typeof body === "object" && body && "error" in body
@@ -61,5 +75,67 @@ export function reorderChildren(parent: string, childOrder: string[]) {
   return request<{ ok: true; parent: string }>("/api/model/reorder", {
     method: "POST",
     body: JSON.stringify({ parent, child_order: childOrder })
+  });
+}
+
+export interface UnitStatusCounts {
+  approved: number;
+  drafted: number;
+  outline: number;
+  total: number;
+}
+
+export interface PaperSummary {
+  slug: string;
+  path: string;
+  title: string;
+  journal: string;
+  status: string;
+  lastExport: string | null;
+  counts: UnitStatusCounts;
+}
+
+export interface SectionRollup {
+  path: string;
+  title: string;
+  counts: UnitStatusCounts;
+}
+
+export interface PaperDetail extends PaperSummary {
+  sections: SectionRollup[];
+}
+
+export function fetchPapers() {
+  return request<{ papers: PaperSummary[] }>("/api/papers");
+}
+
+export function fetchPaperDetail(slug: string) {
+  return request<{ paper: PaperDetail }>(`/api/papers?slug=${encodeURIComponent(slug)}`);
+}
+
+export function fetchJournalTemplates() {
+  return request<{ journals: string[] }>("/api/paper/templates");
+}
+
+export function createPaper(body: {
+  title: string;
+  journal: string;
+  authors: string[];
+  slug?: string;
+}) {
+  return request<{ ok: true; slug: string; path: string }>("/api/paper", {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+}
+
+export function exportPaper(body: {
+  paperSlug: string;
+  format: "latex" | "pdf";
+  includeDrafts?: boolean;
+}) {
+  return request<{ path: string; downloadUrl: string; format: string }>("/api/export", {
+    method: "POST",
+    body: JSON.stringify(body)
   });
 }

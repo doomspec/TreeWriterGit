@@ -40,41 +40,115 @@ function assertNodeName(name: string): void {
   }
 }
 
-/** Frontmatter + body skeleton for a freshly created node. */
+/** Technical metadata only — hidden from authors in the UI. */
 export function indexSkeleton(name: string, kind: NodeKind): string {
   const title = titleCase(name);
   if (kind === "unit") {
-    return matter.stringify(
-      `# ${title}\n\nMain idea: _what this paragraph must say, evidence to use, citations to hit._\n`,
-      { kind: "unit", title, status: "outline", links: [] }
-    );
+    return matter.stringify("\n", { kind: "unit", title, status: "outline", links: [] });
   }
-  return matter.stringify(`# ${title}\n\n_Outline / narrative arc for this ${kind}._\n`, {
+  return matter.stringify("\n", {
     kind,
     title,
-    child_order: []
+    child_order: [],
+    links: [],
+    composed_at_commit: null,
   });
+}
+
+/** User-facing section overview — visible as "Outline" in the UI. */
+export function outlineDocSkeleton(name: string, kind: NodeKind): string {
+  const title = titleCase(name);
+  if (kind === "unit") {
+    return `# ${title}\n\nOverview: _what this paragraph covers in the manuscript — main point, evidence, and citations._\n`;
+  }
+  return `# ${title}\n\n## Summary\n\n_Overview of this section for authors and readers._\n\n## Outline\n\n`;
 }
 
 const indexPathFor = (parentRel: string): string =>
   parentRel ? `${parentRel}/INDEX.md` : "INDEX.md";
 
-async function patchChildOrder(
+type OrderKey = "child_order" | "section_order";
+
+function orderKeyFor(data: Record<string, unknown>): OrderKey {
+  if (data.kind === "paper") return "section_order";
+  if (Array.isArray(data.section_order) && data.section_order.length > 0) return "section_order";
+  return "child_order";
+}
+
+async function patchNodeOrder(
   modelRoot: string,
   parentRel: string,
-  mutate: (order: string[]) => string[]
+  mutate: (order: string[]) => string[],
 ): Promise<void> {
   const indexRel = indexPathFor(parentRel);
   const indexAbs = resolveModelPath(modelRoot, indexRel);
   if (!existsSync(indexAbs)) {
-    return; // no parent INDEX → nothing to track (e.g. model root)
+    return;
   }
-  // gray-matter caches parsed objects by input string; never mutate parsed.data
-  // (a mutated cache entry resurfaces when content cycles back to a seen string).
   const parsed = matter(await readFile(indexAbs, "utf8"));
-  const current: string[] = Array.isArray(parsed.data.child_order) ? parsed.data.child_order : [];
-  const data = { ...parsed.data, child_order: mutate([...current]) };
+  const key = orderKeyFor(parsed.data as Record<string, unknown>);
+  const current: string[] = Array.isArray(parsed.data[key]) ? (parsed.data[key] as string[]) : [];
+  const data = { ...parsed.data, [key]: mutate([...current]) };
   await writeFile(indexAbs, matter.stringify(parsed.content, data), "utf8");
+}
+
+/** Create outline.md from INDEX.md body when missing (lazy migration). */
+export async function materializeOutline(modelRoot: string, outlineRel: string): Promise<string> {
+  const normalized = outlineRel.split(path.sep).join("/");
+  if (normalized !== "outline.md" && !normalized.endsWith("/outline.md")) {
+    throw new ModelFsError("Not an outline path", 400);
+  }
+  const outlineAbs = resolveModelPath(modelRoot, normalized);
+  if (existsSync(outlineAbs)) {
+    return readFile(outlineAbs, "utf8");
+  }
+  const dir = path.posix.dirname(normalized);
+  const parentRel = dir === "." ? "" : dir;
+  const indexRel = parentRel ? `${parentRel}/INDEX.md` : "INDEX.md";
+  const indexAbs = resolveModelPath(modelRoot, indexRel);
+  if (!existsSync(indexAbs)) {
+    throw new ModelFsError(`No INDEX.md for ${normalized}`, 404);
+  }
+  const parsed = matter(await readFile(indexAbs, "utf8"));
+  const fm = parsed.data as Record<string, unknown>;
+  let content = parsed.content.trim();
+  if (!content) {
+    const name = parentRel ? path.posix.basename(parentRel) : "model";
+    const rawKind = String(fm.kind ?? "section");
+    const kind: NodeKind =
+      rawKind === "unit" || rawKind === "subsection" || rawKind === "section"
+        ? rawKind
+        : "section";
+    content = outlineDocSkeleton(name, kind);
+  }
+  if (!content.endsWith("\n")) {
+    content += "\n";
+  }
+  await mkdir(path.dirname(outlineAbs), { recursive: true });
+  await writeFile(outlineAbs, content, "utf8");
+  return content;
+}
+
+/** Create blank draft.md when outline.md exists but draft is missing. */
+export async function materializeDraft(modelRoot: string, draftRel: string): Promise<string> {
+  const normalized = draftRel.split(path.sep).join("/");
+  if (normalized !== "draft.md" && !normalized.endsWith("/draft.md")) {
+    throw new ModelFsError("Not a draft path", 400);
+  }
+  const draftAbs = resolveModelPath(modelRoot, normalized);
+  if (existsSync(draftAbs)) {
+    return readFile(draftAbs, "utf8");
+  }
+  const dir = path.posix.dirname(normalized);
+  const parentRel = dir === "." ? "" : dir;
+  const outlineRel = parentRel ? `${parentRel}/outline.md` : "outline.md";
+  const outlineAbs = resolveModelPath(modelRoot, outlineRel);
+  if (!existsSync(outlineAbs)) {
+    throw new ModelFsError(`No outline.md for ${normalized}`, 404);
+  }
+  await mkdir(path.dirname(draftAbs), { recursive: true });
+  await writeFile(draftAbs, "", "utf8");
+  return "";
 }
 
 export async function createFile(
@@ -106,11 +180,12 @@ export async function createNode(
   }
   await mkdir(abs, { recursive: true });
   await writeFile(path.join(abs, "INDEX.md"), indexSkeleton(name, kind), "utf8");
+  await writeFile(path.join(abs, "outline.md"), outlineDocSkeleton(name, kind), "utf8");
   if (kind === "unit") {
     await writeFile(path.join(abs, "draft.md"), "", "utf8");
   }
-  await patchChildOrder(modelRoot, parentRel, (order) =>
-    order.includes(name) ? order : [...order, name]
+  await patchNodeOrder(modelRoot, parentRel, (order) =>
+    order.includes(name) ? order : [...order, name],
   );
   return nodeRel;
 }
@@ -129,7 +204,9 @@ export async function deleteNode(
   }
   const info = await stat(abs);
   if (info.isDirectory()) {
-    const entries = (await readdir(abs)).filter((e) => e !== "INDEX.md" && e !== "draft.md");
+    const entries = (await readdir(abs)).filter(
+      (e) => e !== "INDEX.md" && e !== "outline.md" && e !== "draft.md",
+    );
     if (entries.length > 0 && !recursive) {
       throw new ModelFsError(`Directory not empty: ${relativePath}`, 409);
     }
@@ -137,8 +214,8 @@ export async function deleteNode(
   } else {
     await rm(abs, { force: true });
   }
-  await patchChildOrder(modelRoot, path.posix.dirname(relativePath).replace(/^\.$/, ""), (order) =>
-    order.filter((n) => n !== path.posix.basename(relativePath))
+  await patchNodeOrder(modelRoot, path.posix.dirname(relativePath).replace(/^\.$/, ""), (order) =>
+    order.filter((n) => n !== path.posix.basename(relativePath)),
   );
 }
 
@@ -155,11 +232,11 @@ export async function moveNode(modelRoot: string, from: string, to: string): Pro
   await rename(fromAbs, toAbs);
   const fromParent = path.posix.dirname(from).replace(/^\.$/, "");
   const toParent = path.posix.dirname(to).replace(/^\.$/, "");
-  await patchChildOrder(modelRoot, fromParent, (order) =>
-    order.filter((n) => n !== path.posix.basename(from))
+  await patchNodeOrder(modelRoot, fromParent, (order) =>
+    order.filter((n) => n !== path.posix.basename(from)),
   );
-  await patchChildOrder(modelRoot, toParent, (order) =>
-    order.includes(path.posix.basename(to)) ? order : [...order, path.posix.basename(to)]
+  await patchNodeOrder(modelRoot, toParent, (order) =>
+    order.includes(path.posix.basename(to)) ? order : [...order, path.posix.basename(to)],
   );
 }
 
@@ -171,5 +248,5 @@ export async function reorderChildren(
   if (!Array.isArray(childOrder)) {
     throw new ModelFsError("child_order must be an array", 400);
   }
-  await patchChildOrder(modelRoot, parentRel, () => [...childOrder]);
+  await patchNodeOrder(modelRoot, parentRel, () => [...childOrder]);
 }

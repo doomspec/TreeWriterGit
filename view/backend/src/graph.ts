@@ -93,10 +93,32 @@ export function resolveTarget(
   return null;
 }
 
+/** Extract plain path targets from frontmatter `links:` arrays. */
+export function parseFrontmatterLinkList(links: unknown): string[] {
+  if (!Array.isArray(links)) return [];
+  return links.map(String).map((s) => s.trim()).filter(Boolean);
+}
+
+/** Markdown + wikilink targets from the ## Outline section and body of INDEX.md. */
+export function parseOutlineContentLinks(content: string): string[] {
+  const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  const outlineMatch = body.match(/##\s+Outline\s*\n([\s\S]*?)(?=\n##\s|\n#[^#]|$)/i);
+  const section = outlineMatch?.[1] ?? body;
+  const out: string[] = [];
+  const mdLink = /\*\s+\[([^\]]+)\]\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = mdLink.exec(section)) !== null) {
+    const href = m[2].trim();
+    if (href && !href.startsWith("http")) out.push(href);
+  }
+  out.push(...parseWikilinks(section));
+  out.push(...parseWikilinks(body));
+  return out;
+}
+
 /**
- * Build a wikilink graph under `rootRel`. Folder nodes (dirs with INDEX.md) fold in their
- * INDEX.md + draft.md; standalone notes are their own nodes. INDEX.md/draft.md are not
- * separate nodes. Edges come from wikilinks in frontmatter `links` and body text.
+ * Build a graph under `rootRel`. Edges come from INDEX.md frontmatter `links` (technical)
+ * and from outline.md (## Outline + wikilinks). Draft prose does not create edges.
  */
 export async function buildGraph(modelRoot: string, rootRel = ""): Promise<Graph> {
   const rootAbs = resolveModelPath(modelRoot, rootRel);
@@ -131,7 +153,7 @@ export async function buildGraph(modelRoot: string, rootRel = ""): Promise<Graph
   }
   for (const file of mdFiles) {
     const base = posix.basename(file);
-    if (base === "INDEX.md" || base === "draft.md") {
+    if (base === "INDEX.md" || base === "draft.md" || base === "outline.md") {
       continue;
     }
     addNode(stripMd(file), file); // node id without .md, source is the real file
@@ -158,15 +180,29 @@ export async function buildGraph(modelRoot: string, rootRel = ""): Promise<Graph
     let label = stripMd(posix.basename(id) || "model");
     let kind: unknown;
     for (const source of meta.sources) {
+      if (posix.basename(source) !== "INDEX.md") continue;
       const abs = resolveModelPath(modelRoot, source);
       if (!existsSync(abs)) continue;
-      const parsed = matter(await readFile(abs, "utf8"));
-      if (posix.basename(source) === "INDEX.md") {
-        if (typeof parsed.data.title === "string") label = parsed.data.title;
-        kind = parsed.data.kind;
+      const indexRaw = await readFile(abs, "utf8");
+      const parsed = matter(indexRaw);
+      if (typeof parsed.data.title === "string") label = parsed.data.title;
+      kind = parsed.data.kind;
+      const targets: string[] = [];
+      for (const rawLink of parseFrontmatterLinkList(parsed.data.links)) {
+        const wiki = parseWikilinks(rawLink);
+        if (wiki.length > 0) targets.push(...wiki);
+        else targets.push(rawLink);
       }
-      const fmLinks = Array.isArray(parsed.data.links) ? parsed.data.links.map(String).join("\n") : "";
-      for (const target of [...parseWikilinks(fmLinks), ...parseWikilinks(parsed.content)]) {
+      const outlineRel = isFolder ? (sourceDir ? `${sourceDir}/outline.md` : "outline.md") : "";
+      if (outlineRel && mdFiles.includes(outlineRel)) {
+        const outlineRaw = await readFile(resolveModelPath(modelRoot, outlineRel), "utf8");
+        targets.push(...parseOutlineContentLinks(outlineRaw));
+      } else if (!isFolder || !mdFiles.includes(outlineRel)) {
+        // Legacy folders without outline.md: fall back to INDEX body links only when non-empty
+        const body = parsed.content.trim();
+        if (body) targets.push(...parseOutlineContentLinks(indexRaw));
+      }
+      for (const target of targets) {
         const resolved = resolveTarget(target, sourceDir, nodeIds, byBasename);
         const targetId = resolved ?? `missing:${target}`;
         const edgeKey = `${id}->${targetId}`;
