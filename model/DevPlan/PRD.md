@@ -1,7 +1,7 @@
 ---
 title: PRD — TreeWriter Scientific Writing Platform
 summary: Product requirements with code-level implementation details, grounded in the actual repo. Supersedes the phase docs as the build authority.
-composed_at_commit: null
+composed_at_commit: b1be1f7
 status: draft
 owner: Ilya Yakavets
 ---
@@ -335,9 +335,15 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 | M3 — Navigation | F3 | 2–3 days | done |
 | M4 — AI loop | F4 | 2–3 days | done (v1.1 polish open) |
 | M5 — Paper model | F5 full | 1–2 days | done |
-| M6 — Output | F6 (export v1), Overleaf v1.1 | 2–3 days | export v1 **done**; Overleaf push + comment import **next** |
+| M6 — Output | F6 export v1 | 2 days | **done** |
+| M6.5 — Section compose | SectionWorkspace, section-compose API, graph hierarchy, heading fix | 1–2 days | **done** |
+| M7 — Hardening | Path safety, scaffold, per-session prompts, unified modelFs helpers | 2–3 days | **next** |
+| M8 — Authoring UX | Resizable split, workspace persistence, inline CRUD, dispatch textarea, CORS | 3–4 days | planned |
+| M9 — Export + Overleaf | Duplicate headings, cite warnings, CSL/bib, Overleaf push | 3–5 days | planned |
+| M10 — Nav polish | Search API, graph zoom/pan/cache, subsection reorder | 2–3 days | planned |
+| M11 — Collab | Comments, Overleaf round-trip, presence | — | deferred |
 
-Total ≈ 10–14 working days for M1–M6. M1–M4 is the demoable core (≈ 7–9 days).
+Total ≈ 18–24 working days for M1–M10. M1–M6.5 is the demoable core (≈ 10–12 days).
 
 ## 6. Dependencies to Install
 - Frontend: `d3-force d3-selection d3-zoom` (F3).

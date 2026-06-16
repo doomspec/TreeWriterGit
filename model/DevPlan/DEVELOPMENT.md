@@ -3,7 +3,7 @@ title: TreeWriter Development Doc (as-built + roadmap)
 summary: Single source of truth for the TreeWriter scientific-writing platform as it actually exists in code, plus the verified-issue catalogue and fix roadmap. Supersedes the stale top half of architecture.md.
 status: living
 owner: Ilya Yakavets
-composed_at_commit: null
+composed_at_commit: b1be1f7
 related: ["[[PRD]]", "[[architecture]]", "[[phase-2-paper-model]]", "[[tool-assessment]]"]
 ---
 
@@ -327,25 +327,64 @@ Severity scoped to **localhost single-user**. Each verified against source.
 
 ## 13. Roadmap
 
-### M-hardening (do first — surgical)
-1. **Path safety** — `resolveModelPath` in preview/compose/sessions; `basename` session `filename`; tighten `assertNodeName` to `[a-z0-9-_]`; shell-quote output path. (§12.5/§12.6)
+> **Current sprint: M7 — Hardening.** Backend correctness and path safety before UX polish. Issues: §12.1–§12.6, §12.19–§12.20.
+
+| Milestone | Scope | Status |
+|-----------|-------|--------|
+| M1–M5 | Terminal, git sync, CRUD, graph, AI dispatch, paper model | **done** |
+| M6 | Export v1 — pandoc `.tex`/`.pdf`, PDF→`.tex` fallback | **done** |
+| **M6.5 — Section authoring** | `section-compose` API, `SectionWorkspace`, graph `outline`/`contains` edges, clickable nav links, heading-clip fix (§12.22) | **done** |
+| **M7 — Hardening** | Path safety, scaffold fix, per-session prompts, unified `isUnitDir`/`orderedChildren`, hardening tests | **next** |
+| **M8 — Authoring UX** | Resizable split, `localStorage` workspace prefs, inline CRUD, dispatch textarea, status auto-advance, CORS | planned |
+| **M9 — Export + Overleaf v1.1** | Duplicate-heading skip, cite warnings, CSL/bib, roboculture metadata, Overleaf push | planned |
+| **M10 — Navigation polish** | Search API (F2), graph zoom/pan/cache, subsection reorder | planned |
+| **M11 — Collab** | Comments sidecar, Overleaf round-trip, presence | deferred |
+
+### M7 — Hardening (~2–3 days)
+
+Backend + correctness only. No UI redesign.
+
+1. **Path safety** — `resolveModelPath` in preview/compose/sessions; `basename` session `filename`; tighten `assertNodeName` to `[a-z0-9-_]+`; shell-quote output path. (§12.5/§12.6)
 2. **Fix scaffold** — emit `outline.md`, `status:"drafted"`. (§12.19)
-3. **Per-session prompt file** — kill wrong-prompt dispatch. (§12.4)
-4. **Unify `isUnitDir` + `orderedChildren`** into `modelFs.ts`; import everywhere. (§12.1/§12.2)
-5. **Inline create form + command `<textarea>`** — kill `window.prompt`. (§12.10/§12.12)
-   *Add `sessions`/`papers` tests alongside (§11).*
+3. **Per-session prompt file** — kill wrong-prompt dispatch; gitignore `.treewriter-prompts/`. (§12.4/§12.21)
+4. **Unify `isUnitDir` + `orderedChildren`** into `modelFs.ts`; import in papers/export/compose. (§12.1/§12.2)
+5. **Hardening tests** — sessions path rejection, count/export parity, prompt isolation. (§11/§12.20)
 
-### M-ui-polish
-- Resizable outline/draft split + `localStorage` workspace persistence (navigation, pane modes, graph scope — requested, not built). (§12.16)
-- Auto-advance unit `status` on session→complete; auto-mark complete on post-dispatch event. (§12.3/§12.11)
-- CORS lock to localhost. (§12.7)
-- Graph zoom/pan/drag + keyboard a11y. (§12.13)
+**Acceptance:** crafted `../` or `;` paths return 400; fresh scaffold shows compose summaries; preview A then B then run A uses A's prompt; dashboard counts match export walk; backend tests ≥ 70.
 
-### M-docs
-- Rewrite top half of [[architecture]]; keep [[PRD]] §2 capability table in sync; this doc stays the as-built authority.
+### M8 — Authoring UX (~3–4 days)
 
-### M-collab (deferred, see [[phase-5-collaboration]])
-- Comments sidecar API (`.comments/`), Overleaf round-trip, presence.
+- Resizable outline/draft split + `localStorage` workspace persistence (nav, pane modes, graph scope, search, split ratio). (§12.16)
+- Inline create/rename/delete forms — kill `window.prompt`/`confirm`. (§12.10)
+- Dispatch command `<textarea>`. (§12.12)
+- Auto-advance unit `status` on session→complete; auto-mark complete on post-dispatch `model-changed`. (§12.3/§12.11)
+- CORS lock to `http://localhost:5173`. (§12.7)
+
+**Acceptance:** refresh restores workspace state; create node without browser dialogs; dispatch shows full multi-line command; completed dispatch bumps unit to `drafted`.
+
+### M9 — Export quality + Overleaf v1.1 (~3–5 days)
+
+- Skip duplicate `# Title` when stitching child drafts in export/compose.
+- Surface missing `[[wikilink]]` / citation warnings in export log.
+- CSL/bibliography integration — start with roboculture `references.bib`.
+- Overleaf push per [[phase-3-overleaf]].
+
+**Acceptance:** roboculture export has no doubled section headings; missing cites listed in export response; Overleaf push produces compilable project.
+
+### M10 — Navigation polish (~2–3 days)
+
+- `GET /api/model/search` (F2).
+- Graph `d3-zoom`, pan, keyboard a11y. (§12.13)
+- Graph response cache + invalidate on model watch. (§12.21)
+- Subsection drag-reorder in Papers panel (if not deferred).
+
+### M11 — Collab (deferred, see [[phase-5-collaboration]])
+
+Comments sidecar API (`.comments/`), Overleaf round-trip, presence. Trigger: team > ~5 or non-localhost exposure.
+
+### M-docs (parallel, low urgency)
+
+Rewrite top half of [[architecture]] (§12.18); keep [[PRD]] §2 capability table in sync; this doc stays the as-built authority.
 
 ---
 
