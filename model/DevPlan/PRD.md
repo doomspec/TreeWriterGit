@@ -43,15 +43,17 @@ One local app where AI writes scientific paper text in Markdown and humans colla
 | Unit dual-pane editor | `EditorWorkspace` — outline + draft side-by-side; leaf-unit routing via `isUnitFolder` | works |
 | Clickable outline links | `MarkdownViewer` — wikilink preprocess, in-app nav via `resolveNavigateTarget` | works |
 | Split editor | `MarkdownEditor` — Source / Split / Preview; compact rendered/raw per pane | works |
-| Export (F6 v1) | `POST /api/export`, `GET /api/export/download`, pandoc → `.tex`/`.pdf`, PapersPanel buttons | works |
+| Export (F6 v1) | `POST /api/export`, `GET /api/export/download`, pandoc → `.tex`/`.pdf`, cite warnings | works |
+| Overleaf push (M9) | `POST /api/overleaf/push`, PapersPanel — requires `overleaf_repo_path` | works |
+| Resizable dual-pane + workspace persistence | `ResizableDualPane`, `workspacePreferences` localStorage | works |
+| Inline CRUD dialogs | `NamePromptDialog` / `ConfirmDialog` — no `window.prompt` | works |
 | Frontend 3-col UI | sidebar + center (browse / section / unit edit) + hideable Agent panel | works |
 
 **Remaining gaps:**
 - `GET /api/model/search` — full-text search (F2 polish)
 - Comments API (`/api/comments`) — deferred to collaboration phase
-- F4 polish — status auto-advance, context checklist UI, keyboard shortcuts, section fan-out
-- F6 polish — CSL/bibliography, approved-only export, batch export
-- UI polish — resizable outline/draft split, workspace state persistence across refresh (§12.16)
+- F4 polish — context checklist UI, keyboard shortcuts, section fan-out
+- F6 polish — CSL style files, approved-only export default, batch export
 - AI-autonomous conflict resolution (sync v2) — manual terminal fallback only (v1)
 - Server-side agent job manager — F4 v1.1
 
@@ -337,10 +339,10 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 | M5 — Paper model | F5 full | 1–2 days | done |
 | M6 — Output | F6 export v1 | 2 days | **done** |
 | M6.5 — Section compose | SectionWorkspace, section-compose API, graph hierarchy, heading fix | 1–2 days | **done** |
-| M7 — Hardening | Path safety, scaffold, per-session prompts, unified modelFs helpers | 2–3 days | **next** |
-| M8 — Authoring UX | Resizable split, workspace persistence, inline CRUD, dispatch textarea, CORS | 3–4 days | planned |
-| M9 — Export + Overleaf | Duplicate headings, cite warnings, CSL/bib, Overleaf push | 3–5 days | planned |
-| M10 — Nav polish | Search API, graph zoom/pan/cache, subsection reorder | 2–3 days | planned |
+| M7 — Hardening | Path safety, scaffold, per-session prompts, unified modelFs helpers | 2–3 days | **done** |
+| M8 — Authoring UX | Resizable split, workspace persistence, inline CRUD, dispatch textarea, CORS | 3–4 days | **done** |
+| M9 — Export + Overleaf | Duplicate headings, cite warnings, CSL/bib, Overleaf push | 3–5 days | **done** |
+| M10 — Nav polish | Search API, graph zoom/pan/cache, subsection reorder | 2–3 days | **next** |
 | M11 — Collab | Comments, Overleaf round-trip, presence | — | deferred |
 
 Total ≈ 18–24 working days for M1–M10. M1–M6.5 is the demoable core (≈ 10–12 days).

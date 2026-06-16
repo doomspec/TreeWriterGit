@@ -327,17 +327,17 @@ Severity scoped to **localhost single-user**. Each verified against source.
 
 ## 13. Roadmap
 
-> **Current sprint: M7 — Hardening.** Backend correctness and path safety before UX polish. Issues: §12.1–§12.6, §12.19–§12.20.
+> **Current sprint: M10 — Navigation polish.** M7–M9 shipped. Next: search API, graph zoom/pan/cache.
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
 | M1–M5 | Terminal, git sync, CRUD, graph, AI dispatch, paper model | **done** |
 | M6 | Export v1 — pandoc `.tex`/`.pdf`, PDF→`.tex` fallback | **done** |
 | **M6.5 — Section authoring** | `section-compose` API, `SectionWorkspace`, graph `outline`/`contains` edges, clickable nav links, heading-clip fix (§12.22) | **done** |
-| **M7 — Hardening** | Path safety, scaffold fix, per-session prompts, unified `isUnitDir`/`orderedChildren`, hardening tests | **next** |
-| **M8 — Authoring UX** | Resizable split, `localStorage` workspace prefs, inline CRUD, dispatch textarea, status auto-advance, CORS | planned |
-| **M9 — Export + Overleaf v1.1** | Duplicate-heading skip, cite warnings, CSL/bib, roboculture metadata, Overleaf push | planned |
-| **M10 — Navigation polish** | Search API (F2), graph zoom/pan/cache, subsection reorder | planned |
+| **M7 — Hardening** | Path safety, scaffold fix, per-session prompts, unified `isUnitDir`/`orderedChildren`, hardening tests | **done** |
+| **M8 — Authoring UX** | Resizable split, `localStorage` workspace prefs, inline CRUD, dispatch textarea, status auto-advance, CORS | **done** |
+| **M9 — Export + Overleaf v1.1** | Duplicate-heading skip, cite warnings, CSL/bib from literature notes, Overleaf push | **done** |
+| **M10 — Navigation polish** | Search API (F2), graph zoom/pan/cache, subsection reorder | **next** |
 | **M11 — Collab** | Comments sidecar, Overleaf round-trip, presence | deferred |
 
 ### M7 — Hardening (~2–3 days)
