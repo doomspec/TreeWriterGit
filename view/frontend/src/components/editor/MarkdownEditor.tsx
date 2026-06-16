@@ -4,7 +4,7 @@ import { Eye, FileCode2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { cn } from "@/lib/utils";
-import { parseFrontmatterStatus, stripFrontmatter } from "@/lib/modelTree";
+import { parseFrontmatterStatus, parentPath, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -48,6 +48,8 @@ export function MarkdownEditor({
   onSaveStateChange,
   onError,
   className,
+  linkContextPath = "",
+  onNavigate,
 }: {
   filePath: string;
   refreshVersion: number;
@@ -58,6 +60,8 @@ export function MarkdownEditor({
   onSaveStateChange?: (state: SaveState) => void;
   onError?: (message: string) => void;
   className?: string;
+  linkContextPath?: string;
+  onNavigate?: (target: NavigateTarget) => void;
 }) {
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
@@ -314,7 +318,12 @@ export function MarkdownEditor({
                     </h1>
                   ) : null}
                   {previewBody.trim() ? (
-                    <MarkdownViewer markdown={previewBody} />
+                    <MarkdownViewer
+                      markdown={previewBody}
+                      linkContextPath={linkContextPath || parentPath(filePath)}
+                      linksClickable={Boolean(onNavigate)}
+                      onNavigate={onNavigate}
+                    />
                   ) : (
                     <p className="text-sm italic text-muted-foreground">Empty document.</p>
                   )}

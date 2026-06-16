@@ -21,6 +21,8 @@ export interface ExportPaperResult {
   path: string;
   downloadUrl: string;
   format: ExportFormat;
+  /** Set when PDF was requested but .tex was produced instead (no LaTeX engine). */
+  notice?: string;
 }
 
 const SKIP_CHILDREN = new Set(["notes", ".sessions"]);
@@ -227,10 +229,53 @@ async function assertPandocAvailable(): Promise<void> {
     await execFileAsync("pandoc", ["--version"]);
   } catch {
     throw new ModelFsError(
-      "pandoc is not installed. Install it with: brew install pandoc (PDF export also needs MacTeX or another LaTeX engine).",
+      "pandoc is not installed. Install it with: brew install pandoc",
       503,
     );
   }
+}
+
+const PDF_ENGINES = ["tectonic", "xelatex", "pdflatex", "lualatex"] as const;
+
+/** First PDF engine on PATH, preferring lightweight tectonic over full MacTeX. */
+export async function detectPdfEngine(): Promise<string | null> {
+  for (const engine of PDF_ENGINES) {
+    try {
+      await execFileAsync("which", [engine]);
+      return engine;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+async function runPandocExport(
+  combinedPath: string,
+  outPath: string,
+  format: ExportFormat,
+  bibliography: string,
+  bibPath: string,
+): Promise<void> {
+  const pandocArgs = [
+    combinedPath,
+    "--from=markdown",
+    `--to=${format === "pdf" ? "pdf" : "latex"}`,
+    "--citeproc",
+    "--output",
+    outPath,
+  ];
+  if (bibliography) {
+    pandocArgs.push("--bibliography", bibPath);
+  }
+  if (format === "pdf") {
+    const engine = await detectPdfEngine();
+    if (!engine) {
+      throw new ModelFsError("NO_PDF_ENGINE", 503);
+    }
+    pandocArgs.push("--pdf-engine", engine);
+  }
+  await execFileAsync("pandoc", pandocArgs);
 }
 
 async function patchLastExport(modelRoot: string, paperRel: string): Promise<void> {
@@ -286,38 +331,43 @@ export async function exportPaper(
     await writeFile(bibPath, bibliography, "utf8");
   }
 
-  const pandocArgs = [
-    combinedPath,
-    "--from=markdown",
-    `--to=${input.format === "pdf" ? "pdf" : "latex"}`,
-    "--citeproc",
-    "--output",
-    outPath,
-  ];
-  if (bibliography) {
-    pandocArgs.push("--bibliography", bibPath);
-  }
+  let effectiveFormat = input.format;
+  let notice: string | undefined;
+
+  const tryExport = async (format: ExportFormat, outFile: string) => {
+    await runPandocExport(combinedPath, outFile, format, bibliography, bibPath);
+  };
 
   try {
-    await execFileAsync("pandoc", pandocArgs);
+    await tryExport(input.format, outPath);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (input.format === "pdf" && /pdflatex|xelatex|lualatex|not found/i.test(message)) {
-      throw new ModelFsError(
-        "PDF export requires a LaTeX engine. Install MacTeX or export as LaTeX (.tex) instead.",
-        503,
-      );
+    if (
+      input.format === "pdf" &&
+      error instanceof ModelFsError &&
+      (error.message === "NO_PDF_ENGINE" ||
+        /pdflatex|xelatex|lualatex|tectonic|not found/i.test(error.message))
+    ) {
+      const texPath = path.join(exportDir, `${baseName}.tex`);
+      effectiveFormat = "latex";
+      await tryExport("latex", texPath);
+      notice =
+        "No LaTeX PDF engine found — downloaded .tex instead. For PDF: brew install tectonic (smaller) or brew install --cask mactex";
+    } else if (error instanceof ModelFsError) {
+      throw error;
+    } else {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ModelFsError(`pandoc export failed: ${message}`, 500);
     }
-    throw new ModelFsError(`pandoc export failed: ${message}`, 500);
   }
 
   await patchLastExport(modelRoot, paperRel);
 
-  const fileName = `${baseName}.${outExt}`;
+  const fileName = `${baseName}.${effectiveFormat === "pdf" ? "pdf" : "tex"}`;
   return {
-    path: path.relative(repoRoot, outPath).split(path.sep).join("/"),
+    path: path.relative(repoRoot, path.join(exportDir, fileName)).split(path.sep).join("/"),
     downloadUrl: `/api/export/download?file=${encodeURIComponent(fileName)}`,
-    format: input.format,
+    format: effectiveFormat,
+    notice,
   };
 }
 

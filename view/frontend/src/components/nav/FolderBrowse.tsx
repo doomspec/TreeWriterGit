@@ -25,6 +25,7 @@ import {
   parseOutlineSummary,
   stripFrontmatter,
   type ModelNode,
+  type NavigateTarget,
   type OutlineItem,
 } from "@/lib/modelTree";
 
@@ -46,6 +47,7 @@ export function FolderBrowse({
   onChanged,
   onError,
   onSendToTerminal,
+  onNavigate,
 }: {
   tree: ModelNode[];
   currentPath: string;
@@ -54,9 +56,11 @@ export function FolderBrowse({
   onChanged: () => void;
   onError: (message: string) => void;
   onSendToTerminal?: (command: string) => void;
+  onNavigate?: (target: NavigateTarget) => void;
 }) {
   const [indexContent, setIndexContent] = useState("");
   const [outlineContent, setOutlineContent] = useState("");
+  const [childSummaries, setChildSummaries] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const indexPath = indexPathFor(currentPath);
@@ -104,6 +108,32 @@ export function FolderBrowse({
       cancelled = true;
     };
   }, [indexPath, outlinePath, onError]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const dirs = childCards.filter((c) => c.kind === "directory");
+    if (dirs.length === 0) {
+      setChildSummaries({});
+      return;
+    }
+    Promise.all(
+      dirs.map(async (item) => {
+        const outline = await fetchModelFile(outlinePathFor(item.path));
+        return [item.path, parseOutlineSummary(outline) ?? ""] as const;
+      }),
+    )
+      .then((entries) => {
+        if (!cancelled) {
+          setChildSummaries(Object.fromEntries(entries));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setChildSummaries({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [childCards]);
 
   const handleDelete = async (item: OutlineItem) => {
     const deletePath = item.path;
@@ -175,6 +205,15 @@ export function FolderBrowse({
 
   const openOutlineLink = (targetPath: string | null, href: string) => {
     if (!targetPath) return;
+    if (onNavigate) {
+      if (targetPath.endsWith(".md") && !targetPath.endsWith("/INDEX.md") && !targetPath.endsWith("/outline.md")) {
+        onNavigate({ type: "file", path: targetPath });
+        return;
+      }
+      const folder = targetPath.replace(/\/?INDEX\.md$/, "");
+      onNavigate({ type: "folder", path: folder });
+      return;
+    }
     if (targetPath.endsWith(".md") && !targetPath.endsWith("/INDEX.md") && !targetPath.endsWith("/outline.md")) {
       onOpenFile(targetPath);
       return;
@@ -259,9 +298,21 @@ export function FolderBrowse({
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading outline…</p>
         ) : bodySummary ? (
-          <MarkdownViewer markdown={bodySummary} className="mt-3" />
+          <MarkdownViewer
+            markdown={bodySummary}
+            className="mt-3"
+            linkContextPath={currentPath}
+            linksClickable={Boolean(onNavigate)}
+            onNavigate={onNavigate}
+          />
         ) : indexBodyMarkdown ? (
-          <MarkdownViewer markdown={indexBodyMarkdown} className="mt-3" />
+          <MarkdownViewer
+            markdown={indexBodyMarkdown}
+            className="mt-3"
+            linkContextPath={currentPath}
+            linksClickable={Boolean(onNavigate)}
+            onNavigate={onNavigate}
+          />
         ) : null}
         {outlineLinks.length > 0 ? (
           <div className="mt-4">
@@ -306,6 +357,11 @@ export function FolderBrowse({
                   <span className="truncate font-medium">{item.name.replace(/\.md$/, "")}</span>
                 </div>
                 <span className="truncate font-mono text-[11px] text-muted-foreground">{item.subtitle}</span>
+                {item.kind === "directory" && childSummaries[item.path] ? (
+                  <p className="mt-2 line-clamp-3 text-xs text-muted-foreground">
+                    {childSummaries[item.path]}
+                  </p>
+                ) : null}
               </button>
               <div className="flex items-center justify-end gap-1 border-t border-border px-2 py-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 {isDir ? (

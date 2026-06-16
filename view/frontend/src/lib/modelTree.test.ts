@@ -67,7 +67,7 @@ links:
 `;
     const targets = outlineLinkTargets(indexMd, outlineMd, "papers/a/intro");
     expect(targets).toContain("papers/a/intro/discussion/main");
-    expect(targets).toContain("papers/a/intro/methods/INDEX.md");
+    expect(targets).toContain("papers/a/intro/methods");
   });
 });
 
@@ -113,7 +113,7 @@ describe("parseIndexOutline", () => {
     const links = parseIndexOutline(ROOT_INDEX, "");
     expect(links.length).toBeGreaterThanOrEqual(2);
     expect(links[0].label).toBe("Philosophy");
-    expect(links[0].targetPath).toBe("Philosophy/INDEX.md");
+    expect(links[0].targetPath).toBe("Philosophy");
   });
 });
 
@@ -131,7 +131,7 @@ describe("isIndexStale", () => {
 });
 
 describe("isUnitFolder", () => {
-  it("true when outline.md is present without draft", () => {
+  it("true when outline.md is present without child directories", () => {
     const node: ModelNode = {
       name: "intro",
       path: "papers/a/intro",
@@ -141,7 +141,7 @@ describe("isUnitFolder", () => {
     expect(isUnitFolder(node)).toBe(true);
   });
 
-  it("true when draft.md is present", () => {
+  it("true when draft.md is present without child directories", () => {
     const node: ModelNode = {
       name: "claim",
       path: "papers/a/claim",
@@ -149,6 +149,19 @@ describe("isUnitFolder", () => {
       children: [{ name: "draft.md", path: "papers/a/claim/draft.md", type: "file" }],
     };
     expect(isUnitFolder(node)).toBe(true);
+  });
+
+  it("false when folder has child directories (section container)", () => {
+    const node: ModelNode = {
+      name: "introduction",
+      path: "papers/a/introduction",
+      type: "directory",
+      children: [
+        { name: "outline.md", path: "papers/a/introduction/outline.md", type: "file" },
+        { name: "background", path: "papers/a/introduction/background", type: "directory" },
+      ],
+    };
+    expect(isUnitFolder(node)).toBe(false);
   });
 
   it("false for container-only folders", () => {

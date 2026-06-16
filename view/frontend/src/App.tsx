@@ -17,16 +17,19 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { RightPanel } from "@/components/layout/RightPanel";
 import { Sidebar, type SidebarTab } from "@/components/layout/Sidebar";
 import { EditorWorkspace } from "@/components/editor/EditorWorkspace";
+import { SectionWorkspace } from "@/components/editor/SectionWorkspace";
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
 import { FolderBrowse } from "@/components/nav/FolderBrowse";
 import {
   findNode,
   flattenFiles,
+  isSectionContainer,
   isUnitFolder,
   outlinePathFor,
   parentPath,
   PAPERS_ROOT,
   type ModelNode,
+  type NavigateTarget,
 } from "@/lib/modelTree";
 import { createNode, type NodeKind } from "@/modelApi";
 import { GraphPanel } from "@/GraphPanel";
@@ -79,7 +82,9 @@ export default function App() {
       : currentPath;
   const currentNode = browsePath ? findNode(tree, browsePath) : null;
   const isUnit = isUnitFolder(currentNode);
-  const unitPath = isUnit ? currentPath : null;
+  const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
+  const unitPath = isUnit ? browsePath : null;
+  const sectionPath = isPaperSection && !activeFile ? browsePath : null;
 
   const loadTree = useCallback(async () => {
     const response = await fetch(`${apiBaseUrl}/api/model/tree`);
@@ -114,14 +119,6 @@ export default function App() {
     [sidebarTab, tree],
   );
 
-  const handleSidebarTabChange = useCallback((tab: SidebarTab) => {
-    setSidebarTab(tab);
-    if (tab === "papers") {
-      setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
-      setActiveFile(null);
-    }
-  }, []);
-
   const openFile = useCallback(
     (path: string) => {
       const folder = parentPath(path);
@@ -133,6 +130,25 @@ export default function App() {
     },
     [sidebarTab],
   );
+
+  const handleMarkdownNavigate = useCallback(
+    (target: NavigateTarget) => {
+      if (target.type === "file") {
+        openFile(target.path);
+        return;
+      }
+      navigateTo(target.path);
+    },
+    [navigateTo, openFile],
+  );
+
+  const handleSidebarTabChange = useCallback((tab: SidebarTab) => {
+    setSidebarTab(tab);
+    if (tab === "papers") {
+      setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
+      setActiveFile(null);
+    }
+  }, []);
 
   useEffect(() => {
     loadTree().catch((err) => setError(err instanceof Error ? err.message : String(err)));
@@ -159,10 +175,10 @@ export default function App() {
 
   useEffect(() => {
     if (isUnit) {
-      setActiveFile(outlinePathFor(currentPath));
+      setActiveFile(outlinePathFor(browsePath));
       setEditorLayout("split");
     }
-  }, [currentPath, isUnit]);
+  }, [browsePath, isUnit]);
 
   useEffect(() => {
     const socket = new WebSocket(modelEventsUrl);
@@ -448,19 +464,27 @@ export default function App() {
                 layout={editorLayout}
                 onLayoutChange={setEditorLayout}
                 onError={setError}
+                linkContextPath={unitPath ?? parentPath(activeFile ?? "")}
+                onNavigate={handleMarkdownNavigate}
+              />
+            ) : sectionPath ? (
+              <SectionWorkspace
+                sectionPath={sectionPath}
+                refreshVersion={refreshVersion}
+                onNavigate={navigateTo}
+                onOpenFile={openFile}
+                onError={setError}
               />
             ) : (
               <FolderBrowse
                 tree={tree}
                 currentPath={browsePath}
                 onOpenFolder={navigateTo}
-                onOpenFile={(path) => {
-                  setActiveFile(path);
-                  if (path.endsWith("/INDEX.md")) setEditorLayout("split");
-                }}
+                onOpenFile={openFile}
                 onChanged={reloadModel}
                 onError={setError}
                 onSendToTerminal={sendToTerminal}
+                onNavigate={handleMarkdownNavigate}
               />
             )}
           </div>

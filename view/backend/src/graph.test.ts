@@ -69,7 +69,7 @@ describe("buildGraph", () => {
     await writeUnit("intro", { kind: "unit", links: ["[[../discussion]]"] });
     await writeUnit("discussion", { kind: "section" });
     const graph = await buildGraph(root);
-    expect(graph.edges).toContainEqual({ source: "intro", target: "discussion" });
+    expect(graph.edges).toContainEqual({ source: "intro", target: "discussion", kind: "outline" });
     expect(graph.nodes.find((n) => n.id === "intro")?.links).toBe(1);
     expect(graph.nodes.find((n) => n.id === "discussion")?.links).toBe(1);
   });
@@ -78,14 +78,14 @@ describe("buildGraph", () => {
     await writeUnit("intro", { kind: "unit", links: ["discussion"] });
     await writeUnit("discussion", { kind: "section" });
     const graph = await buildGraph(root);
-    expect(graph.edges).toContainEqual({ source: "intro", target: "discussion" });
+    expect(graph.edges).toContainEqual({ source: "intro", target: "discussion", kind: "outline" });
   });
 
   it("builds an edge from a body wikilink in the outline", async () => {
     await writeUnit("problem", { kind: "unit" }, "addressed in [[../solution]]");
     await writeUnit("solution", { kind: "unit" });
     const graph = await buildGraph(root);
-    expect(graph.edges).toContainEqual({ source: "problem", target: "solution" });
+    expect(graph.edges).toContainEqual({ source: "problem", target: "solution", kind: "outline" });
   });
 
   it("does not build edges from draft.md wikilinks", async () => {
@@ -101,7 +101,7 @@ describe("buildGraph", () => {
     const graph = await buildGraph(root);
     const missing = graph.nodes.find((n) => n.type === "missing");
     expect(missing?.id).toBe("missing:ghost-section");
-    expect(graph.edges).toContainEqual({ source: "intro", target: "missing:ghost-section" });
+    expect(graph.edges).toContainEqual({ source: "intro", target: "missing:ghost-section", kind: "outline" });
   });
 
   it("treats standalone notes as their own nodes", async () => {
@@ -114,7 +114,16 @@ describe("buildGraph", () => {
     await writeUnit("intro", { kind: "unit" }, "per [[ref]]");
     const graph = await buildGraph(root);
     expect(graph.nodes.some((n) => n.id === "notes/lit/ref")).toBe(true);
-    expect(graph.edges).toContainEqual({ source: "intro", target: "notes/lit/ref" });
+    expect(graph.edges).toContainEqual({ source: "intro", target: "notes/lit/ref", kind: "outline" });
     expect(graph.nodes.find((n) => n.id === "notes/lit/ref")?.type).toBe("note");
+  });
+
+  it("adds structural contains edges from child_order", async () => {
+    await writeUnit("paper", { kind: "paper", child_order: ["intro", "methods"] });
+    await writeUnit("intro", { kind: "section" });
+    await writeUnit("methods", { kind: "section" });
+    const graph = await buildGraph(root);
+    expect(graph.edges).toContainEqual({ source: "paper", target: "intro", kind: "contains" });
+    expect(graph.edges).toContainEqual({ source: "paper", target: "methods", kind: "contains" });
   });
 });

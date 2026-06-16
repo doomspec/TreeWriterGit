@@ -31,10 +31,11 @@ interface RawNode {
 interface RawEdge {
   source: string;
   target: string;
+  kind?: "outline" | "contains";
 }
 
 type SimNode = RawNode & SimulationNodeDatum & { isFocus?: boolean };
-type SimEdge = SimulationLinkDatum<SimNode>;
+type SimEdge = SimulationLinkDatum<SimNode> & { kind?: "outline" | "contains" };
 
 const TYPE_COLOR: Record<GraphNodeType, string> = {
   paper: "#7c3aed",
@@ -129,7 +130,11 @@ export function GraphPanel({
       ...n,
       isFocus: n.id === filtered.focusId,
     }));
-    const edges: SimEdge[] = filtered.edges.map((e) => ({ source: e.source, target: e.target }));
+    const edges: SimEdge[] = filtered.edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      kind: e.kind,
+    }));
 
     const simulation = forceSimulation(nodes)
       .force(
@@ -259,9 +264,10 @@ export function GraphPanel({
                   x2={t.x}
                   y2={t.y}
                   stroke="currentColor"
-                  className="text-primary"
+                  className={edge.kind === "contains" ? "text-muted-foreground" : "text-primary"}
                   strokeOpacity={highlight ? 0.55 : 0.2}
-                  strokeWidth={highlight ? 1.75 : 1}
+                  strokeWidth={edge.kind === "contains" ? 1 : highlight ? 1.75 : 1}
+                  strokeDasharray={edge.kind === "contains" ? "4 3" : undefined}
                 />
               );
             })}

@@ -2,7 +2,7 @@ import { Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
-import { outlinePathFor } from "@/lib/modelTree";
+import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
 
 export function EditorWorkspace({
   unitPath,
@@ -11,6 +11,8 @@ export function EditorWorkspace({
   layout,
   onLayoutChange,
   onError,
+  linkContextPath = "",
+  onNavigate,
 }: {
   unitPath: string | null;
   activeFile: string;
@@ -18,6 +20,8 @@ export function EditorWorkspace({
   layout: EditorLayout;
   onLayoutChange: (layout: EditorLayout) => void;
   onError: (message: string) => void;
+  linkContextPath?: string;
+  onNavigate?: (target: NavigateTarget) => void;
 }) {
   const isUnit = Boolean(unitPath);
   const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
@@ -46,6 +50,8 @@ export function EditorWorkspace({
             defaultPaneMode="rendered"
             className="min-h-0 border-b border-border lg:border-b-0 lg:border-r"
             onError={onError}
+            linkContextPath={linkContextPath}
+            onNavigate={onNavigate}
           />
           <MarkdownEditor
             key={draftPath}
@@ -57,6 +63,8 @@ export function EditorWorkspace({
             defaultPaneMode="rendered"
             className="min-h-0"
             onError={onError}
+            linkContextPath={linkContextPath}
+            onNavigate={onNavigate}
           />
         </div>
       </div>
@@ -99,6 +107,8 @@ export function EditorWorkspace({
         refreshVersion={refreshVersion}
         layout={layout}
         onError={onError}
+        linkContextPath={linkContextPath}
+        onNavigate={onNavigate}
       />
     </div>
   );

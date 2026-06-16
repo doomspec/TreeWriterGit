@@ -134,8 +134,11 @@ export function exportPaper(body: {
   format: "latex" | "pdf";
   includeDrafts?: boolean;
 }) {
-  return request<{ path: string; downloadUrl: string; format: string }>("/api/export", {
-    method: "POST",
-    body: JSON.stringify(body)
-  });
+  return request<{ path: string; downloadUrl: string; format: string; notice?: string }>(
+    "/api/export",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 }

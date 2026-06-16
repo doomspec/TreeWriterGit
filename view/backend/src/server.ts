@@ -21,6 +21,7 @@ import {
   type NodeKind
 } from "./modelFs.js";
 import { buildGraph } from "./graph.js";
+import { composeSectionView } from "./compose.js";
 import { loadProviders, buildPreview, type DispatchAction } from "./agentDispatch.js";
 import { listSessions, createSession, updateSessionStatus } from "./sessions.js";
 import {
@@ -369,6 +370,19 @@ app.get("/api/model/graph", async (request, response, next) => {
   try {
     const root = String(request.query.root ?? "");
     response.json(await buildGraph(modelRoot, root));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/section-compose", async (request, response, next) => {
+  try {
+    const pathParam = String(request.query.path ?? "");
+    if (!pathParam) {
+      response.status(400).json({ error: "path query parameter is required" });
+      return;
+    }
+    response.json(await composeSectionView(modelRoot, pathParam));
   } catch (error) {
     next(error);
   }

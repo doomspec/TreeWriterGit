@@ -10,6 +10,7 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string;
   target: string;
+  kind?: "outline" | "contains";
 }
 
 export type GraphScope = "local" | "global";

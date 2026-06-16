@@ -17,6 +17,8 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string;
   target: string;
+  /** `outline` = semantic link; `contains` = parent→child from child_order */
+  kind?: "outline" | "contains";
 }
 
 export interface Graph {
@@ -99,21 +101,30 @@ export function parseFrontmatterLinkList(links: unknown): string[] {
   return links.map(String).map((s) => s.trim()).filter(Boolean);
 }
 
-/** Markdown + wikilink targets from the ## Outline section and body of INDEX.md. */
+/** Markdown + wikilink targets from the ## Outline section (or legacy INDEX body). */
 export function parseOutlineContentLinks(content: string): string[] {
   const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
   const outlineMatch = body.match(/##\s+Outline\s*\n([\s\S]*?)(?=\n##\s|\n#[^#]|$)/i);
   const section = outlineMatch?.[1] ?? body;
   const out: string[] = [];
-  const mdLink = /\*\s+\[([^\]]+)\]\(([^)]+)\)/g;
+  const mdLink = /\[[^\]]+\]\(([^)]+)\)/g;
   let m: RegExpExecArray | null;
   while ((m = mdLink.exec(section)) !== null) {
-    const href = m[2].trim();
+    const href = m[1].trim();
     if (href && !href.startsWith("http")) out.push(href);
   }
   out.push(...parseWikilinks(section));
-  out.push(...parseWikilinks(body));
+  if (!outlineMatch) {
+    out.push(...parseWikilinks(body));
+  }
   return out;
+}
+
+/** Child folder names from INDEX frontmatter ordering. */
+export function parseChildOrder(data: Record<string, unknown>): string[] {
+  const sectionOrder = Array.isArray(data.section_order) ? data.section_order.map(String) : [];
+  const childOrder = Array.isArray(data.child_order) ? data.child_order.map(String) : [];
+  return sectionOrder.length > 0 ? sectionOrder : childOrder;
 }
 
 /**
@@ -205,14 +216,30 @@ export async function buildGraph(modelRoot: string, rootRel = ""): Promise<Graph
       for (const target of targets) {
         const resolved = resolveTarget(target, sourceDir, nodeIds, byBasename);
         const targetId = resolved ?? `missing:${target}`;
-        const edgeKey = `${id}->${targetId}`;
+        const edgeKey = `${id}->${targetId}:outline`;
         if (seenEdge.has(edgeKey) || targetId === id) continue;
         seenEdge.add(edgeKey);
-        edges.push({ source: id, target: targetId });
+        edges.push({ source: id, target: targetId, kind: "outline" });
         bump(id);
         bump(targetId);
         if (!resolved && !nodes.has(targetId)) {
           nodes.set(targetId, { id: targetId, label: target, type: "missing", links: 0 });
+        }
+      }
+
+      for (const childName of parseChildOrder(parsed.data as Record<string, unknown>)) {
+        const childCandidates = sourceDir
+          ? [`${sourceDir}/${childName}`, childName]
+          : [childName];
+        for (const childId of childCandidates) {
+          if (!nodeIds.has(childId) || childId === id) continue;
+          const edgeKey = `${id}->${childId}:contains`;
+          if (seenEdge.has(edgeKey)) continue;
+          seenEdge.add(edgeKey);
+          edges.push({ source: id, target: childId, kind: "contains" });
+          bump(id);
+          bump(childId);
+          break;
         }
       }
     }

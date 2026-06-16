@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   childrenOf,
   indexPathFor,
+  orderedChildFolders,
   parseIndexFrontmatter,
   sectionsForPaper,
   type ModelNode,
@@ -43,12 +44,16 @@ function paperSlugFromPath(path: string): string | null {
 function SectionOrderList({
   sections,
   currentPath,
+  tree,
+  childOrders,
   reordering,
   onNavigate,
   onReorder,
 }: {
   sections: SectionRow[];
   currentPath: string;
+  tree: ModelNode[];
+  childOrders: Record<string, string[]>;
   reordering: boolean;
   onNavigate: (path: string) => void;
   onReorder: (order: string[]) => Promise<void>;
@@ -70,57 +75,122 @@ function SectionOrderList({
     await onReorder(next.map((s) => s.name));
   };
 
+  const renderChildren = (parent: SectionRow) => {
+    const expanded =
+      currentPath === parent.path || currentPath.startsWith(`${parent.path}/`);
+    if (!expanded) return null;
+
+    const children = orderedChildFolders(tree, parent.path, childOrders[parent.path] ?? []);
+    if (children.length === 0) {
+      return (
+        <li className="ml-6 border-l border-border/60 pl-2">
+          <p className="px-2 py-1 text-[10px] text-muted-foreground">No subsections</p>
+        </li>
+      );
+    }
+
+    return (
+      <ul className="ml-6 space-y-0.5 border-l border-border/60 pl-2" aria-label={`Subsections of ${parent.title}`}>
+        {children.map((child) => {
+          const childActive =
+            currentPath === child.path || currentPath.startsWith(`${child.path}/`);
+          const nested = orderedChildFolders(tree, child.path, childOrders[child.path] ?? []);
+          const showNested = childActive && nested.length > 0;
+
+          return (
+            <li key={child.path}>
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-[11px] hover:bg-accent/40",
+                  childActive ? "bg-accent/50 font-medium text-foreground" : "text-muted-foreground",
+                )}
+                onClick={() => onNavigate(child.path)}
+              >
+                <span className="truncate">{child.title}</span>
+              </button>
+              {showNested ? (
+                <ul className="ml-3 space-y-0.5 border-l border-border/40 pl-2">
+                  {nested.map((unit) => {
+                    const unitActive =
+                      currentPath === unit.path || currentPath.startsWith(`${unit.path}/`);
+                    return (
+                      <li key={unit.path}>
+                        <button
+                          type="button"
+                          className={cn(
+                            "w-full truncate rounded-md px-2 py-0.5 text-left text-[10px] hover:bg-accent/40",
+                            unitActive ? "bg-accent/40 font-medium" : "text-muted-foreground",
+                          )}
+                          onClick={() => onNavigate(unit.path)}
+                        >
+                          {unit.title}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
   return (
     <ul className="space-y-1" aria-label="Paper sections">
       {sections.map((section, index) => {
         const active =
           currentPath === section.path || currentPath.startsWith(`${section.path}/`);
         return (
-          <li
-            key={section.path}
-            draggable={!reordering}
-            onDragStart={() => setDragIndex(index)}
-            onDragEnd={() => {
-              setDragIndex(null);
-              setOverIndex(null);
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOverIndex(index);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              void handleDrop(index);
-            }}
-            className={cn(
-              "flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
-              active ? "border-primary/40 bg-accent/50" : undefined,
-              dragIndex === index ? "opacity-50" : undefined,
-              overIndex === index && dragIndex !== null && dragIndex !== index
-                ? "border-primary ring-1 ring-primary/30"
-                : undefined,
-              reordering ? "pointer-events-none opacity-60" : undefined,
-            )}
-          >
+          <li key={section.path}>
             <div
-              className="flex w-7 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
-              title="Drag to reorder"
-              aria-hidden="true"
+              className={cn(
+                "flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
+                active ? "border-primary/40 bg-accent/50" : undefined,
+                dragIndex === index ? "opacity-50" : undefined,
+                overIndex === index && dragIndex !== null && dragIndex !== index
+                  ? "border-primary ring-1 ring-primary/30"
+                  : undefined,
+                reordering ? "pointer-events-none opacity-60" : undefined,
+              )}
             >
-              <GripVertical className="h-3.5 w-3.5" />
+              <div
+                draggable={!reordering}
+                onDragStart={() => setDragIndex(index)}
+                onDragEnd={() => {
+                  setDragIndex(null);
+                  setOverIndex(null);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setOverIndex(index);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  void handleDrop(index);
+                }}
+                className="flex w-7 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                title="Drag to reorder"
+                aria-hidden="true"
+              >
+                <GripVertical className="h-3.5 w-3.5" />
+              </div>
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent/30"
+                onClick={() => onNavigate(section.path)}
+              >
+                <span className="truncate font-medium">{section.title}</span>
+                {section.counts ? (
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                    {section.counts.approved}/{section.counts.drafted}/{section.counts.outline}
+                  </span>
+                ) : null}
+              </button>
             </div>
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent/30"
-              onClick={() => onNavigate(section.path)}
-            >
-              <span className="truncate font-medium">{section.title}</span>
-              {section.counts ? (
-                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                  {section.counts.approved}/{section.counts.drafted}/{section.counts.outline}
-                </span>
-              ) : null}
-            </button>
+            {renderChildren(section)}
           </li>
         );
       })}
@@ -148,29 +218,37 @@ export function PapersPanel({
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [detail, setDetail] = useState<PaperDetail | null>(null);
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
+  const [childOrders, setChildOrders] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [showNewPaper, setShowNewPaper] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
 
-  const loadSectionOrder = useCallback(async (path: string) => {
+  const loadChildOrder = useCallback(async (path: string): Promise<string[]> => {
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/model/file?path=${encodeURIComponent(indexPathFor(path))}`,
       );
-      if (!response.ok) {
-        setSectionOrder([]);
-        return;
-      }
+      if (!response.ok) return [];
       const data = (await response.json()) as { content: string };
-      setSectionOrder(parseIndexFrontmatter(data.content).childOrder);
+      return parseIndexFrontmatter(data.content).childOrder;
     } catch {
-      setSectionOrder([]);
+      return [];
     }
   }, []);
+
+  const loadSectionOrder = useCallback(
+    async (path: string) => {
+      const order = await loadChildOrder(path);
+      setSectionOrder(order);
+      return order;
+    },
+    [loadChildOrder],
+  );
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -204,6 +282,7 @@ export function PapersPanel({
       } else {
         setDetail(null);
         setSectionOrder([]);
+        setChildOrders({});
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -228,9 +307,43 @@ export function PapersPanel({
     }));
   }, [detail, paperPath, sectionOrder, tree]);
 
+  const foldersNeedingChildOrder = useMemo(() => {
+    if (!paperPath || !currentPath.startsWith(paperPath)) return [];
+    const paths = new Set<string>();
+    for (const section of sections) {
+      if (currentPath === section.path || currentPath.startsWith(`${section.path}/`)) {
+        paths.add(section.path);
+        for (const child of orderedChildFolders(tree, section.path, childOrders[section.path] ?? [])) {
+          if (currentPath === child.path || currentPath.startsWith(`${child.path}/`)) {
+            paths.add(child.path);
+          }
+        }
+      }
+    }
+    return [...paths];
+  }, [childOrders, currentPath, paperPath, sections, tree]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      for (const folderPath of foldersNeedingChildOrder) {
+        if (childOrders[folderPath]) continue;
+        const order = await loadChildOrder(folderPath);
+        if (cancelled) return;
+        setChildOrders((prev) =>
+          prev[folderPath] ? prev : { ...prev, [folderPath]: order },
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [childOrders, foldersNeedingChildOrder, loadChildOrder]);
+
   const handleExport = async (format: "latex" | "pdf") => {
     if (!selectedSlug) return;
     setExporting(true);
+    setExportNotice(null);
     try {
       const result = await exportPaper({
         paperSlug: selectedSlug,
@@ -238,6 +351,7 @@ export function PapersPanel({
         includeDrafts: true,
       });
       window.open(`${apiBaseUrl}${result.downloadUrl}`, "_blank");
+      if (result.notice) setExportNotice(result.notice);
       await reload();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -331,12 +445,16 @@ export function PapersPanel({
               variant="outline"
               className="h-7 gap-1 px-2 text-xs"
               disabled={exporting}
+              title="Requires a LaTeX engine (brew install tectonic). Falls back to .tex if missing."
               onClick={() => void handleExport("pdf")}
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
               Export PDF
             </Button>
           </div>
+          {exportNotice ? (
+            <p className="text-xs text-muted-foreground">{exportNotice}</p>
+          ) : null}
           <div className="space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Sections · drag to reorder
@@ -347,6 +465,8 @@ export function PapersPanel({
               <SectionOrderList
                 sections={sections}
                 currentPath={currentPath}
+                tree={tree}
+                childOrders={childOrders}
                 reordering={reordering}
                 onNavigate={onNavigate}
                 onReorder={handleSectionReorder}

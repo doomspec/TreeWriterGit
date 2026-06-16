@@ -105,8 +105,47 @@ export const PAPERS_ROOT = "papers";
 /** Folder with outline.md (and optionally draft.md) — editable outline + draft pair. */
 export function isUnitFolder(node: ModelNode | null): boolean {
   if (!node?.children) return false;
+  if (node.children.some((c) => c.type === "directory")) return false;
   return node.children.some(
     (c) => c.type === "file" && (c.name === OUTLINE_DOC || c.name === DRAFT_DOC),
+  );
+}
+
+/** Section container: has child folders (paper, section, subsection). */
+export function isSectionContainer(node: ModelNode | null): boolean {
+  if (!node?.children) return false;
+  return node.children.some((c) => c.type === "directory");
+}
+
+export type NavigateTarget =
+  | { type: "folder"; path: string }
+  | { type: "file"; path: string };
+
+/** Resolve href to in-app navigation target. */
+export function resolveNavigateTarget(folderPath: string, href: string): NavigateTarget | null {
+  const resolved = resolveOutlineTarget(folderPath, href);
+  if (!resolved) return null;
+  if (
+    resolved.endsWith(".md") &&
+    !resolved.endsWith(`/${INDEX_DOC}`) &&
+    !resolved.endsWith(`/${OUTLINE_DOC}`)
+  ) {
+    return { type: "file", path: resolved };
+  }
+  const folder = resolved
+    .replace(/\/?INDEX\.md$/, "")
+    .replace(/\/outline\.md$/, "");
+  return { type: "folder", path: folder };
+}
+
+/** Convert wikilinks to markdown links for ReactMarkdown rendering. */
+export function preprocessMarkdownLinks(markdown: string): string {
+  return markdown.replace(
+    /!?\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g,
+    (_match, target: string, alias?: string) => {
+      const label = alias?.trim() || target.split("/").pop() || target;
+      return `[${label}](${target.trim()})`;
+    },
   );
 }
 
@@ -268,11 +307,10 @@ export function resolveOutlineTarget(folderPath: string, href: string): string |
   const clean = href.split("#")[0]?.trim();
   if (!clean || clean.startsWith("http")) return null;
 
-  if (clean.endsWith(".md")) {
-    if (clean.includes("/")) {
-      return folderPath ? `${folderPath}/${clean}` : clean.replace(/^\.\//, "");
-    }
-    return folderPath ? `${folderPath}/${clean}` : clean;
+  if (clean.endsWith("/INDEX.md") || clean === "INDEX.md") {
+    const dir = clean.replace(/\/?INDEX\.md$/, "");
+    if (!dir) return folderPath || null;
+    return folderPath ? `${folderPath}/${dir}` : dir;
   }
 
   if (clean.endsWith("/outline.md") || clean === "outline.md") {
@@ -281,10 +319,11 @@ export function resolveOutlineTarget(folderPath: string, href: string): string |
     return folderPath ? `${folderPath}/${dir}` : dir;
   }
 
-  if (clean.endsWith("/INDEX.md") || clean === "INDEX.md") {
-    const dir = clean.replace(/\/?INDEX\.md$/, "");
-    if (!dir) return folderPath || null;
-    return folderPath ? `${folderPath}/${dir}` : dir;
+  if (clean.endsWith(".md")) {
+    if (clean.includes("/")) {
+      return folderPath ? `${folderPath}/${clean}` : clean.replace(/^\.\//, "");
+    }
+    return folderPath ? `${folderPath}/${clean}` : clean;
   }
 
   const dir = clean.replace(/\/$/, "");
@@ -426,23 +465,20 @@ export type PaperSectionItem = {
   title: string;
 };
 
-function titleFromFolderName(name: string): string {
-  return name
-    .replace(/[-_]+/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .trim();
-}
+const PAPER_SKIP_FOLDERS = new Set(["notes", ".sessions"]);
 
-/** Ordered top-level sections for a paper folder. */
-export function sectionsForPaper(
+function orderedDirectoryChildren(
   tree: ModelNode[],
-  paperPath: string,
-  sectionOrder: string[],
+  folderPath: string,
+  childOrder: string[],
 ): PaperSectionItem[] {
-  const children = childrenOf(tree, paperPath).filter((c) => c.type === "directory");
+  const children = childrenOf(tree, folderPath).filter(
+    (c) => c.type === "directory" && !PAPER_SKIP_FOLDERS.has(c.name),
+  );
   const byName = new Map(children.map((c) => [c.name, c]));
   const ordered: PaperSectionItem[] = [];
-  for (const name of sectionOrder) {
+  for (const name of childOrder) {
+    if (PAPER_SKIP_FOLDERS.has(name)) continue;
     const node = byName.get(name);
     if (node) {
       ordered.push({ name, path: node.path, title: titleFromFolderName(name) });
@@ -454,4 +490,29 @@ export function sectionsForPaper(
     }
   }
   return ordered;
+}
+
+function titleFromFolderName(name: string): string {
+  return name
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+/** Ordered child folders (subsections, units) under any paper folder. */
+export function orderedChildFolders(
+  tree: ModelNode[],
+  folderPath: string,
+  childOrder: string[],
+): PaperSectionItem[] {
+  return orderedDirectoryChildren(tree, folderPath, childOrder);
+}
+
+/** Ordered top-level sections for a paper folder. */
+export function sectionsForPaper(
+  tree: ModelNode[],
+  paperPath: string,
+  sectionOrder: string[],
+): PaperSectionItem[] {
+  return orderedDirectoryChildren(tree, paperPath, sectionOrder);
 }
