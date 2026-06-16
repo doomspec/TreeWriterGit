@@ -51,14 +51,14 @@ One local app where AI writes scientific paper text in Markdown and humans colla
 | Inline comments (M11) | `/api/comments`, `CommentsPanel`, sidecar JSON | works |
 | Edit presence (M11) | `/api/presence/*`, lock banner in editor | works |
 | Overleaf feedback import (M11) | `POST /api/overleaf/import`, PapersPanel button | works |
+| F4 polish | Context checklist, ⌘⇧R/P shortcuts, section fan-out draft | works |
+| F6 polish | CSL lookup, approved-only export default, batch export | works |
 | Inline CRUD dialogs | `NamePromptDialog` / `ConfirmDialog` — no `window.prompt` | works |
 | Frontend 3-col UI | sidebar + center (browse / section / unit edit) + hideable Agent panel | works |
 
 **Remaining gaps:**
-- F4 polish — context checklist UI, keyboard shortcuts, section fan-out
-- F6 polish — CSL style files, approved-only export default, batch export
-- AI-autonomous conflict resolution (sync v2) — manual terminal fallback only (v1)
 - Server-side agent job manager — F4 v1.1
+- AI-autonomous conflict resolution (sync v2) — manual terminal fallback only (v1)
 
 ## 3. Feature Specs
 
@@ -327,7 +327,8 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 | GET | `/api/model/section-compose` | M6.5 section stitch | done |
 | GET | `/api/agent/providers` | F4 | done |
 | POST | `/api/agent/preview` | F4 dispatch preview | done |
-| GET/POST/PATCH | `/api/sessions` | F4 session audit | done |
+| GET | `/api/agent/context` · POST `/api/agent/fan-out` | F4 polish | done |
+| POST | `/api/export/batch` | F6 batch export | done |
 | GET | `/api/paper/templates` | F5 | done |
 | POST | `/api/paper` · GET `/api/papers` | F5 | done |
 | POST | `/api/export` · GET `/api/export/download` | F6 | done |
