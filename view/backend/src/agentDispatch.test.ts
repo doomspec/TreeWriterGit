@@ -130,14 +130,30 @@ describe("buildPreview", () => {
       "draft",
       stdoutProvider,
     );
-    expect(result.command).toContain("> intro/problem/draft.md");
+    expect(result.command).toContain("> 'intro/problem/draft.md'");
   });
 
-  it("writes .treewriter-prompt.txt at repoRoot", async () => {
+  it("writes per-session prompt file under .treewriter-prompts/", async () => {
     await makeUnit("intro/problem", "State the gap.");
-    await buildPreview(modelRoot, repoRoot, "intro/problem", "draft", provider);
-    const saved = await readFile(path.join(repoRoot, ".treewriter-prompt.txt"), "utf8");
+    const sessionId = "test-session-a";
+    await buildPreview(modelRoot, repoRoot, "intro/problem", "draft", provider, undefined, sessionId);
+    const saved = await readFile(
+      path.join(repoRoot, ".treewriter-prompts", `${sessionId}.txt`),
+      "utf8",
+    );
     expect(saved).toContain("State the gap.");
+  });
+
+  it("isolates prompts per sessionId", async () => {
+    await makeUnit("intro/problem", "Prompt A idea.");
+    await buildPreview(modelRoot, repoRoot, "intro/problem", "draft", provider, undefined, "session-a");
+    await makeUnit("intro/other", "Prompt B idea.");
+    await buildPreview(modelRoot, repoRoot, "intro/other", "draft", provider, undefined, "session-b");
+    const promptA = await readFile(path.join(repoRoot, ".treewriter-prompts", "session-a.txt"), "utf8");
+    const promptB = await readFile(path.join(repoRoot, ".treewriter-prompts", "session-b.txt"), "utf8");
+    expect(promptA).toContain("Prompt A idea.");
+    expect(promptB).toContain("Prompt B idea.");
+    expect(promptA).not.toContain("Prompt B idea.");
   });
 
   it("gathers context from linked units", async () => {

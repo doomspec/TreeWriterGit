@@ -78,11 +78,12 @@ async function readTex(filename) {
 async function makeUnit(relPath, idea, links = [], draft = "") {
   const abs = path.join(modelRoot, relPath);
   if (!existsSync(abs)) await mkdir(abs, { recursive: true });
-  const index = fm(
-    { kind: "unit", title: relPath.split("/").at(-1).replace(/-/g, " "), status: "draft", links },
-    `# ${relPath.split("/").at(-1).replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}\n\n${idea}`,
-  );
+  const folderName = relPath.split("/").at(-1);
+  const title = folderName.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const index = fm({ kind: "unit", title, status: "drafted", links }, "");
+  const outline = `# ${title}\n\n## Summary\n\n${idea}\n`;
   await writeFile(path.join(abs, "INDEX.md"), index, "utf8");
+  await writeFile(path.join(abs, "outline.md"), outline, "utf8");
   await writeFile(path.join(abs, "draft.md"), draft, "utf8");
   console.log("  unit:", relPath);
 }
@@ -90,11 +91,10 @@ async function makeUnit(relPath, idea, links = [], draft = "") {
 async function makeSection(relPath, title, childOrder, idea = "") {
   const abs = path.join(modelRoot, relPath);
   if (!existsSync(abs)) await mkdir(abs, { recursive: true });
-  const index = fm(
-    { kind: "section", title, child_order: childOrder },
-    `# ${title}\n\n${idea || `_Outline / narrative arc for the ${title} section._`}`,
-  );
+  const index = fm({ kind: "section", title, child_order: childOrder }, "");
+  const outline = `# ${title}\n\n## Summary\n\n${idea || `_Outline / narrative arc for the ${title} section._`}\n\n## Outline\n\n`;
   await writeFile(path.join(abs, "INDEX.md"), index, "utf8");
+  await writeFile(path.join(abs, "outline.md"), outline, "utf8");
   console.log("section:", relPath);
 }
 
@@ -160,7 +160,7 @@ async function main() {
         "Milica Radisic",
       ],
       journal: "Cell Systems / STAR Protocols",
-      status: "submitted",
+      status: "review",
     },
     ["summary", "introduction", "results", "discussion", "experimental-procedures", "supplementary"],
     `# RoboCulture\n\nRoboCulture is a cost-effective, flexible robotics platform for automated biological experimentation. It uses a general-purpose robotic manipulator with vision and force feedback, behavior trees for experiment state management, and optical density-based growth monitoring to achieve fully autonomous cell culture.\n\n**arXiv:** 2505.14941v2\n`,

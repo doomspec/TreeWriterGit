@@ -1,6 +1,9 @@
 import path from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import matter from "gray-matter";
+
+import { shellQuote } from "./modelFs.js";
 
 export interface AiProvider {
   name: string;
@@ -165,6 +168,12 @@ export interface PreviewResult {
   command: string;
   outputPath: string;
   providerName: string;
+  sessionId: string;
+  promptFile: string;
+}
+
+function promptSessionId(): string {
+  return `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export async function buildPreview(
@@ -174,6 +183,7 @@ export async function buildPreview(
   action: DispatchAction,
   provider: AiProvider,
   customPrompt?: string,
+  sessionId?: string,
 ): Promise<PreviewResult> {
   const outlineRelPath = `${unitPath}/outline.md`;
   const outputRelPath =
@@ -198,22 +208,34 @@ export async function buildPreview(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  const promptFile = path.join(repoRoot, ".treewriter-prompt.txt");
+  const id = sessionId ?? promptSessionId();
+  const promptsDir = path.join(repoRoot, ".treewriter-prompts");
+  await mkdir(promptsDir, { recursive: true });
+  const promptFile = path.join(promptsDir, `${id}.txt`);
   await writeFile(promptFile, prompt, "utf8");
-  const promptRef = `../.treewriter-prompt.txt`;
+  const promptRef = path.relative(modelRoot, promptFile).split(path.sep).join("/");
+
+  const quotedOutput = shellQuote(outputRelPath);
 
   const argStr = provider.args
     .map((a) =>
       a === "{prompt}"
-        ? `"$(cat ${promptRef})"`
+        ? `"$(cat ${shellQuote(promptRef)})"`
         : a.replace("{files}", outputRelPath),
     )
     .join(" ");
 
   let command = `${provider.command} ${argStr}`;
   if (!provider.writesFiles) {
-    command += ` > ${outputRelPath}`;
+    command += ` > ${quotedOutput}`;
   }
 
-  return { prompt, command, outputPath: outputRelPath, providerName: provider.name };
+  return {
+    prompt,
+    command,
+    outputPath: outputRelPath,
+    providerName: provider.name,
+    sessionId: id,
+    promptFile: path.relative(repoRoot, promptFile).split(path.sep).join("/"),
+  };
 }

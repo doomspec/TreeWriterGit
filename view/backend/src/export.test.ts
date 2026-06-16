@@ -8,6 +8,7 @@ import {
   buildBibliography,
   buildCombinedMarkdown,
   extractCiteKeys,
+  findMissingCitations,
 } from "./export.js";
 
 let root: string;
@@ -107,6 +108,26 @@ describe("buildCombinedMarkdown", () => {
     const { unitCount, markdown } = await buildCombinedMarkdown(root, "papers/demo", false);
     expect(unitCount).toBe(1);
     expect(markdown).toContain("[@smith2024]");
+  });
+
+  it("strips duplicate unit H1 matching INDEX title", async () => {
+    await seedPaper();
+    await writeFile(
+      path.join(root, "papers/demo/introduction/claim/draft.md"),
+      "# Claim\n\nWe show that [@smith2024] matters.\n",
+      "utf8",
+    );
+    const { markdown } = await buildCombinedMarkdown(root, "papers/demo", true);
+    const claimHeadingCount = (markdown.match(/^#\s+Claim\s*$/gm) ?? []).length;
+    expect(claimHeadingCount).toBe(0);
+    expect(markdown).toContain("[@smith2024]");
+  });
+});
+
+describe("findMissingCitations", () => {
+  it("lists cite keys absent from bibliography", () => {
+    const bib = "@article{smith2024,\n  title={X}\n}";
+    expect(findMissingCitations("See [@smith2024] and [@missing]", bib)).toEqual(["missing"]);
   });
 });
 

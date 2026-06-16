@@ -6,6 +6,8 @@ view/frontend/vite.config.d.ts
 view/frontend/vite.config.js
 .DS_Store
 .treewriter-exports/
+.treewriter-prompt.txt
+.treewriter-prompts/
 
 # Python bytecode
 __pycache__/

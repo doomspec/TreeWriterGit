@@ -1,9 +1,8 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import matter from "gray-matter";
 
-const SKIP_CHILDREN = new Set(["notes", ".sessions"]);
+import { isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
 
 export type SectionChild = {
   name: string;
@@ -66,71 +65,6 @@ export function parseOutlineSummary(markdown: string): string | null {
   return firstBlock || null;
 }
 
-async function readIndexData(modelRoot: string, relPath: string): Promise<Record<string, unknown>> {
-  try {
-    const raw = await readFile(path.join(modelRoot, relPath, "INDEX.md"), "utf8");
-    return matter(raw).data as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function resolveChildPath(modelRoot: string, parentRel: string, childName: string): string | null {
-  const direct = `${parentRel}/${childName}`;
-  if (existsSync(path.join(modelRoot, direct))) return direct;
-  const underSections = `${parentRel}/sections/${childName}`;
-  if (existsSync(path.join(modelRoot, underSections))) return underSections;
-  return null;
-}
-
-async function isUnitDir(modelRoot: string, relPath: string): Promise<boolean> {
-  const data = await readIndexData(modelRoot, relPath);
-  if (data.kind === "unit") return true;
-  if (data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
-    return false;
-  }
-  return existsSync(path.join(modelRoot, relPath, "draft.md"));
-}
-
-async function orderedChildren(modelRoot: string, dirRel: string): Promise<string[]> {
-  const data = await readIndexData(modelRoot, dirRel);
-  const sectionOrder = Array.isArray(data.section_order) ? (data.section_order as string[]) : [];
-  let childOrder = Array.isArray(data.child_order) ? (data.child_order as string[]) : [];
-
-  const sectionsRoot = `${dirRel}/sections`;
-  if (sectionOrder.length === 0 && existsSync(path.join(modelRoot, sectionsRoot))) {
-    const sectionsData = await readIndexData(modelRoot, sectionsRoot);
-    childOrder = Array.isArray(sectionsData.child_order)
-      ? (sectionsData.child_order as string[])
-      : childOrder;
-  }
-
-  const order = sectionOrder.length > 0 ? sectionOrder : childOrder;
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const name of order) {
-    if (SKIP_CHILDREN.has(name)) continue;
-    if (!resolveChildPath(modelRoot, dirRel, name)) continue;
-    seen.add(name);
-    result.push(name);
-  }
-
-  try {
-    const { readdir } = await import("node:fs/promises");
-    const entries = await readdir(path.join(modelRoot, dirRel), { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (SKIP_CHILDREN.has(entry.name) || seen.has(entry.name)) continue;
-      if (entry.name === "sections" && order.length > 0) continue;
-      result.push(entry.name);
-    }
-  } catch {
-    // ignore
-  }
-
-  return result;
-}
-
 async function readDraftContent(modelRoot: string, relPath: string): Promise<string> {
   const draftPath = path.join(modelRoot, relPath, "draft.md");
   if (!existsSync(draftPath)) return "";
@@ -151,10 +85,10 @@ async function composeDraftBlock(
   linkHref: string,
   depth: number,
 ): Promise<string> {
-  const isUnit = await isUnitDir(modelRoot, childRel);
+  const unit = await isUnitDir(modelRoot, childRel);
   const heading = "#".repeat(Math.min(depth + 1, 4));
 
-  if (isUnit) {
+  if (unit) {
     const draft = await readDraftContent(modelRoot, childRel);
     if (!draft) return "";
     return draftHeadingBlock(depth, childTitle, linkHref, stripLeadingH1(draft));
@@ -210,7 +144,7 @@ export async function composeSectionView(
 
     const childIndex = await readIndexData(modelRoot, childRel);
     const childTitle = displayChildTitle(childIndex.title, childName);
-    const isUnit = await isUnitDir(modelRoot, childRel);
+    const unit = await isUnitDir(modelRoot, childRel);
     const linkHref = `${childName}/INDEX.md`;
 
     const childOutline = await readOutlineContent(modelRoot, childRel);
@@ -221,7 +155,7 @@ export async function composeSectionView(
       path: childRel,
       title: childTitle,
       summary: childSummary,
-      kind: isUnit ? "unit" : "section",
+      kind: unit ? "unit" : "section",
     });
 
     outlineParts.push(`### ${childTitle}\n\n[Open ${childTitle} →](${linkHref})\n\n`);

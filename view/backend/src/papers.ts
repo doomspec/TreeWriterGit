@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
 
-import { ModelFsError, createNode, resolveModelPath } from "./modelFs.js";
+import { ModelFsError, createNode, resolveModelPath, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
 
 export type UnitStatus = "outline" | "drafted" | "approved";
 
@@ -84,21 +84,11 @@ function mergeCounts(into: UnitStatusCounts, from: UnitStatusCounts): void {
   into.total += from.total;
 }
 
-async function readIndexData(modelRoot: string, relPath: string): Promise<Record<string, unknown>> {
-  try {
-    const raw = await readFile(path.join(modelRoot, relPath, "INDEX.md"), "utf8");
-    return matter(raw).data as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-async function isUnitDir(modelRoot: string, relPath: string): Promise<boolean> {
-  const dir = path.join(modelRoot, relPath);
-  return existsSync(path.join(dir, "outline.md")) || existsSync(path.join(dir, "draft.md"));
-}
-
-async function countUnitsUnder(modelRoot: string, rootRel: string): Promise<UnitStatusCounts> {
+/** Exported for parity tests against export walk. */
+export async function countUnitsUnder(
+  modelRoot: string,
+  rootRel: string,
+): Promise<UnitStatusCounts> {
   const counts = { ...EMPTY_COUNTS };
 
   async function walk(dirRel: string): Promise<void> {
@@ -112,12 +102,10 @@ async function countUnitsUnder(modelRoot: string, rootRel: string): Promise<Unit
       return;
     }
 
-    const data = await readIndexData(modelRoot, dirRel);
-    const childOrder = Array.isArray(data.child_order)
-      ? (data.child_order as string[])
-      : [];
-    for (const child of childOrder) {
-      await walk(`${dirRel}/${child}`);
+    for (const child of await orderedChildren(modelRoot, dirRel)) {
+      const childRel = resolveChildPath(modelRoot, dirRel, child);
+      if (!childRel) continue;
+      await walk(childRel);
     }
   }
 

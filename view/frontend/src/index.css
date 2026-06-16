@@ -197,6 +197,50 @@
   }
 }
 
+.resizable-dual-pane {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, var(--dual-pane-split, 50%)) 4px minmax(0, 1fr);
+}
+
+@media (min-width: 900px) {
+  .resizable-dual-pane {
+    grid-template-columns: minmax(0, var(--dual-pane-split, 50%)) 4px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+.resizable-dual-pane__left,
+.resizable-dual-pane__right {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.resizable-dual-pane__handle {
+  touch-action: none;
+  background: hsl(var(--border));
+  cursor: row-resize;
+}
+
+@media (min-width: 900px) {
+  .resizable-dual-pane__handle {
+    cursor: col-resize;
+  }
+}
+
+.resizable-dual-pane__handle:hover,
+.resizable-dual-pane__handle--active {
+  background: hsl(var(--primary) / 0.45);
+}
+
+.resizable-dual-pane__handle:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: -2px;
+}
+
 .markdown-reading-edit {
   font-family: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
   font-size: 1.05rem;

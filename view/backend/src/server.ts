@@ -18,12 +18,13 @@ import {
   reorderChildren,
   materializeOutline,
   materializeDraft,
+  resolveModelPath,
   type NodeKind
 } from "./modelFs.js";
 import { buildGraph } from "./graph.js";
 import { composeSectionView } from "./compose.js";
 import { loadProviders, buildPreview, type DispatchAction } from "./agentDispatch.js";
-import { listSessions, createSession, updateSessionStatus } from "./sessions.js";
+import { listSessions, createSession, updateSessionStatus, advanceUnitStatusOnSessionComplete } from "./sessions.js";
 import {
   scaffoldPaper,
   listPapers,
@@ -31,6 +32,7 @@ import {
   listJournalTemplates,
 } from "./papers.js";
 import { exportPaper, resolveExportDownload } from "./export.js";
+import { pushToOverleaf } from "./overleaf.js";
 
 type ClientMessage =
   | {
@@ -92,7 +94,8 @@ const gitSyncState: GitSyncState = {
 };
 
 const app = express();
-app.use(cors());
+const corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:5173";
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: "2mb" }));
 
 function toModelPath(relativePath: string) {
@@ -382,6 +385,7 @@ app.get("/api/model/section-compose", async (request, response, next) => {
       response.status(400).json({ error: "path query parameter is required" });
       return;
     }
+    resolveModelPath(modelRoot, pathParam);
     response.json(await composeSectionView(modelRoot, pathParam));
   } catch (error) {
     next(error);
@@ -398,16 +402,18 @@ app.get("/api/agent/providers", async (_request, response, next) => {
 
 app.post("/api/agent/preview", async (request, response, next) => {
   try {
-    const { unitPath, action, provider: providerName, customPrompt } = request.body as {
+    const { unitPath, action, provider: providerName, customPrompt, sessionId } = request.body as {
       unitPath?: string;
       action?: string;
       provider?: string;
       customPrompt?: string;
+      sessionId?: string;
     };
     if (!unitPath) {
       response.status(400).json({ error: "unitPath required" });
       return;
     }
+    resolveModelPath(modelRoot, unitPath);
     const config = await loadProviders(repoRoot);
     const provider =
       config.aiProviders.find((p) => p.name === providerName) ?? config.aiProviders[0];
@@ -418,6 +424,7 @@ app.post("/api/agent/preview", async (request, response, next) => {
       (action ?? "draft") as DispatchAction,
       provider,
       customPrompt,
+      sessionId,
     );
     response.json(result);
   } catch (error) {
@@ -432,6 +439,7 @@ app.get("/api/sessions", async (request, response, next) => {
       response.status(400).json({ error: "unitPath required" });
       return;
     }
+    resolveModelPath(modelRoot, unitPath);
     response.json({ sessions: await listSessions(modelRoot, unitPath) });
   } catch (error) {
     next(error);
@@ -452,6 +460,7 @@ app.post("/api/sessions", async (request, response, next) => {
       response.status(400).json({ error: "unitPath, provider, action, command required" });
       return;
     }
+    resolveModelPath(modelRoot, unitPath);
     const created = await createSession(modelRoot, unitPath, {
       at: new Date().toISOString(),
       provider,
@@ -478,13 +487,22 @@ app.patch("/api/sessions", async (request, response, next) => {
       response.status(400).json({ error: "unitPath, filename, status required" });
       return;
     }
+    resolveModelPath(modelRoot, unitPath);
+    const sessionStatus = status as "dispatched" | "complete" | "skipped";
     await updateSessionStatus(
       modelRoot,
       unitPath,
       filename,
-      status as "dispatched" | "complete" | "skipped",
+      sessionStatus,
       notes,
     );
+    if (sessionStatus === "complete") {
+      const sessions = await listSessions(modelRoot, unitPath);
+      const session = sessions.find((s) => s.filename === path.basename(filename));
+      if (session) {
+        await advanceUnitStatusOnSessionComplete(modelRoot, unitPath, session.action);
+      }
+    }
     response.json({ ok: true });
   } catch (error) {
     next(error);
@@ -577,6 +595,29 @@ app.get("/api/export/download", async (request, response, next) => {
     const fileName = String(request.query.file ?? "");
     const abs = resolveExportDownload(repoRoot, fileName);
     response.download(abs);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/overleaf/push", async (request, response, next) => {
+  try {
+    const { paperSlug, includeDrafts } = request.body as {
+      paperSlug?: string;
+      includeDrafts?: boolean;
+    };
+    if (!paperSlug?.trim()) {
+      response.status(400).json({ error: "paperSlug required" });
+      return;
+    }
+    const result = await pushToOverleaf(
+      modelRoot,
+      repoRoot,
+      paperSlug.trim(),
+      includeDrafts !== false,
+    );
+    broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
+    response.json(result);
   } catch (error) {
     next(error);
   }

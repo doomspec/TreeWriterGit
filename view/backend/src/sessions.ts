@@ -1,7 +1,9 @@
 import path from "node:path";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import matter from "gray-matter";
+
+import { ModelFsError, resolveModelPath } from "./modelFs.js";
 
 export interface SessionRecord {
   at: string;
@@ -17,8 +19,22 @@ export interface SessionFile extends SessionRecord {
   body: string;
 }
 
+function validatedUnitPath(modelRoot: string, unitPath: string): string {
+  const normalized = unitPath.split(path.sep).join("/");
+  resolveModelPath(modelRoot, normalized);
+  return normalized;
+}
+
 function sessionsDir(modelRoot: string, unitPath: string): string {
-  return path.join(modelRoot, unitPath, ".sessions");
+  return path.join(modelRoot, validatedUnitPath(modelRoot, unitPath), ".sessions");
+}
+
+function safeSessionFilename(filename: string): string {
+  const base = path.basename(filename);
+  if (!base || base !== filename || !base.endsWith(".md")) {
+    throw new ModelFsError("Invalid session filename", 400);
+  }
+  return base;
 }
 
 export async function listSessions(
@@ -55,10 +71,10 @@ export async function createSession(
   unitPath: string,
   record: SessionRecord,
 ): Promise<string> {
-  const dir = sessionsDir(modelRoot, unitPath);
+  const normalized = validatedUnitPath(modelRoot, unitPath);
+  const dir = sessionsDir(modelRoot, normalized);
   await mkdir(dir, { recursive: true });
 
-  // filename: YYYYMMDD-HHMMSS.md (ISO timestamp without colons)
   const ts = record.at.replace(/[:.]/g, "-").replace("T", "_").slice(0, 17);
   const filename = `${ts}.md`;
   const filePath = path.join(dir, filename);
@@ -74,7 +90,7 @@ export async function createSession(
   });
 
   await writeFile(filePath, content, "utf8");
-  return `${unitPath}/.sessions/${filename}`;
+  return `${normalized}/.sessions/${filename}`;
 }
 
 export async function updateSessionStatus(
@@ -84,9 +100,44 @@ export async function updateSessionStatus(
   status: SessionFile["status"],
   notes?: string,
 ): Promise<void> {
-  const filePath = path.join(sessionsDir(modelRoot, unitPath), filename);
+  const safeName = safeSessionFilename(filename);
+  const filePath = path.join(sessionsDir(modelRoot, unitPath), safeName);
   const raw = await readFile(filePath, "utf8");
   const parsed = matter(raw);
   const data = { ...parsed.data, status, ...(notes !== undefined ? { notes } : {}) };
   await writeFile(filePath, matter.stringify(parsed.content, data), "utf8");
+}
+
+/** Bump unit status to drafted when a draft/revise/expand session completes. */
+export async function advanceUnitStatusOnSessionComplete(
+  modelRoot: string,
+  unitPath: string,
+  action: string,
+): Promise<void> {
+  if (!["draft", "revise", "expand", "cite-check"].includes(action)) return;
+  const normalized = validatedUnitPath(modelRoot, unitPath);
+  const indexAbs = path.join(modelRoot, normalized, "INDEX.md");
+  if (!existsSync(indexAbs)) return;
+  const raw = await readFile(indexAbs, "utf8");
+  const parsed = matter(raw);
+  const data = parsed.data as Record<string, unknown>;
+  if (data.kind !== "unit") return;
+  const current = String(data.status ?? "outline");
+  if (current === "approved") return;
+  if (current === "outline" || current === "draft" || current === "drafted") {
+    await writeFile(
+      indexAbs,
+      matter.stringify(parsed.content, { ...data, status: "drafted" }),
+      "utf8",
+    );
+  }
+}
+
+export async function deleteSessionPrompt(repoRoot: string, sessionId: string): Promise<void> {
+  const safeId = path.basename(sessionId);
+  if (!safeId || safeId !== sessionId) return;
+  const promptPath = path.join(repoRoot, ".treewriter-prompts", `${safeId}.txt`);
+  if (existsSync(promptPath)) {
+    await rm(promptPath, { force: true });
+  }
 }

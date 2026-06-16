@@ -134,11 +134,27 @@ export function exportPaper(body: {
   format: "latex" | "pdf";
   includeDrafts?: boolean;
 }) {
-  return request<{ path: string; downloadUrl: string; format: string; notice?: string }>(
-    "/api/export",
-    {
-      method: "POST",
-      body: JSON.stringify(body),
-    },
-  );
+  return request<{
+    path: string;
+    downloadUrl: string;
+    format: string;
+    notice?: string;
+    missingCitations?: string[];
+  }>("/api/export", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function pushToOverleaf(body: { paperSlug: string; includeDrafts?: boolean }) {
+  return request<{
+    repoPath: string;
+    committed: boolean;
+    message: string;
+    exportPath: string;
+    missingCitations?: string[];
+  }>("/api/overleaf/push", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }

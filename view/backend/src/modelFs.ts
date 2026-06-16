@@ -35,9 +35,93 @@ function titleCase(name: string): string {
 }
 
 function assertNodeName(name: string): void {
-  if (!name || /[\\/]/.test(name) || name === "." || name === ".." || name.startsWith(".")) {
+  if (!name || name === "." || name === "..") {
     throw new ModelFsError(`Invalid node name: ${JSON.stringify(name)}`, 400);
   }
+  if (!/^[a-z0-9][a-z0-9-_]*$/.test(name)) {
+    throw new ModelFsError(`Invalid node name: ${JSON.stringify(name)}`, 400);
+  }
+}
+
+/** Shell-safe single-quoted string for embedding in terminal commands. */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+const SKIP_CHILDREN = new Set(["notes", ".sessions"]);
+
+export async function readIndexData(
+  modelRoot: string,
+  relPath: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const raw = await readFile(path.join(modelRoot, relPath, "INDEX.md"), "utf8");
+    return matter(raw).data as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+export function resolveChildPath(
+  modelRoot: string,
+  parentRel: string,
+  childName: string,
+): string | null {
+  const direct = `${parentRel}/${childName}`;
+  if (existsSync(path.join(modelRoot, direct))) return direct;
+  const underSections = `${parentRel}/sections/${childName}`;
+  if (existsSync(path.join(modelRoot, underSections))) return underSections;
+  return null;
+}
+
+/** True when folder is a leaf unit (kind-based with draft.md fallback for legacy trees). */
+export async function isUnitDir(modelRoot: string, relPath: string): Promise<boolean> {
+  const data = await readIndexData(modelRoot, relPath);
+  if (data.kind === "unit") return true;
+  if (data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
+    return false;
+  }
+  return existsSync(path.join(modelRoot, relPath, "draft.md"));
+}
+
+/** Merge frontmatter child_order/section_order with on-disk directories (stable, deduped). */
+export async function orderedChildren(modelRoot: string, dirRel: string): Promise<string[]> {
+  const data = await readIndexData(modelRoot, dirRel);
+  const sectionOrder = Array.isArray(data.section_order) ? (data.section_order as string[]) : [];
+  let childOrder = Array.isArray(data.child_order) ? (data.child_order as string[]) : [];
+
+  const sectionsRoot = `${dirRel}/sections`;
+  if (sectionOrder.length === 0 && existsSync(path.join(modelRoot, sectionsRoot))) {
+    const sectionsData = await readIndexData(modelRoot, sectionsRoot);
+    childOrder = Array.isArray(sectionsData.child_order)
+      ? (sectionsData.child_order as string[])
+      : childOrder;
+  }
+
+  const order = sectionOrder.length > 0 ? sectionOrder : childOrder;
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const name of order) {
+    if (SKIP_CHILDREN.has(name)) continue;
+    const childRel = resolveChildPath(modelRoot, dirRel, name);
+    if (!childRel) continue;
+    seen.add(name);
+    result.push(name);
+  }
+
+  try {
+    const entries = await readdir(path.join(modelRoot, dirRel), { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (SKIP_CHILDREN.has(entry.name) || seen.has(entry.name)) continue;
+      if (entry.name === "sections" && order.length > 0) continue;
+      result.push(entry.name);
+    }
+  } catch {
+    // ignore unreadable dirs
+  }
+
+  return result;
 }
 
 /** Technical metadata only — hidden from authors in the UI. */

@@ -2,6 +2,7 @@ import { Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
+import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
 
 export function EditorWorkspace({
@@ -13,6 +14,8 @@ export function EditorWorkspace({
   onError,
   linkContextPath = "",
   onNavigate,
+  dualPaneSplit,
+  onDualPaneSplitChange,
 }: {
   unitPath: string | null;
   activeFile: string;
@@ -22,6 +25,8 @@ export function EditorWorkspace({
   onError: (message: string) => void;
   linkContextPath?: string;
   onNavigate?: (target: NavigateTarget) => void;
+  dualPaneSplit: number;
+  onDualPaneSplitChange: (percent: number) => void;
 }) {
   const isUnit = Boolean(unitPath);
   const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
@@ -39,34 +44,40 @@ export function EditorWorkspace({
         <div className="flex h-10 shrink-0 items-center border-b border-border bg-card px-4">
           <span className="text-xs font-medium text-muted-foreground">Unit editor</span>
         </div>
-        <div className="unit-dual-pane grid min-h-0 flex-1">
-          <MarkdownEditor
-            key={outlinePath}
-            filePath={outlinePath}
-            refreshVersion={refreshVersion}
-            layout="preview"
-            compact
-            paneLabel="Outline"
-            defaultPaneMode="rendered"
-            className="min-h-0 border-b border-border lg:border-b-0 lg:border-r"
-            onError={onError}
-            linkContextPath={linkContextPath}
-            onNavigate={onNavigate}
-          />
-          <MarkdownEditor
-            key={draftPath}
-            filePath={draftPath}
-            refreshVersion={refreshVersion}
-            layout="preview"
-            compact
-            paneLabel="Draft"
-            defaultPaneMode="rendered"
-            className="min-h-0"
-            onError={onError}
-            linkContextPath={linkContextPath}
-            onNavigate={onNavigate}
-          />
-        </div>
+        <ResizableDualPane
+          splitPercent={dualPaneSplit}
+          onSplitChange={onDualPaneSplitChange}
+          left={
+            <MarkdownEditor
+              key={outlinePath}
+              filePath={outlinePath}
+              refreshVersion={refreshVersion}
+              layout="preview"
+              compact
+              paneLabel="Outline"
+              defaultPaneMode="rendered"
+              className="min-h-0 flex-1"
+              onError={onError}
+              linkContextPath={linkContextPath}
+              onNavigate={onNavigate}
+            />
+          }
+          right={
+            <MarkdownEditor
+              key={draftPath}
+              filePath={draftPath}
+              refreshVersion={refreshVersion}
+              layout="preview"
+              compact
+              paneLabel="Draft"
+              defaultPaneMode="rendered"
+              className="min-h-0 flex-1"
+              onError={onError}
+              linkContextPath={linkContextPath}
+              onNavigate={onNavigate}
+            />
+          }
+        />
       </div>
     );
   }

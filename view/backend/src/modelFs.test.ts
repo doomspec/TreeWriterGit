@@ -11,11 +11,14 @@ import {
   createNode,
   deleteNode,
   indexSkeleton,
+  isUnitDir,
   materializeOutline,
   materializeDraft,
   moveNode,
+  orderedChildren,
   reorderChildren,
   resolveModelPath,
+  shellQuote,
   toRelative
 } from "./modelFs.js";
 
@@ -119,6 +122,9 @@ describe("createNode", () => {
       status: 400
     });
     await expect(createNode(root, "sections", ".hidden", "unit")).rejects.toMatchObject({
+      status: 400
+    });
+    await expect(createNode(root, "sections", "bad;name", "unit")).rejects.toMatchObject({
       status: 400
     });
   });
@@ -255,6 +261,40 @@ describe("materializeDraft", () => {
     await expect(materializeDraft(root, "sections/intro/draft.md")).rejects.toMatchObject({
       status: 404,
     });
+  });
+});
+
+describe("shellQuote", () => {
+  it("wraps paths safely for shell", () => {
+    expect(shellQuote("papers/foo/draft.md")).toBe("'papers/foo/draft.md'");
+    expect(shellQuote("it's")).toBe("'it'\\''s'");
+  });
+});
+
+describe("isUnitDir", () => {
+  it("detects units by kind and legacy draft.md fallback", async () => {
+    await seedContainer("sections", ["legacy"]);
+    await createNode(root, "sections", "typed-unit", "unit");
+    await mkdir(path.join(root, "sections/legacy"), { recursive: true });
+    await writeFile(path.join(root, "sections/legacy/draft.md"), "x", "utf8");
+    expect(await isUnitDir(root, "sections/typed-unit")).toBe(true);
+    expect(await isUnitDir(root, "sections/introduction")).toBe(false);
+    expect(await isUnitDir(root, "sections/legacy")).toBe(true);
+  });
+});
+
+describe("orderedChildren", () => {
+  beforeEach(async () => {
+    await seedContainer("sections", []);
+    await createNode(root, "sections", "introduction", "section");
+    await createNode(root, "sections", "orphan-on-disk", "section");
+    await reorderChildren(root, "sections", ["introduction"]);
+  });
+
+  it("appends on-disk children missing from child_order", async () => {
+    const children = await orderedChildren(root, "sections");
+    expect(children).toContain("introduction");
+    expect(children).toContain("orphan-on-disk");
   });
 });
 

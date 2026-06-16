@@ -55,11 +55,15 @@ export function GraphPanel({
   onSelectNode,
   onClose,
   embedded = false,
+  graphScope: graphScopeProp,
+  onGraphScopeChange,
 }: {
   root: string;
   onSelectNode: (id: string) => void;
   onClose?: () => void;
   embedded?: boolean;
+  graphScope?: GraphScope;
+  onGraphScopeChange?: (scope: GraphScope) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 480, h: 360 });
@@ -70,8 +74,17 @@ export function GraphPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const [scope, setScope] = useState<GraphScope>("local");
+  const [scope, setScopeInternal] = useState<GraphScope>(graphScopeProp ?? "local");
   const [depth, setDepth] = useState(1);
+
+  useEffect(() => {
+    if (graphScopeProp !== undefined) setScopeInternal(graphScopeProp);
+  }, [graphScopeProp]);
+
+  const setScope = (next: GraphScope) => {
+    setScopeInternal(next);
+    onGraphScopeChange?.(next);
+  };
 
   useEffect(() => {
     const el = containerRef.current;

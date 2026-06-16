@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
-import { ModelFsError } from "./modelFs.js";
+import { ModelFsError, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,16 +23,8 @@ export interface ExportPaperResult {
   format: ExportFormat;
   /** Set when PDF was requested but .tex was produced instead (no LaTeX engine). */
   notice?: string;
-}
-
-const SKIP_CHILDREN = new Set(["notes", ".sessions"]);
-
-function resolveChildPath(modelRoot: string, parentRel: string, childName: string): string | null {
-  const direct = `${parentRel}/${childName}`;
-  if (existsSync(path.join(modelRoot, direct))) return direct;
-  const underSections = `${parentRel}/sections/${childName}`;
-  if (existsSync(path.join(modelRoot, underSections))) return underSections;
-  return null;
+  /** Cite keys referenced in markdown but absent from generated .bib */
+  missingCitations?: string[];
 }
 
 function titleCase(name: string): string {
@@ -42,27 +34,19 @@ function titleCase(name: string): string {
     .trim();
 }
 
-async function readIndexData(modelRoot: string, relPath: string): Promise<Record<string, unknown>> {
-  try {
-    const raw = await readFile(path.join(modelRoot, relPath, "INDEX.md"), "utf8");
-    return matter(raw).data as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-async function isUnitDir(modelRoot: string, relPath: string): Promise<boolean> {
-  const data = await readIndexData(modelRoot, relPath);
-  if (data.kind === "unit") return true;
-  if (data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
-    return false;
-  }
-  return existsSync(path.join(modelRoot, relPath, "draft.md"));
-}
-
 function shouldIncludeUnit(status: string, includeDrafts: boolean): boolean {
   if (includeDrafts) return true;
   return status === "approved";
+}
+
+function stripDuplicateLeadingH1(draft: string, title: string): string {
+  const trimmed = draft.trim();
+  const normalizedTitle = titleCase(title).toLowerCase();
+  const match = trimmed.match(/^#\s+(.+?)\s*$/m);
+  if (match && match[1].trim().toLowerCase() === normalizedTitle) {
+    return trimmed.replace(/^#\s+.+?\r?\n?/, "").trim();
+  }
+  return trimmed;
 }
 
 function headingMarkdown(depth: number, title: string): string {
@@ -133,44 +117,15 @@ export async function buildBibliography(
   return entries.join("\n\n");
 }
 
-async function orderedChildren(modelRoot: string, dirRel: string): Promise<string[]> {
-  const data = await readIndexData(modelRoot, dirRel);
-  const sectionOrder = Array.isArray(data.section_order) ? (data.section_order as string[]) : [];
-  let childOrder = Array.isArray(data.child_order) ? (data.child_order as string[]) : [];
-
-  const sectionsRoot = `${dirRel}/sections`;
-  if (sectionOrder.length === 0 && existsSync(path.join(modelRoot, sectionsRoot))) {
-    const sectionsData = await readIndexData(modelRoot, sectionsRoot);
-    childOrder = Array.isArray(sectionsData.child_order)
-      ? (sectionsData.child_order as string[])
-      : childOrder;
+/** Cite keys in markdown that have no matching @entry in the generated bibliography. */
+export function findMissingCitations(combinedMarkdown: string, bibliography: string): string[] {
+  const wanted = extractCiteKeys(combinedMarkdown);
+  if (!bibliography.trim()) return wanted;
+  const inBib = new Set<string>();
+  for (const match of bibliography.matchAll(/@\w+\{([^,\s]+)/g)) {
+    inBib.add(match[1]);
   }
-
-  const order = sectionOrder.length > 0 ? sectionOrder : childOrder;
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const name of order) {
-    if (SKIP_CHILDREN.has(name)) continue;
-    const childRel = resolveChildPath(modelRoot, dirRel, name);
-    if (!childRel) continue;
-    seen.add(name);
-    result.push(name);
-  }
-
-  // Append any on-disk children not listed in order (except skipped).
-  try {
-    const entries = await readdir(path.join(modelRoot, dirRel), { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (SKIP_CHILDREN.has(entry.name) || seen.has(entry.name)) continue;
-      if (entry.name === "sections" && order.length > 0) continue;
-      result.push(entry.name);
-    }
-  } catch {
-    // ignore
-  }
-
-  return result;
+  return wanted.filter((key) => !inBib.has(key));
 }
 
 async function walkPaper(
@@ -189,7 +144,10 @@ async function walkPaper(
 
     const draftAbs = path.join(modelRoot, dirRel, "draft.md");
     if (!existsSync(draftAbs)) return 0;
-    const draft = (await readFile(draftAbs, "utf8")).trim();
+    const draftRaw = (await readFile(draftAbs, "utf8")).trim();
+    if (!draftRaw) return 0;
+    const unitTitle = String(data.title ?? path.posix.basename(dirRel));
+    const draft = stripDuplicateLeadingH1(draftRaw, unitTitle);
     if (!draft) return 0;
     parts.push(`${draft}\n\n`);
     return 1;
@@ -327,6 +285,7 @@ export async function exportPaper(
   await writeFile(combinedPath, combined, "utf8");
 
   const bibliography = await buildBibliography(modelRoot, paperRel, combined);
+  const missingCitations = findMissingCitations(combined, bibliography);
   if (bibliography) {
     await writeFile(bibPath, bibliography, "utf8");
   }
@@ -368,6 +327,7 @@ export async function exportPaper(
     downloadUrl: `/api/export/download?file=${encodeURIComponent(fileName)}`,
     format: effectiveFormat,
     notice,
+    ...(missingCitations.length > 0 ? { missingCitations } : {}),
   };
 }
 

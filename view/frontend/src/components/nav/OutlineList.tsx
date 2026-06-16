@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { ChevronRight, FileText, Folder, Lightbulb, Pencil, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog, NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { cn } from "@/lib/utils";
 import { ApiError, deleteNode, moveNode } from "@/modelApi";
 import type { OutlineItem } from "@/lib/modelTree";
@@ -20,35 +22,44 @@ export function OutlineList({
   onChanged: () => void;
   onError: (message: string) => void;
 }) {
-  const handleDelete = async (item: OutlineItem) => {
-    const nodePath = item.kind === "directory" ? item.path : item.path;
-    if (!window.confirm(`Delete ${nodePath}?`)) return;
+  const [renameItem, setRenameItem] = useState<OutlineItem | null>(null);
+  const [deleteItem, setDeleteItem] = useState<OutlineItem | null>(null);
+  const [recursiveDelete, setRecursiveDelete] = useState<OutlineItem | null>(null);
+
+  const runDelete = async (item: OutlineItem, recursive: boolean) => {
     try {
-      await deleteNode(nodePath);
+      await deleteNode(item.path, recursive);
+      onChanged();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteItem) return;
+    const item = deleteItem;
+    setDeleteItem(null);
+    try {
+      await deleteNode(item.path);
       onChanged();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        if (window.confirm(`${nodePath} is not empty. Delete recursively?`)) {
-          try {
-            await deleteNode(nodePath, true);
-            onChanged();
-          } catch (recursiveErr) {
-            onError(recursiveErr instanceof Error ? recursiveErr.message : String(recursiveErr));
-          }
-        }
+        setRecursiveDelete(item);
         return;
       }
       onError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const handleRename = async (item: OutlineItem) => {
-    const nodePath = item.kind === "directory" ? item.path : item.path;
+  const submitRename = async (nextName: string) => {
+    if (!renameItem) return;
+    const item = renameItem;
+    setRenameItem(null);
+    const nodePath = item.path;
     const current = nodePath.split("/").at(-1) ?? "";
-    const next = window.prompt(`Rename ${nodePath} to:`, current);
-    if (!next || next === current || next.includes("/")) return;
+    if (nextName === current) return;
     const parent = nodePath.split("/").slice(0, -1).join("/");
-    const to = parent ? `${parent}/${next}` : next;
+    const to = parent ? `${parent}/${nextName}` : nextName;
     try {
       await moveNode(nodePath, to);
       onChanged();
@@ -117,7 +128,7 @@ export function OutlineList({
                       className="h-7 w-7"
                       aria-label={`Rename ${item.name}`}
                       title="Rename"
-                      onClick={() => void handleRename(item)}
+                      onClick={() => setRenameItem(item)}
                     >
                       <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
@@ -128,7 +139,7 @@ export function OutlineList({
                       className="h-7 w-7"
                       aria-label={`Delete ${item.name}`}
                       title="Delete"
-                      onClick={() => void handleDelete(item)}
+                      onClick={() => setDeleteItem(item)}
                     >
                       <Trash2 className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
                     </Button>
@@ -141,6 +152,38 @@ export function OutlineList({
           );
         })}
       </ul>
+
+      <NamePromptDialog
+        open={renameItem !== null}
+        title="Rename"
+        label="New name"
+        defaultValue={renameItem?.path.split("/").at(-1)?.replace(/\.md$/, "") ?? ""}
+        confirmLabel="Rename"
+        onConfirm={(name) => void submitRename(name)}
+        onCancel={() => setRenameItem(null)}
+      />
+      <ConfirmDialog
+        open={deleteItem !== null}
+        title="Delete"
+        message={deleteItem ? `Delete ${deleteItem.path}?` : ""}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => void handleDeleteConfirm()}
+        onCancel={() => setDeleteItem(null)}
+      />
+      <ConfirmDialog
+        open={recursiveDelete !== null}
+        title="Delete recursively"
+        message={recursiveDelete ? `${recursiveDelete.path} is not empty. Delete all contents?` : ""}
+        confirmLabel="Delete all"
+        destructive
+        onConfirm={() => {
+          const item = recursiveDelete;
+          setRecursiveDelete(null);
+          if (item) void runDelete(item, true);
+        }}
+        onCancel={() => setRecursiveDelete(null)}
+      />
     </div>
   );
 }

@@ -34,6 +34,13 @@ import {
 import { createNode, type NodeKind } from "@/modelApi";
 import { GraphPanel } from "@/GraphPanel";
 import { PapersPanel } from "@/PapersPanel";
+import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
+import {
+  loadWorkspacePreferences,
+  mergeWorkspaceDefaults,
+  saveWorkspacePreferences,
+} from "@/lib/workspacePreferences";
+import type { GraphScope } from "@/lib/graphLocal";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 const terminalUrl = import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://localhost:4000/terminal";
@@ -55,6 +62,7 @@ type GitSyncState = {
 };
 
 export default function App() {
+  const savedPrefs = useMemo(() => mergeWorkspaceDefaults(loadWorkspacePreferences()), []);
   const terminalElementRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -63,15 +71,18 @@ export default function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [sessionKey, setSessionKey] = useState(0);
   const [tree, setTree] = useState<ModelNode[]>([]);
-  const [currentPath, setCurrentPath] = useState("");
-  const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [editorLayout, setEditorLayout] = useState<EditorLayout>("split");
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("explorer");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPath, setCurrentPath] = useState(savedPrefs.currentPath);
+  const [activeFile, setActiveFile] = useState<string | null>(savedPrefs.activeFile);
+  const [editorLayout, setEditorLayout] = useState<EditorLayout>(savedPrefs.editorLayout);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(savedPrefs.sidebarTab);
+  const [searchQuery, setSearchQuery] = useState(savedPrefs.searchQuery);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [gitSync, setGitSync] = useState<GitSyncState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(savedPrefs.agentPanelOpen);
+  const [dualPaneSplit, setDualPaneSplit] = useState(savedPrefs.dualPaneSplit);
+  const [graphScope, setGraphScope] = useState<GraphScope>(savedPrefs.graphScope);
+  const [createPrompt, setCreatePrompt] = useState<{ kind: NodeKind } | null>(null);
 
   const files = useMemo(() => flattenFiles(tree), [tree]);
   const browsePath =
@@ -85,6 +96,31 @@ export default function App() {
   const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
   const unitPath = isUnit ? browsePath : null;
   const sectionPath = isPaperSection && !activeFile ? browsePath : null;
+  const graphRoot = sidebarTab === "papers" ? browsePath : currentPath;
+
+  useEffect(() => {
+    saveWorkspacePreferences({
+      sidebarTab,
+      currentPath,
+      activeFile,
+      editorLayout,
+      agentPanelOpen,
+      searchQuery,
+      graphRoot,
+      graphScope,
+      dualPaneSplit,
+    });
+  }, [
+    activeFile,
+    agentPanelOpen,
+    currentPath,
+    dualPaneSplit,
+    editorLayout,
+    graphRoot,
+    graphScope,
+    searchQuery,
+    sidebarTab,
+  ]);
 
   const loadTree = useCallback(async () => {
     const response = await fetch(`${apiBaseUrl}/api/model/tree`);
@@ -308,12 +344,16 @@ export default function App() {
   const canGoUp =
     sidebarTab === "papers" ? browsePath !== PAPERS_ROOT && browsePath !== "" : Boolean(browsePath);
 
-  const createChild = async (kind: NodeKind) => {
-    const label = kind === "unit" ? "unit" : kind;
-    const name = window.prompt(`New ${label} name (folder-safe):`, "");
-    if (!name) return;
+  const createChild = (kind: NodeKind) => {
+    setCreatePrompt({ kind });
+  };
+
+  const submitCreateChild = async (name: string) => {
+    if (!createPrompt) return;
+    const { kind } = createPrompt;
+    setCreatePrompt(null);
     try {
-      const created = await createNode(browsePath, name.trim(), kind);
+      const created = await createNode(browsePath, name, kind);
       reloadModel();
       if (kind !== "unit") navigateTo(created.path);
     } catch (err) {
@@ -412,7 +452,9 @@ export default function App() {
             <div className="graph-tab-host flex min-h-[280px] flex-1 flex-col overflow-hidden">
               <GraphPanel
                 embedded
-                root={sidebarTab === "papers" ? browsePath : currentPath}
+                root={graphRoot}
+                graphScope={graphScope}
+                onGraphScopeChange={setGraphScope}
                 onSelectNode={(id) => {
                   if (!id.startsWith("missing:")) {
                     navigateTo(id);
@@ -435,11 +477,11 @@ export default function App() {
                 variant="outline"
                 size="icon"
                 title={`New ${containerKind}`}
-                onClick={() => void createChild(containerKind)}
+                onClick={() => createChild(containerKind)}
               >
                 <FolderPlus className="h-4 w-4" aria-hidden="true" />
               </Button>
-              <Button type="button" variant="outline" size="icon" title="New unit" onClick={() => void createChild("unit")}>
+              <Button type="button" variant="outline" size="icon" title="New unit" onClick={() => createChild("unit")}>
                 <FilePlus className="h-4 w-4" aria-hidden="true" />
               </Button>
               <Button
@@ -466,6 +508,8 @@ export default function App() {
                 onError={setError}
                 linkContextPath={unitPath ?? parentPath(activeFile ?? "")}
                 onNavigate={handleMarkdownNavigate}
+                dualPaneSplit={dualPaneSplit}
+                onDualPaneSplitChange={setDualPaneSplit}
               />
             ) : sectionPath ? (
               <SectionWorkspace
@@ -474,6 +518,8 @@ export default function App() {
                 onNavigate={navigateTo}
                 onOpenFile={openFile}
                 onError={setError}
+                dualPaneSplit={dualPaneSplit}
+                onDualPaneSplitChange={setDualPaneSplit}
               />
             ) : (
               <FolderBrowse
@@ -505,6 +551,7 @@ export default function App() {
           open={agentPanelOpen}
           onOpenChange={setAgentPanelOpen}
           currentPath={browsePath}
+          refreshVersion={refreshVersion}
           onSendToTerminal={sendToTerminal}
           onError={setError}
           onReconnect={() => setSessionKey((k) => k + 1)}
@@ -512,6 +559,15 @@ export default function App() {
           terminalHostRef={terminalElementRef}
         />
       </section>
+
+      <NamePromptDialog
+        open={createPrompt !== null}
+        title={createPrompt ? `New ${createPrompt.kind}` : "New node"}
+        label="Folder-safe name (lowercase, hyphens ok)"
+        confirmLabel="Create"
+        onConfirm={(name) => void submitCreateChild(name)}
+        onCancel={() => setCreatePrompt(null)}
+      />
 
       {error ? (
         <div className="fixed bottom-3 right-3 flex max-w-md items-center gap-2 rounded-lg border border-destructive/40 bg-background px-3 py-2 text-xs text-destructive shadow-lg">

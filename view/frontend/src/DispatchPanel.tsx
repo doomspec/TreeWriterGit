@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bot, Check, ChevronDown, ChevronRight, Clock, Eye, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,7 @@ interface PreviewResult {
   prompt: string;
   command: string;
   outputPath: string;
+  sessionId?: string;
 }
 
 interface SessionFile {
@@ -67,12 +68,14 @@ function formatAt(iso: string): string {
 
 export function DispatchPanel({
   currentPath,
+  refreshVersion,
   onSendToTerminal,
   onError,
   onToggle,
   embedded = false,
 }: {
   currentPath: string;
+  refreshVersion?: number;
   onSendToTerminal: (command: string) => void;
   onError: (message: string) => void;
   onToggle?: () => void;
@@ -89,6 +92,10 @@ export function DispatchPanel({
   const [loading, setLoading] = useState(false);
   const [sessions, setSessions] = useState<SessionFile[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const pendingSessionRef = useRef<string | null>(null);
+  const previewSessionIdRef = useRef<string>(
+    `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+  );
 
   const loadProviders = async () => {
     if (providersLoaded) return;
@@ -124,6 +131,24 @@ export function DispatchPanel({
     if (open || embedded) void loadSessions(currentPath);
   }, [currentPath, embedded, open, loadSessions]);
 
+  useEffect(() => {
+    if (!refreshVersion || !pendingSessionRef.current || !currentPath) return;
+    const filename = pendingSessionRef.current;
+    pendingSessionRef.current = null;
+    void (async () => {
+      try {
+        await fetch(`${apiBaseUrl}/api/sessions`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ unitPath: currentPath, filename, status: "complete" }),
+        });
+        await loadSessions(currentPath);
+      } catch {
+        // non-fatal
+      }
+    })();
+  }, [currentPath, loadSessions, refreshVersion]);
+
   const handleToggle = () => {
     setOpen((v) => {
       const next = !v;
@@ -145,6 +170,8 @@ export function DispatchPanel({
     }
     setLoading(true);
     setPreview(null);
+    setEditedCommand("");
+    previewSessionIdRef.current = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     try {
       const res = await fetch(`${apiBaseUrl}/api/agent/preview`, {
         method: "POST",
@@ -154,6 +181,7 @@ export function DispatchPanel({
           action,
           provider: selectedProvider,
           customPrompt: action === "custom" ? customPrompt : undefined,
+          sessionId: previewSessionIdRef.current,
         }),
       });
       if (!res.ok) {
@@ -176,7 +204,7 @@ export function DispatchPanel({
 
   const recordSession = async (command: string) => {
     try {
-      await fetch(`${apiBaseUrl}/api/sessions`, {
+      const res = await fetch(`${apiBaseUrl}/api/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -187,6 +215,11 @@ export function DispatchPanel({
           status: "dispatched",
         }),
       });
+      if (res.ok) {
+        const data = (await res.json()) as { path?: string };
+        const filename = data.path?.split("/").pop();
+        if (filename) pendingSessionRef.current = filename;
+      }
       await loadSessions(currentPath);
     } catch {
       // non-fatal
@@ -287,16 +320,18 @@ export function DispatchPanel({
           )}
 
           {/* Command + action buttons */}
-          <div className="flex items-center gap-2">
-            <input
+          <div className="flex flex-col gap-2">
+            <textarea
               className={cn(
-                "h-7 flex-1 rounded-sm border border-border bg-background px-2 font-mono text-xs",
+                "min-h-[4.5rem] w-full resize-y rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs leading-relaxed",
                 !preview && "text-muted-foreground",
               )}
+              rows={3}
               value={preview ? editedCommand : "— preview first —"}
               readOnly={!preview}
               onChange={(e) => setEditedCommand(e.target.value)}
             />
+            <div className="flex justify-end gap-2">
             <Button
               type="button"
               variant="outline"
@@ -319,6 +354,7 @@ export function DispatchPanel({
             >
               <Send className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
+            </div>
           </div>
 
           {/* Session history */}

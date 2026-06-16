@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Pencil } from "lucide-react";
 
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
+import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
 
@@ -28,12 +29,16 @@ export function SectionWorkspace({
   onNavigate,
   onOpenFile,
   onError,
+  dualPaneSplit,
+  onDualPaneSplitChange,
 }: {
   sectionPath: string;
   refreshVersion: number;
   onNavigate: (path: string) => void;
   onOpenFile: (path: string) => void;
   onError: (message: string) => void;
+  dualPaneSplit: number;
+  onDualPaneSplitChange: (percent: number) => void;
 }) {
   const [compose, setCompose] = useState<SectionCompose | null>(null);
   const [loading, setLoading] = useState(true);
@@ -125,45 +130,50 @@ export function SectionWorkspace({
         </div>
       </div>
 
-      <div className="unit-dual-pane grid min-h-0 flex-1">
-        <div className="flex min-h-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
-          <div className="flex h-9 shrink-0 items-center border-b border-border/60 bg-[hsl(var(--reading-bg))] px-3">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Outline
-            </span>
-          </div>
-          <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
-            <MarkdownViewer
-              markdown={compose.outlineMarkdown}
-              linkContextPath={sectionPath}
-              linksClickable
-              onNavigate={handleLinkNavigate}
-            />
-          </div>
-        </div>
-
-        <div className="flex min-h-0 flex-col">
-          <div className="flex h-9 shrink-0 items-center border-b border-border/60 bg-[hsl(var(--reading-bg))] px-3">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Draft
-            </span>
-          </div>
-          <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
-            {compose.draftMarkdown.trim() ? (
+      <ResizableDualPane
+        splitPercent={dualPaneSplit}
+        onSplitChange={onDualPaneSplitChange}
+        left={
+          <>
+            <div className="flex h-9 shrink-0 items-center border-b border-border/60 bg-[hsl(var(--reading-bg))] px-3">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Outline
+              </span>
+            </div>
+            <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
               <MarkdownViewer
-                markdown={compose.draftMarkdown.replace(/^#\s+.+\n+/, "")}
+                markdown={compose.outlineMarkdown}
                 linkContextPath={sectionPath}
                 linksClickable
                 onNavigate={handleLinkNavigate}
               />
-            ) : (
-              <p className="text-sm italic text-muted-foreground">
-                No draft content yet — open subsections to write.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
+            </div>
+          </>
+        }
+        right={
+          <>
+            <div className="flex h-9 shrink-0 items-center border-b border-border/60 bg-[hsl(var(--reading-bg))] px-3">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Draft
+              </span>
+            </div>
+            <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
+              {compose.draftMarkdown.trim() ? (
+                <MarkdownViewer
+                  markdown={compose.draftMarkdown.replace(/^#\s+.+\n+/, "")}
+                  linkContextPath={sectionPath}
+                  linksClickable
+                  onNavigate={handleLinkNavigate}
+                />
+              ) : (
+                <p className="text-sm italic text-muted-foreground">
+                  No draft content yet — open subsections to write.
+                </p>
+              )}
+            </div>
+          </>
+        }
+      />
     </div>
   );
 }

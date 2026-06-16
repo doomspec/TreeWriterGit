@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, GripVertical, Plus } from "lucide-react";
+import { Download, GripVertical, Plus, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/modelTree";
 import {
   exportPaper,
+  pushToOverleaf,
   fetchPaperDetail,
   fetchPapers,
   reorderChildren,
@@ -224,6 +225,7 @@ export function PapersPanel({
   const [showNewPaper, setShowNewPaper] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [pushingOverleaf, setPushingOverleaf] = useState(false);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
@@ -351,12 +353,36 @@ export function PapersPanel({
         includeDrafts: true,
       });
       window.open(`${apiBaseUrl}${result.downloadUrl}`, "_blank");
-      if (result.notice) setExportNotice(result.notice);
+      const notices: string[] = [];
+      if (result.notice) notices.push(result.notice);
+      if (result.missingCitations?.length) {
+        notices.push(`Missing citations: ${result.missingCitations.join(", ")}`);
+      }
+      setExportNotice(notices.length ? notices.join(" · ") : null);
       await reload();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleOverleafPush = async () => {
+    if (!selectedSlug) return;
+    setPushingOverleaf(true);
+    setExportNotice(null);
+    try {
+      const result = await pushToOverleaf({ paperSlug: selectedSlug, includeDrafts: true });
+      const notices = [result.message];
+      if (result.missingCitations?.length) {
+        notices.push(`Missing citations: ${result.missingCitations.join(", ")}`);
+      }
+      setExportNotice(notices.join(" · "));
+      await reload();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPushingOverleaf(false);
     }
   };
 
@@ -434,7 +460,7 @@ export function PapersPanel({
               type="button"
               variant="outline"
               className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting}
+              disabled={exporting || pushingOverleaf}
               onClick={() => void handleExport("latex")}
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
@@ -444,12 +470,23 @@ export function PapersPanel({
               type="button"
               variant="outline"
               className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting}
+              disabled={exporting || pushingOverleaf}
               title="Requires a LaTeX engine (brew install tectonic). Falls back to .tex if missing."
               onClick={() => void handleExport("pdf")}
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
               Export PDF
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 gap-1 px-2 text-xs"
+              disabled={exporting || pushingOverleaf}
+              title="Requires overleaf_repo_path in paper INDEX.md"
+              onClick={() => void handleOverleafPush()}
+            >
+              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+              Push Overleaf
             </Button>
           </div>
           {exportNotice ? (

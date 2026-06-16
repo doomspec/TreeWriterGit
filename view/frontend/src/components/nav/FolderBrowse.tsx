@@ -11,6 +11,7 @@ import {
 
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog, NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { cn } from "@/lib/utils";
 import { ApiError, deleteNode, moveNode, reorderChildren } from "@/modelApi";
 import {
@@ -62,6 +63,9 @@ export function FolderBrowse({
   const [outlineContent, setOutlineContent] = useState("");
   const [childSummaries, setChildSummaries] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [renameItem, setRenameItem] = useState<OutlineItem | null>(null);
+  const [deleteItem, setDeleteItem] = useState<OutlineItem | null>(null);
+  const [recursiveDelete, setRecursiveDelete] = useState<OutlineItem | null>(null);
 
   const indexPath = indexPathFor(currentPath);
   const outlinePath = outlinePathFor(currentPath);
@@ -135,43 +139,57 @@ export function FolderBrowse({
     };
   }, [childCards]);
 
-  const handleDelete = async (item: OutlineItem) => {
-    const deletePath = item.path;
-    if (!window.confirm(`Delete ${deletePath}?`)) return;
+  const runDelete = async (item: OutlineItem, recursive: boolean) => {
     try {
-      await deleteNode(deletePath);
+      await deleteNode(item.path, recursive);
+      onChanged();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteItem) return;
+    const item = deleteItem;
+    setDeleteItem(null);
+    try {
+      await deleteNode(item.path);
       onChanged();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        if (window.confirm(`${deletePath} is not empty. Delete recursively?`)) {
-          try {
-            await deleteNode(deletePath, true);
-            onChanged();
-          } catch (recursiveErr) {
-            onError(recursiveErr instanceof Error ? recursiveErr.message : String(recursiveErr));
-          }
-        }
+        setRecursiveDelete(item);
         return;
       }
       onError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const handleRename = async (item: OutlineItem) => {
-    const nodePath = item.kind === "directory" ? item.path : item.path;
+  const submitRename = async (nextName: string) => {
+    if (!renameItem) return;
+    const item = renameItem;
+    setRenameItem(null);
+    const nodePath = item.path;
     const current = nodePath.split("/").at(-1) ?? "";
-    const next = window.prompt(`Rename ${nodePath} to:`, current.replace(/\.md$/, ""));
-    if (!next || next === current.replace(/\.md$/, "") || next.includes("/")) return;
+    const baseCurrent = current.replace(/\.md$/, "");
+    if (nextName === baseCurrent) return;
     const parent = nodePath.split("/").slice(0, -1).join("/");
-    const to = parent
-      ? `${parent}/${item.kind === "file" && !next.endsWith(".md") ? `${next}.md` : next}`
-      : next;
+    const fileName =
+      item.kind === "file" && !nextName.endsWith(".md") ? `${nextName}.md` : nextName;
+    const to = parent ? `${parent}/${fileName}` : fileName;
     try {
       await moveNode(nodePath, to);
       onChanged();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const handleDelete = (item: OutlineItem) => {
+    setDeleteItem(item);
+  };
+
+  const handleRename = (item: OutlineItem) => {
+    setRenameItem(item);
   };
 
   const moveChild = async (index: number, direction: -1 | 1) => {
@@ -396,7 +414,7 @@ export function FolderBrowse({
                   size="icon"
                   className="h-7 w-7"
                   title="Rename"
-                  onClick={() => void handleRename(item)}
+                  onClick={() => handleRename(item)}
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
@@ -406,7 +424,7 @@ export function FolderBrowse({
                   size="icon"
                   className={cn("h-7 w-7", item.kind !== "index" && "")}
                   title="Delete"
-                  onClick={() => void handleDelete(item)}
+                  onClick={() => handleDelete(item)}
                 >
                   <Trash2 className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
                 </Button>
@@ -415,6 +433,38 @@ export function FolderBrowse({
           );
         })}
       </div>
+
+      <NamePromptDialog
+        open={renameItem !== null}
+        title="Rename"
+        label="New name"
+        defaultValue={renameItem?.path.split("/").at(-1)?.replace(/\.md$/, "") ?? ""}
+        confirmLabel="Rename"
+        onConfirm={(name) => void submitRename(name)}
+        onCancel={() => setRenameItem(null)}
+      />
+      <ConfirmDialog
+        open={deleteItem !== null}
+        title="Delete"
+        message={deleteItem ? `Delete ${deleteItem.path}?` : ""}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => void handleDeleteConfirm()}
+        onCancel={() => setDeleteItem(null)}
+      />
+      <ConfirmDialog
+        open={recursiveDelete !== null}
+        title="Delete recursively"
+        message={recursiveDelete ? `${recursiveDelete.path} is not empty. Delete all contents?` : ""}
+        confirmLabel="Delete all"
+        destructive
+        onConfirm={() => {
+          const item = recursiveDelete;
+          setRecursiveDelete(null);
+          if (item) void runDelete(item, true);
+        }}
+        onCancel={() => setRecursiveDelete(null)}
+      />
     </div>
   );
 }

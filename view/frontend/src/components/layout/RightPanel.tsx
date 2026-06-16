@@ -9,6 +9,7 @@ export function RightPanel({
   open,
   onOpenChange,
   currentPath,
+  refreshVersion,
   onSendToTerminal,
   onError,
   onReconnect,
@@ -18,6 +19,7 @@ export function RightPanel({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentPath: string;
+  refreshVersion: number;
   onSendToTerminal: (command: string) => void;
   onError: (message: string) => void;
   onReconnect: () => void;
@@ -131,6 +133,7 @@ export function RightPanel({
               <DispatchPanel
                 embedded
                 currentPath={currentPath}
+                refreshVersion={refreshVersion}
                 onSendToTerminal={onSendToTerminal}
                 onError={onError}
                 onToggle={handleDispatchToggle}
