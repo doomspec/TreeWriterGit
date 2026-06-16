@@ -12,6 +12,7 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  Network,
   Pencil,
   RefreshCw,
   TerminalSquare,
@@ -23,6 +24,7 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ApiError, createNode, deleteNode, moveNode, type NodeKind } from "@/modelApi";
+import { GraphPanel } from "@/GraphPanel";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 const terminalUrl = import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://localhost:4000/terminal";
@@ -460,6 +462,7 @@ export default function App() {
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [gitSync, setGitSync] = useState<GitSyncState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showGraph, setShowGraph] = useState(false);
 
   const files = useMemo(() => flattenFiles(tree), [tree]);
   const currentParentNode = currentParentPath ? findNode(tree, currentParentPath) : null;
@@ -653,6 +656,16 @@ export default function App() {
         <div className="flex items-center gap-2">
           <Button
             type="button"
+            variant={showGraph ? "default" : "outline"}
+            size="icon"
+            aria-label="Toggle graph view"
+            title="Toggle graph view"
+            onClick={() => setShowGraph((value) => !value)}
+          >
+            <Network className="h-4 w-4" aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
             variant="outline"
             size="icon"
             aria-label="Run Git sync"
@@ -712,7 +725,19 @@ export default function App() {
           </ul>
         </aside>
 
-        <section className="grid min-h-0 grid-rows-[auto_1fr_auto]">
+        <section className="relative grid min-h-0 grid-rows-[auto_1fr_auto]">
+          {showGraph ? (
+            <GraphPanel
+              root={currentParentPath}
+              onSelectNode={(id) => {
+                if (!id.startsWith("missing:")) {
+                  setCurrentParentPath(id);
+                }
+                setShowGraph(false);
+              }}
+              onClose={() => setShowGraph(false)}
+            />
+          ) : null}
           <div className="flex h-14 items-center justify-between gap-3 border-b border-border px-4">
             <div className="min-w-0">
               <h2 className="truncate text-sm font-semibold">{currentParentName}</h2>

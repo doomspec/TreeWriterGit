@@ -18,6 +18,7 @@ import {
   reorderChildren,
   type NodeKind
 } from "./modelFs.js";
+import { buildGraph } from "./graph.js";
 
 type ClientMessage =
   | {
@@ -322,6 +323,15 @@ app.post("/api/model/reorder", async (request, response, next) => {
     await reorderChildren(modelRoot, parent, childOrder);
     broadcastModelEvent({ type: "model-changed", path: parent });
     response.json({ ok: true, parent });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/graph", async (request, response, next) => {
+  try {
+    const root = String(request.query.root ?? "");
+    response.json(await buildGraph(modelRoot, root));
   } catch (error) {
     next(error);
   }
