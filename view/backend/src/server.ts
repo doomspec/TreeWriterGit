@@ -20,6 +20,7 @@ import {
 } from "./modelFs.js";
 import { buildGraph } from "./graph.js";
 import { loadProviders, buildPreview, type DispatchAction } from "./agentDispatch.js";
+import { listSessions, createSession, updateSessionStatus } from "./sessions.js";
 
 type ClientMessage =
   | {
@@ -370,6 +371,72 @@ app.post("/api/agent/preview", async (request, response, next) => {
       customPrompt,
     );
     response.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/sessions", async (request, response, next) => {
+  try {
+    const unitPath = String(request.query.unitPath ?? "");
+    if (!unitPath) {
+      response.status(400).json({ error: "unitPath required" });
+      return;
+    }
+    response.json({ sessions: await listSessions(modelRoot, unitPath) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/sessions", async (request, response, next) => {
+  try {
+    const { unitPath, provider, action, command, status, notes } = request.body as {
+      unitPath?: string;
+      provider?: string;
+      action?: string;
+      command?: string;
+      status?: string;
+      notes?: string;
+    };
+    if (!unitPath || !provider || !action || !command) {
+      response.status(400).json({ error: "unitPath, provider, action, command required" });
+      return;
+    }
+    const created = await createSession(modelRoot, unitPath, {
+      at: new Date().toISOString(),
+      provider,
+      action,
+      command,
+      status: (status as "dispatched" | "complete" | "skipped") ?? "dispatched",
+      notes,
+    });
+    response.status(201).json({ ok: true, path: created });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/sessions", async (request, response, next) => {
+  try {
+    const { unitPath, filename, status, notes } = request.body as {
+      unitPath?: string;
+      filename?: string;
+      status?: string;
+      notes?: string;
+    };
+    if (!unitPath || !filename || !status) {
+      response.status(400).json({ error: "unitPath, filename, status required" });
+      return;
+    }
+    await updateSessionStatus(
+      modelRoot,
+      unitPath,
+      filename,
+      status as "dispatched" | "complete" | "skipped",
+      notes,
+    );
+    response.json({ ok: true });
   } catch (error) {
     next(error);
   }

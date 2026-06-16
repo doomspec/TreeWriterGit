@@ -1,0 +1,12 @@
+**Contributions.**
+Here, we introduce **RoboCulture**, a step towards end-to-end autonomy of biological experimentation with general purpose robotics (**Figure **). It is capable of reliably performing liquid handling-based assays as well as other related tasks which leverage the capabilities of a robot manipulator, including pipette tip exchange and growth monitoring, to fully assist scientists with end-to-end cell culture operations. RoboCulture presents the following unique advantages:
+
+    - It allows for the automation of liquid handling experiments with a general purpose 7-axis robotic manipulator. RoboCulture comprises three main components: a) a computer vision-based liquid handling system which uses vision feedback to establish closed-loop control and robust insertion of the pipette into wells of an arbitrarily positioned 96-well plate, b) a pipette tip exchange system leveraging robot force feedback to reliably attach new pipette tips, and c) a computer vision system to monitor the optical density of the wells to inform RoboCulture on the current state of the experiment (**Figure **).
+
+    - RoboCulture leverages our Digital Pipette v2, an updated version of our open-source, cost-effective Digital Pipette [@digital-pipette]. This iteration features interchangeable pipette tips, making it suitable for use in biomedical settings that require sterility. The pipette is designed for interoperability with a robot gripper without requiring extensive hardware modifications for compatibility. We release the code and CAD models which are adaptable and customizable for new tasks.
+    
+    - RoboCulture autonomously performs a 15-hour yeast cell culture experiment, integrating key tasks such as liquid handling, pipette tip exchange, growth monitoring, and decision-making for sub-culturing. A behavior tree governs the coordination between these subsystems, as illustrated in **Figure~**, while **Figure~** depicts the overall experimental setup.
+
+RoboCulture is designed to prioritize flexibility and autonomy over throughput. It enables long-duration, hands-free operation by responding to changing experimental conditions. Its modular behaviors can be reused and combined to define new protocols, making it well-suited for research settings where adaptability is more important than speed.
+
+We release the code and CAD models which are adaptable and customizable for new tasks.
