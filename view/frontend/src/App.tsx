@@ -361,6 +361,17 @@ export default function App() {
     }
   };
 
+  const handleSearchSelect = useCallback(
+    (hit: { path: string }) => {
+      if (hit.path.endsWith(".md")) {
+        openFile(hit.path);
+      } else {
+        navigateTo(parentPath(hit.path));
+      }
+    },
+    [navigateTo, openFile],
+  );
+
   const gitStatusLabel = gitSync?.conflictDetected
     ? "conflict"
     : gitSync?.lastError
@@ -433,6 +444,7 @@ export default function App() {
           onSearchChange={setSearchQuery}
           onNavigate={navigateTo}
           onOpenFile={openFile}
+          onSearchSelect={handleSearchSelect}
           papersContent={
             <PapersPanel
               embedded

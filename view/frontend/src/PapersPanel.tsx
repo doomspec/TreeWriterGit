@@ -42,6 +42,122 @@ function paperSlugFromPath(path: string): string | null {
   return /^papers\/([^/]+)/.exec(path)?.[1] ?? null;
 }
 
+function SubsectionOrderList({
+  parent,
+  subsections,
+  currentPath,
+  tree,
+  childOrders,
+  reordering,
+  onNavigate,
+  onReorder,
+}: {
+  parent: SectionRow;
+  subsections: PaperSectionItem[];
+  currentPath: string;
+  tree: ModelNode[];
+  childOrders: Record<string, string[]>;
+  reordering: boolean;
+  onNavigate: (path: string) => void;
+  onReorder: (parentPath: string, order: string[]) => Promise<void>;
+}) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  const handleDrop = async (toIndex: number) => {
+    if (dragIndex === null || dragIndex === toIndex) {
+      setDragIndex(null);
+      setOverIndex(null);
+      return;
+    }
+    const next = [...subsections];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setDragIndex(null);
+    setOverIndex(null);
+    await onReorder(parent.path, next.map((c) => c.name));
+  };
+
+  return (
+    <ul className="ml-6 space-y-0.5 border-l border-border/60 pl-2" aria-label={`Subsections of ${parent.title}`}>
+      {subsections.map((child, index) => {
+        const childActive = currentPath === child.path || currentPath.startsWith(`${child.path}/`);
+        const nested = orderedChildFolders(tree, child.path, childOrders[child.path] ?? []);
+        const showNested = childActive && nested.length > 0;
+
+        return (
+          <li key={child.path}>
+            <div
+              className={cn(
+                "flex items-stretch gap-0.5 rounded-md",
+                dragIndex === index ? "opacity-50" : undefined,
+                overIndex === index && dragIndex !== null && dragIndex !== index
+                  ? "ring-1 ring-primary/40"
+                  : undefined,
+                reordering ? "pointer-events-none opacity-60" : undefined,
+              )}
+            >
+              <div
+                draggable={!reordering}
+                onDragStart={() => setDragIndex(index)}
+                onDragEnd={() => {
+                  setDragIndex(null);
+                  setOverIndex(null);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setOverIndex(index);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  void handleDrop(index);
+                }}
+                className="flex w-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                title="Drag to reorder subsection"
+                aria-hidden="true"
+              >
+                <GripVertical className="h-3 w-3" />
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  "flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-[11px] hover:bg-accent/40",
+                  childActive ? "bg-accent/50 font-medium text-foreground" : "text-muted-foreground",
+                )}
+                onClick={() => onNavigate(child.path)}
+              >
+                <span className="truncate">{child.title}</span>
+              </button>
+            </div>
+            {showNested ? (
+              <ul className="ml-3 space-y-0.5 border-l border-border/40 pl-2">
+                {nested.map((unit) => {
+                  const unitActive =
+                    currentPath === unit.path || currentPath.startsWith(`${unit.path}/`);
+                  return (
+                    <li key={unit.path}>
+                      <button
+                        type="button"
+                        className={cn(
+                          "w-full truncate rounded-md px-2 py-0.5 text-left text-[10px] hover:bg-accent/40",
+                          unitActive ? "bg-accent/40 font-medium" : "text-muted-foreground",
+                        )}
+                        onClick={() => onNavigate(unit.path)}
+                      >
+                        {unit.title}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function SectionOrderList({
   sections,
   currentPath,
@@ -50,6 +166,7 @@ function SectionOrderList({
   reordering,
   onNavigate,
   onReorder,
+  onChildReorder,
 }: {
   sections: SectionRow[];
   currentPath: string;
@@ -58,6 +175,7 @@ function SectionOrderList({
   reordering: boolean;
   onNavigate: (path: string) => void;
   onReorder: (order: string[]) => Promise<void>;
+  onChildReorder: (parentPath: string, order: string[]) => Promise<void>;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -91,51 +209,16 @@ function SectionOrderList({
     }
 
     return (
-      <ul className="ml-6 space-y-0.5 border-l border-border/60 pl-2" aria-label={`Subsections of ${parent.title}`}>
-        {children.map((child) => {
-          const childActive =
-            currentPath === child.path || currentPath.startsWith(`${child.path}/`);
-          const nested = orderedChildFolders(tree, child.path, childOrders[child.path] ?? []);
-          const showNested = childActive && nested.length > 0;
-
-          return (
-            <li key={child.path}>
-              <button
-                type="button"
-                className={cn(
-                  "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1 text-left text-[11px] hover:bg-accent/40",
-                  childActive ? "bg-accent/50 font-medium text-foreground" : "text-muted-foreground",
-                )}
-                onClick={() => onNavigate(child.path)}
-              >
-                <span className="truncate">{child.title}</span>
-              </button>
-              {showNested ? (
-                <ul className="ml-3 space-y-0.5 border-l border-border/40 pl-2">
-                  {nested.map((unit) => {
-                    const unitActive =
-                      currentPath === unit.path || currentPath.startsWith(`${unit.path}/`);
-                    return (
-                      <li key={unit.path}>
-                        <button
-                          type="button"
-                          className={cn(
-                            "w-full truncate rounded-md px-2 py-0.5 text-left text-[10px] hover:bg-accent/40",
-                            unitActive ? "bg-accent/40 font-medium" : "text-muted-foreground",
-                          )}
-                          onClick={() => onNavigate(unit.path)}
-                        >
-                          {unit.title}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+      <SubsectionOrderList
+        parent={parent}
+        subsections={children}
+        currentPath={currentPath}
+        tree={tree}
+        childOrders={childOrders}
+        reordering={reordering}
+        onNavigate={onNavigate}
+        onReorder={onChildReorder}
+      />
     );
   };
 
@@ -409,6 +492,19 @@ export function PapersPanel({
     }
   };
 
+  const handleChildReorder = async (parentPath: string, order: string[]) => {
+    setReordering(true);
+    try {
+      await reorderChildren(parentPath, order);
+      setChildOrders((prev) => ({ ...prev, [parentPath]: order }));
+      onModelChanged?.();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReordering(false);
+    }
+  };
+
   return (
     <div className={cn("space-y-2", embedded ? "p-3" : "border-b border-border px-4 py-3")}>
       <div className="flex items-center justify-between gap-2">
@@ -507,6 +603,7 @@ export function PapersPanel({
                 reordering={reordering}
                 onNavigate={onNavigate}
                 onReorder={handleSectionReorder}
+                onChildReorder={handleChildReorder}
               />
             )}
           </div>

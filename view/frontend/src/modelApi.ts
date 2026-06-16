@@ -158,3 +158,15 @@ export function pushToOverleaf(body: { paperSlug: string; includeDrafts?: boolea
     body: JSON.stringify(body),
   });
 }
+
+export interface SearchHit {
+  path: string;
+  line: number;
+  excerpt: string;
+}
+
+export function searchModel(q: string, root = "", limit = 50) {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  if (root) params.set("root", root);
+  return request<{ results: SearchHit[] }>(`/api/model/search?${params.toString()}`);
+}

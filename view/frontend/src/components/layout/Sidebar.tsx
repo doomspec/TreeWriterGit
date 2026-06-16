@@ -12,6 +12,8 @@ import {
   transformTreeForDisplay,
   type ModelNode,
 } from "@/lib/modelTree";
+import { SearchResults } from "@/components/layout/SearchResults";
+import type { SearchHit } from "@/modelApi";
 
 function FileTreeNode({
   node,
@@ -144,6 +146,7 @@ export function Sidebar({
   onSearchChange,
   onNavigate,
   onOpenFile,
+  onSearchSelect,
   papersContent,
   graphContent,
 }: {
@@ -156,6 +159,7 @@ export function Sidebar({
   onSearchChange: (query: string) => void;
   onNavigate: (path: string) => void;
   onOpenFile?: (path: string) => void;
+  onSearchSelect?: (hit: SearchHit) => void;
   papersContent: React.ReactNode;
   graphContent: React.ReactNode;
 }) {
@@ -225,6 +229,13 @@ export function Sidebar({
             onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
+        {onSearchSelect ? (
+          <SearchResults
+            query={searchQuery}
+            root={activeTab === "papers" ? PAPERS_ROOT : undefined}
+            onSelect={onSearchSelect}
+          />
+        ) : null}
       </div>
 
       <div className="flex border-b border-border">

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { zoom } from "d3-zoom";
+import { select } from "d3-selection";
 import {
   forceCenter,
   forceCollide,
@@ -66,6 +68,8 @@ export function GraphPanel({
   onGraphScopeChange?: (scope: GraphScope) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const zoomLayerRef = useRef<SVGGElement>(null);
   const [size, setSize] = useState({ w: 480, h: 360 });
   const [rawNodes, setRawNodes] = useState<RawNode[]>([]);
   const [rawEdges, setRawEdges] = useState<RawEdge[]>([]);
@@ -186,6 +190,23 @@ export function GraphPanel({
     };
   }, [filtered, loading, size.h, size.w]);
 
+  useEffect(() => {
+    const svg = svgRef.current;
+    const layer = zoomLayerRef.current;
+    if (!svg || !layer || simNodes.length === 0) return;
+
+    const behavior = zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.25, 3])
+      .on("zoom", (event) => {
+        select(layer).attr("transform", event.transform.toString());
+      });
+
+    const selection = select(svg).call(behavior);
+    return () => {
+      selection.on(".zoom", null);
+    };
+  }, [simNodes.length, size.h, size.w]);
+
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>();
     for (const edge of simEdges) {
@@ -259,7 +280,15 @@ export function GraphPanel({
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">No nodes in view</div>
       ) : (
         <div ref={containerRef} className="graph-canvas-host min-h-0 flex-1">
-          <svg width={size.w} height={size.h} className="block h-full w-full" role="img">
+          <svg
+            ref={svgRef}
+            width={size.w}
+            height={size.h}
+            className="block h-full w-full touch-none"
+            role="img"
+            aria-label="Semantic link graph"
+          >
+            <g ref={zoomLayerRef}>
             {simEdges.map((edge, index) => {
               const s = edge.source as SimNode;
               const t = edge.target as SimNode;
@@ -293,9 +322,18 @@ export function GraphPanel({
                   key={node.id}
                   transform={`translate(${node.x ?? 0},${node.y ?? 0})`}
                   style={{ cursor: "pointer", opacity: dimmed ? 0.35 : 1 }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${node.label}, ${node.type}`}
                   onMouseEnter={() => setHovered(node.id)}
                   onMouseLeave={() => setHovered(null)}
                   onClick={() => onSelectNode(node.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectNode(node.id);
+                    }
+                  }}
                 >
                   {node.isFocus ? (
                     <circle r={radius + 4} fill="none" stroke={TYPE_COLOR[node.type]} strokeOpacity={0.25} strokeWidth={3} />
@@ -322,6 +360,7 @@ export function GraphPanel({
                 </g>
               );
             })}
+            </g>
           </svg>
         </div>
       )}

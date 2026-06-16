@@ -108,6 +108,7 @@ export function MarkdownEditor({
         return (await response.json()) as { content: string };
       })
       .then((data) => {
+        if (!data) return;
         setContent(data.content);
         setLoadedContent(data.content);
         setSaveState("idle");

@@ -327,7 +327,7 @@ Severity scoped to **localhost single-user**. Each verified against source.
 
 ## 13. Roadmap
 
-> **Current sprint: M10 — Navigation polish.** M7–M9 shipped. Next: search API, graph zoom/pan/cache.
+> **Current sprint: M11 — Collab (deferred).** M10 navigation polish shipped.
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
@@ -337,7 +337,7 @@ Severity scoped to **localhost single-user**. Each verified against source.
 | **M7 — Hardening** | Path safety, scaffold fix, per-session prompts, unified `isUnitDir`/`orderedChildren`, hardening tests | **done** |
 | **M8 — Authoring UX** | Resizable split, `localStorage` workspace prefs, inline CRUD, dispatch textarea, status auto-advance, CORS | **done** |
 | **M9 — Export + Overleaf v1.1** | Duplicate-heading skip, cite warnings, CSL/bib from literature notes, Overleaf push | **done** |
-| **M10 — Navigation polish** | Search API (F2), graph zoom/pan/cache, subsection reorder | **next** |
+| **M10 — Navigation polish** | Search API (F2), graph zoom/pan/cache, subsection reorder | **done** |
 | **M11 — Collab** | Comments sidecar, Overleaf round-trip, presence | deferred |
 
 ### M7 — Hardening (~2–3 days)
@@ -371,12 +371,12 @@ Backend + correctness only. No UI redesign.
 
 **Acceptance:** roboculture export has no doubled section headings; missing cites listed in export response; Overleaf push produces compilable project.
 
-### M10 — Navigation polish (~2–3 days)
+### M10 — Navigation polish (~2–3 days) — **done**
 
 - `GET /api/model/search` (F2).
 - Graph `d3-zoom`, pan, keyboard a11y. (§12.13)
 - Graph response cache + invalidate on model watch. (§12.21)
-- Subsection drag-reorder in Papers panel (if not deferred).
+- Subsection drag-reorder in Papers panel.
 
 ### M11 — Collab (deferred, see [[phase-5-collaboration]])
 

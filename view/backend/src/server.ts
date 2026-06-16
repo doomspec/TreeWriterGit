@@ -22,6 +22,8 @@ import {
   type NodeKind
 } from "./modelFs.js";
 import { buildGraph } from "./graph.js";
+import { getCachedGraph, invalidateGraphCache } from "./graphCache.js";
+import { searchModel, validateSearchQuery } from "./search.js";
 import { composeSectionView } from "./compose.js";
 import { loadProviders, buildPreview, type DispatchAction } from "./agentDispatch.js";
 import { listSessions, createSession, updateSessionStatus, advanceUnitStatusOnSessionComplete } from "./sessions.js";
@@ -372,7 +374,20 @@ app.post("/api/model/reorder", async (request, response, next) => {
 app.get("/api/model/graph", async (request, response, next) => {
   try {
     const root = String(request.query.root ?? "");
-    response.json(await buildGraph(modelRoot, root));
+    if (root) resolveModelPath(modelRoot, root);
+    response.json(await getCachedGraph(modelRoot, root));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/search", async (request, response, next) => {
+  try {
+    const q = validateSearchQuery(String(request.query.q ?? ""));
+    const root = String(request.query.root ?? "");
+    if (root) resolveModelPath(modelRoot, root);
+    const limit = Math.min(Number(request.query.limit ?? 50) || 50, 100);
+    response.json({ results: await searchModel(modelRoot, q, root, limit) });
   } catch (error) {
     next(error);
   }
@@ -647,6 +662,7 @@ const modelEventsServer = new WebSocketServer({ noServer: true });
 const modelEventClients = new Set<WebSocket>();
 
 function broadcastModelEvent(event: Record<string, unknown>) {
+  invalidateGraphCache();
   const payload = JSON.stringify({
     ...event,
     at: new Date().toISOString()
