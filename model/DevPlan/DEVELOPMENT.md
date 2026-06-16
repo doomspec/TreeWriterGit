@@ -253,7 +253,12 @@ Layout: CSS grid `workspace-grid` (sidebar | workspace | right-panel); right pan
 Every 120 s (and on demand): detect branch → `fetch origin` → if `model/` dirty, `add model` + commit "Automated sync" → if `origin/{branch}` exists, `rebase` (abort + set `conflictDetected` on failure) → `push HEAD:{branch}`.
 
 ### 9.6 Graph
-`buildGraph` walks `.md` under root, parses `[[wikilinks]]` from frontmatter `links` + outline body, resolves (exact → unique-basename → `missing:` node), folds folder `INDEX/outline/draft` into one node, degree → radius. `GraphPanel` pre-settles 320 force ticks (no animation), color-by-type, 1-hop hover highlight, click→navigate.
+`buildGraph` walks `.md` under root and emits two edge kinds:
+
+- **`outline` (semantic)** — from INDEX frontmatter `links:` + wikilinks/markdown links in the `## Outline` section of `outline.md` (full-body wikilinks only for legacy folders without `## Outline`). Draft `draft.md` wikilinks are excluded.
+- **`contains` (structural)** — parent → child from `child_order` / `section_order`.
+
+Resolution: exact path → unique basename → `missing:` node. Folder `INDEX`/`outline`/`draft` fold into one node id (the directory path). `GraphPanel` pre-settles force ticks, color-by-type, solid primary lines for `outline` edges, dashed gray for `contains`, 1-hop hover highlight, click→navigate.
 
 ---
 
@@ -311,9 +316,12 @@ Severity scoped to **localhost single-user**. Each verified against source.
 
 ### Docs / devex
 - **12.18 (medium)** [[architecture]] self-contradicts (old flat layout up top vs recursive tree below); port drift (8888 vs 8080). PRD/phase-2 predate the `outline.md` split; PRD endpoint table missing 4 routes.
-- **12.19 (high)** `scaffold-roboculture.mjs` writes idea into `INDEX.md` body (no `outline.md`) → compose shows "No summary yet"; writes unit `status:"draft"` (not `drafted`) + paper `"submitted"` → all units bucket as `outline` in dashboard. Fix scaffold. ([scaffold-roboculture.mjs](../../scripts/scaffold-roboculture.mjs))
+- **12.19 (high)** `scaffold-roboculture.mjs` still writes idea into `INDEX.md` body (no `outline.md`) and unit `status:"draft"` (not `drafted`) + paper `"submitted"` → fresh scaffolds show "No summary yet" in compose and all units bucket as `outline` in dashboard. **Note:** the live `model/papers/roboculture/` tree was migrated to `outline.md` (29 files) but INDEX titles remain lowercase slugs and `status:"draft"`. Fix scaffold script; optionally normalize roboculture INDEX metadata. ([scaffold-roboculture.mjs](../../scripts/scaffold-roboculture.mjs))
 - **12.20 (medium)** Test gaps — see §11.
 - **12.21 (low)** `.treewriter-prompt.txt` not gitignored (untracked clutter; not auto-committed since sync does `git add model` only). No CI/typecheck gate. Graph endpoint rebuilds every request (PRD F3 promised cache+invalidate-on-watch).
+
+### Recently fixed
+- **12.22 (fixed)** Section workspace heading text clipped first letter (`Summary` → `ummary`, link-in-h3 titles → `ackground`). Caused by inline `<button>` inside ATX headings + link embedded in `### [title](…)`. Fixed: plain `### Title` + separate drill-down link in `compose.ts`, nav links as `<a>` in `MarkdownViewer`, `.markdown-pane` CSS. (commit `dff1749`)
 
 ---
 
@@ -327,13 +335,14 @@ Severity scoped to **localhost single-user**. Each verified against source.
 5. **Inline create form + command `<textarea>`** — kill `window.prompt`. (§12.10/§12.12)
    *Add `sessions`/`papers` tests alongside (§11).*
 
-### M-loop polish
+### M-ui-polish
+- Resizable outline/draft split + `localStorage` workspace persistence (navigation, pane modes, graph scope — requested, not built). (§12.16)
 - Auto-advance unit `status` on session→complete; auto-mark complete on post-dispatch event. (§12.3/§12.11)
 - CORS lock to localhost. (§12.7)
 - Graph zoom/pan/drag + keyboard a11y. (§12.13)
 
 ### M-docs
-- Rewrite top half of [[architecture]]; update [[PRD]] endpoint table + outline.md split; this doc stays the as-built authority.
+- Rewrite top half of [[architecture]]; keep [[PRD]] §2 capability table in sync; this doc stays the as-built authority.
 
 ### M-collab (deferred, see [[phase-5-collaboration]])
 - Comments sidecar API (`.comments/`), Overleaf round-trip, presence.
