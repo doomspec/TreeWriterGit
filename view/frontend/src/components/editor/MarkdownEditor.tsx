@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, FileCode2 } from "lucide-react";
+import { Eye, FileCode2, MessageSquare } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { CommentsPanel } from "@/components/editor/CommentsPanel";
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { cn } from "@/lib/utils";
+import { getUserName } from "@/lib/userIdentity";
 import { parseFrontmatterStatus, parentPath, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
+import {
+  ApiError,
+  claimPresence,
+  fetchPresence,
+  heartbeatPresence,
+  releasePresence,
+} from "@/modelApi";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -69,6 +78,10 @@ export function MarkdownEditor({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [paneMode, setPaneMode] = useState<PaneEditMode>(defaultPaneMode);
   const [previewRawEdit, setPreviewRawEdit] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [selectedLine, setSelectedLine] = useState(1);
+  const [otherEditor, setOtherEditor] = useState<string | null>(null);
+  const authorName = useMemo(() => getUserName(), []);
   const sourceRef = useRef<HTMLTextAreaElement | null>(null);
   const previewRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirty = content !== loadedContent;
@@ -162,6 +175,51 @@ export function MarkdownEditor({
     return () => window.clearTimeout(timeout);
   }, [content, filePath, isDirty, onError]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let heartbeatTimer: number | undefined;
+
+    const syncPresence = async () => {
+      try {
+        const { presence } = await fetchPresence(filePath);
+        if (cancelled) return;
+        if (presence && presence.user !== authorName) {
+          setOtherEditor(presence.user);
+          return;
+        }
+        try {
+          await claimPresence(filePath, authorName);
+          if (!cancelled) setOtherEditor(null);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 409) {
+            const retry = await fetchPresence(filePath);
+            if (!cancelled && retry.presence) setOtherEditor(retry.presence.user);
+          }
+        }
+      } catch {
+        // presence is best-effort on localhost
+      }
+    };
+
+    void syncPresence();
+    heartbeatTimer = window.setInterval(() => {
+      void heartbeatPresence(filePath, authorName);
+    }, 15_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(heartbeatTimer);
+      void releasePresence(filePath, authorName);
+    };
+  }, [authorName, filePath]);
+
+  const updateSelectedLine = () => {
+    const el = sourceRef.current ?? previewRef.current;
+    if (!el) return;
+    const before = el.value.slice(0, el.selectionStart);
+    setSelectedLine(before.split("\n").length);
+  };
+
   const effectiveLayout = compact ? (paneMode === "raw" ? "source" : "preview") : layout;
   const showSource = effectiveLayout === "source" || effectiveLayout === "split";
   const showPreview = effectiveLayout === "preview" || effectiveLayout === "split";
@@ -223,7 +281,13 @@ export function MarkdownEditor({
   );
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+    <div className={cn("flex min-h-0 flex-1", className)}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {otherEditor ? (
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-900 dark:text-amber-100">
+          Being edited by {otherEditor}
+        </div>
+      ) : null}
       {loadError ? (
         <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
           {loadError}
@@ -240,6 +304,18 @@ export function MarkdownEditor({
               {isDirty ? "unsaved" : saveState}
               {unitStatus ? ` · ${unitStatus}` : ""}
             </span>
+            <Button
+              type="button"
+              variant={commentsOpen ? "default" : "ghost"}
+              size="icon"
+              className="h-6 w-6"
+              title="Comments"
+              aria-label="Toggle comments"
+              aria-pressed={commentsOpen}
+              onClick={() => setCommentsOpen((open) => !open)}
+            >
+              <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
             {modeToggle}
           </div>
         </div>
@@ -258,10 +334,24 @@ export function MarkdownEditor({
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Source
                 </span>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {isDirty ? "unsaved" : saveState}
-                  {unitStatus ? ` · ${unitStatus}` : ""}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {isDirty ? "unsaved" : saveState}
+                    {unitStatus ? ` · ${unitStatus}` : ""}
+                  </span>
+                  <Button
+                    type="button"
+                    variant={commentsOpen ? "default" : "ghost"}
+                    size="icon"
+                    className="h-6 w-6"
+                    title="Comments"
+                    aria-label="Toggle comments"
+                    aria-pressed={commentsOpen}
+                    onClick={() => setCommentsOpen((open) => !open)}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                </div>
               </div>
             ) : null}
             <textarea
@@ -271,6 +361,9 @@ export function MarkdownEditor({
               spellCheck={false}
               aria-label={`Edit source ${filePath}`}
               onChange={(e) => setContent(e.target.value)}
+              onSelect={updateSelectedLine}
+              onKeyUp={updateSelectedLine}
+              onClick={updateSelectedLine}
             />
           </div>
         ) : null}
@@ -286,6 +379,18 @@ export function MarkdownEditor({
                   <span className="hidden text-[10px] text-muted-foreground sm:inline">
                     {isDirty ? "unsaved" : saveState}
                   </span>
+                  <Button
+                    type="button"
+                    variant={commentsOpen ? "default" : "ghost"}
+                    size="icon"
+                    className="h-6 w-6"
+                    title="Comments"
+                    aria-label="Toggle comments"
+                    aria-pressed={commentsOpen}
+                    onClick={() => setCommentsOpen((open) => !open)}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
                   {modeToggle}
                 </div>
               </div>
@@ -334,6 +439,17 @@ export function MarkdownEditor({
           </div>
         ) : null}
       </div>
+      </div>
+      {commentsOpen ? (
+        <CommentsPanel
+          filePath={filePath}
+          authorName={authorName}
+          refreshVersion={refreshVersion}
+          selectedLine={selectedLine}
+          onError={onError}
+          onClose={() => setCommentsOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, GripVertical, Plus, Upload } from "lucide-react";
+import { Download, GripVertical, Inbox, Plus, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/modelTree";
 import {
   exportPaper,
+  importOverleafFeedback,
   pushToOverleaf,
   fetchPaperDetail,
   fetchPapers,
@@ -309,6 +310,7 @@ export function PapersPanel({
   const [exporting, setExporting] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [pushingOverleaf, setPushingOverleaf] = useState(false);
+  const [importingOverleaf, setImportingOverleaf] = useState(false);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
@@ -469,6 +471,25 @@ export function PapersPanel({
     }
   };
 
+  const handleOverleafImport = async () => {
+    if (!selectedSlug) return;
+    setImportingOverleaf(true);
+    setExportNotice(null);
+    try {
+      const result = await importOverleafFeedback(selectedSlug);
+      setExportNotice(
+        result.imported > 0
+          ? `Imported ${result.imported} Overleaf feedback note${result.imported === 1 ? "" : "s"}`
+          : "No \\todo comments found in main.tex",
+      );
+      if (result.imported > 0) onModelChanged?.();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImportingOverleaf(false);
+    }
+  };
+
   const handlePaperChange = (slug: string) => {
     if (!slug) {
       onNavigate("papers");
@@ -556,7 +577,7 @@ export function PapersPanel({
               type="button"
               variant="outline"
               className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting || pushingOverleaf}
+              disabled={exporting || pushingOverleaf || importingOverleaf}
               onClick={() => void handleExport("latex")}
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
@@ -566,7 +587,7 @@ export function PapersPanel({
               type="button"
               variant="outline"
               className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting || pushingOverleaf}
+              disabled={exporting || pushingOverleaf || importingOverleaf}
               title="Requires a LaTeX engine (brew install tectonic). Falls back to .tex if missing."
               onClick={() => void handleExport("pdf")}
             >
@@ -577,12 +598,23 @@ export function PapersPanel({
               type="button"
               variant="outline"
               className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting || pushingOverleaf}
+              disabled={exporting || pushingOverleaf || importingOverleaf}
               title="Requires overleaf_repo_path in paper INDEX.md"
               onClick={() => void handleOverleafPush()}
             >
               <Upload className="h-3.5 w-3.5" aria-hidden="true" />
               Push Overleaf
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 gap-1 px-2 text-xs"
+              disabled={exporting || pushingOverleaf || importingOverleaf}
+              title="Parse \\todo comments from Overleaf main.tex into notes/feedback/"
+              onClick={() => void handleOverleafImport()}
+            >
+              <Inbox className="h-3.5 w-3.5" aria-hidden="true" />
+              Import feedback
             </Button>
           </div>
           {exportNotice ? (

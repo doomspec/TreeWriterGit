@@ -34,7 +34,20 @@ import {
   listJournalTemplates,
 } from "./papers.js";
 import { exportPaper, resolveExportDownload } from "./export.js";
-import { pushToOverleaf } from "./overleaf.js";
+import { pushToOverleaf, importOverleafFeedback } from "./overleaf.js";
+import {
+  createComment,
+  deleteComment,
+  listComments,
+  summarizeCommentsForPaper,
+  updateComment,
+} from "./comments.js";
+import {
+  claimPresence,
+  getPresence,
+  heartbeatPresence,
+  releasePresence,
+} from "./presence.js";
 
 type ClientMessage =
   | {
@@ -633,6 +646,175 @@ app.post("/api/overleaf/push", async (request, response, next) => {
     );
     broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
     response.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/overleaf/import", async (request, response, next) => {
+  try {
+    const { paperSlug } = request.body as { paperSlug?: string };
+    if (!paperSlug?.trim()) {
+      response.status(400).json({ error: "paperSlug required" });
+      return;
+    }
+    const result = await importOverleafFeedback(modelRoot, paperSlug.trim());
+    if (result.paths.length) {
+      for (const rel of result.paths) {
+        broadcastModelEvent({ type: "model-changed", path: rel });
+      }
+    }
+    response.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/comments", async (request, response, next) => {
+  try {
+    const filePath = String(request.query.path ?? "");
+    if (!filePath) {
+      response.status(400).json({ error: "path required" });
+      return;
+    }
+    resolveModelPath(modelRoot, filePath);
+    response.json({ comments: await listComments(modelRoot, filePath) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/comments/summary", async (request, response, next) => {
+  try {
+    const paperSlug = String(request.query.paperSlug ?? "");
+    if (!paperSlug) {
+      response.status(400).json({ error: "paperSlug required" });
+      return;
+    }
+    response.json(await summarizeCommentsForPaper(modelRoot, paperSlug));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/comments", async (request, response, next) => {
+  try {
+    const { path: filePath, line, author, text } = request.body as {
+      path?: string;
+      line?: number;
+      author?: string;
+      text?: string;
+    };
+    if (!filePath) {
+      response.status(400).json({ error: "path required" });
+      return;
+    }
+    const comment = await createComment(modelRoot, filePath, {
+      line: line ?? 1,
+      author: author ?? "Anonymous",
+      text: text ?? "",
+    });
+    broadcastModelEvent({ type: "comments-changed", path: filePath });
+    response.status(201).json({ comment });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/comments/:id", async (request, response, next) => {
+  try {
+    const id = String(request.params.id ?? "");
+    const { path: filePath, text, resolved } = request.body as {
+      path?: string;
+      text?: string;
+      resolved?: boolean;
+    };
+    if (!filePath) {
+      response.status(400).json({ error: "path required" });
+      return;
+    }
+    const comment = await updateComment(modelRoot, filePath, id, { text, resolved });
+    broadcastModelEvent({ type: "comments-changed", path: filePath });
+    response.json({ comment });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/comments/:id", async (request, response, next) => {
+  try {
+    const id = String(request.params.id ?? "");
+    const filePath = String(request.query.path ?? "");
+    if (!filePath) {
+      response.status(400).json({ error: "path required" });
+      return;
+    }
+    await deleteComment(modelRoot, filePath, id);
+    broadcastModelEvent({ type: "comments-changed", path: filePath });
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/presence", async (request, response, next) => {
+  try {
+    const filePath = String(request.query.path ?? "");
+    if (!filePath) {
+      response.status(400).json({ error: "path required" });
+      return;
+    }
+    resolveModelPath(modelRoot, filePath);
+    response.json({ presence: getPresence(filePath) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/presence/claim", async (request, response, next) => {
+  try {
+    const { path: filePath, user } = request.body as { path?: string; user?: string };
+    if (!filePath || !user) {
+      response.status(400).json({ error: "path and user required" });
+      return;
+    }
+    resolveModelPath(modelRoot, filePath);
+    const conflict = claimPresence(filePath, user);
+    if (conflict) {
+      response.status(409).json({ error: "Path in use", presence: conflict });
+      return;
+    }
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/presence/heartbeat", async (request, response, next) => {
+  try {
+    const { path: filePath, user } = request.body as { path?: string; user?: string };
+    if (!filePath || !user) {
+      response.status(400).json({ error: "path and user required" });
+      return;
+    }
+    resolveModelPath(modelRoot, filePath);
+    const ok = heartbeatPresence(filePath, user);
+    response.json({ ok });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/presence/claim", async (request, response, next) => {
+  try {
+    const filePath = String(request.query.path ?? "");
+    const user = String(request.query.user ?? "");
+    if (!filePath || !user) {
+      response.status(400).json({ error: "path and user required" });
+      return;
+    }
+    releasePresence(filePath, user);
+    response.json({ ok: true });
   } catch (error) {
     next(error);
   }

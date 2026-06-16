@@ -44,7 +44,11 @@ By default, the frontend runs on port `5173` and connects to the backend websock
 * `GET /api/model/graph?root=`
 * `GET /api/model/section-compose?path=` — stitched section outline + draft for `SectionWorkspace`
 * `GET /api/model/search?q=&root=` — full-text search with path, line, excerpt
+* `GET /api/comments?path=` · `POST /api/comments` · `PATCH/DELETE /api/comments/:id` — sidecar comments on `.md` files
+* `GET /api/comments/summary?paperSlug=` — unresolved comment counts
+* `GET /api/presence?path=` · `POST/DELETE /api/presence/claim` · `POST /api/presence/heartbeat` — edit locks (in-memory)
 * `POST /api/overleaf/push` — export `.tex` + copy to `overleaf_repo_path`, git commit/push
+* `POST /api/overleaf/import` — parse `\\todo` from Overleaf `main.tex` into `notes/feedback/`
 
 ### Papers & export
 

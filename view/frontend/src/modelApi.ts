@@ -170,3 +170,89 @@ export function searchModel(q: string, root = "", limit = 50) {
   if (root) params.set("root", root);
   return request<{ results: SearchHit[] }>(`/api/model/search?${params.toString()}`);
 }
+
+export interface CommentRecord {
+  id: string;
+  file: string;
+  line: number;
+  author: string;
+  text: string;
+  resolved: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
+export function fetchComments(filePath: string) {
+  return request<{ comments: CommentRecord[] }>(
+    `/api/comments?path=${encodeURIComponent(filePath)}`,
+  );
+}
+
+export function fetchCommentSummary(paperSlug: string) {
+  return request<{ unresolved: number; total: number }>(
+    `/api/comments/summary?paperSlug=${encodeURIComponent(paperSlug)}`,
+  );
+}
+
+export function createComment(body: {
+  path: string;
+  line: number;
+  author: string;
+  text: string;
+}) {
+  return request<{ comment: CommentRecord }>("/api/comments", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateComment(
+  id: string,
+  body: { path: string; text?: string; resolved?: boolean },
+) {
+  return request<{ comment: CommentRecord }>(`/api/comments/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteComment(id: string, filePath: string) {
+  return request<{ ok: true }>(
+    `/api/comments/${encodeURIComponent(id)}?path=${encodeURIComponent(filePath)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function claimPresence(filePath: string, user: string) {
+  return request<{ ok: true }>("/api/presence/claim", {
+    method: "POST",
+    body: JSON.stringify({ path: filePath, user }),
+  });
+}
+
+export function releasePresence(filePath: string, user: string) {
+  return request<{ ok: true }>(
+    `/api/presence/claim?path=${encodeURIComponent(filePath)}&user=${encodeURIComponent(user)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function heartbeatPresence(filePath: string, user: string) {
+  return request<{ ok: boolean }>("/api/presence/heartbeat", {
+    method: "POST",
+    body: JSON.stringify({ path: filePath, user }),
+  });
+}
+
+export function fetchPresence(filePath: string) {
+  return request<{ presence: { user: string; since: string } | null }>(
+    `/api/presence?path=${encodeURIComponent(filePath)}`,
+  );
+}
+
+export function importOverleafFeedback(paperSlug: string) {
+  return request<{ imported: number; paths: string[] }>("/api/overleaf/import", {
+    method: "POST",
+    body: JSON.stringify({ paperSlug }),
+  });
+}

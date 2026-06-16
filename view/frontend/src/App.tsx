@@ -31,7 +31,7 @@ import {
   type ModelNode,
   type NavigateTarget,
 } from "@/lib/modelTree";
-import { createNode, type NodeKind } from "@/modelApi";
+import { createNode, fetchCommentSummary, type NodeKind } from "@/modelApi";
 import { GraphPanel } from "@/GraphPanel";
 import { PapersPanel } from "@/PapersPanel";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
@@ -83,6 +83,9 @@ export default function App() {
   const [dualPaneSplit, setDualPaneSplit] = useState(savedPrefs.dualPaneSplit);
   const [graphScope, setGraphScope] = useState<GraphScope>(savedPrefs.graphScope);
   const [createPrompt, setCreatePrompt] = useState<{ kind: NodeKind } | null>(null);
+  const [commentSummary, setCommentSummary] = useState<{ unresolved: number; total: number } | null>(
+    null,
+  );
 
   const files = useMemo(() => flattenFiles(tree), [tree]);
   const browsePath =
@@ -91,6 +94,10 @@ export default function App() {
         ? currentPath
         : PAPERS_ROOT
       : currentPath;
+  const paperSlug = useMemo(() => {
+    const match = browsePath.match(/^papers\/([^/]+)/);
+    return match?.[1] ?? null;
+  }, [browsePath]);
   const currentNode = browsePath ? findNode(tree, browsePath) : null;
   const isUnit = isUnitFolder(currentNode);
   const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
@@ -237,6 +244,17 @@ export default function App() {
     const timer = window.setInterval(() => loadGitSyncStatus().catch(() => {}), 10_000);
     return () => window.clearInterval(timer);
   }, [loadGitSyncStatus]);
+
+  useEffect(() => {
+    if (!paperSlug) {
+      setCommentSummary(null);
+      return;
+    }
+    const load = () => fetchCommentSummary(paperSlug).then(setCommentSummary).catch(() => {});
+    void load();
+    const timer = window.setInterval(load, 10_000);
+    return () => window.clearInterval(timer);
+  }, [paperSlug, refreshVersion]);
 
   useEffect(() => {
     if (!terminalElementRef.current) return;
@@ -548,7 +566,11 @@ export default function App() {
           </div>
 
           <footer className="flex h-8 items-center justify-between border-t border-border bg-card px-4 text-[11px] text-muted-foreground">
-            <span>{files.length} files · autosave on</span>
+            <span>
+              {commentSummary && commentSummary.unresolved > 0
+                ? `${commentSummary.unresolved} unresolved comment${commentSummary.unresolved === 1 ? "" : "s"}`
+                : `${files.length} files · autosave on`}
+            </span>
             <span>
               {gitSync?.conflictDetected
                 ? "Resolve git conflict in terminal"
