@@ -29,3 +29,7 @@ The 120-second interval balances two competing concerns: propagating changes qui
 ## Relationship to the Repository-as-Model Principle
 
 Continuous synchronization is what makes the repository viable as a live, shared data model rather than a series of snapshots. Because changes are propagated automatically and conflicts are resolved without human intervention under normal conditions, participants can treat their local workspace as a continuously updated view of the shared state rather than an isolated branch that occasionally needs to be reconciled.
+
+## Sync scope (current implementation)
+
+The automated commit step stages **`model/` only**. Changes under `view/` or other repo paths are not committed by the sync loop. Before rebase, uncommitted non-`model/` changes are **autostashed** and restored after a successful push so developer WIP does not block sync.
