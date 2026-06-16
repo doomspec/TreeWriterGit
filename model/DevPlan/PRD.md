@@ -40,7 +40,7 @@ One local app where AI writes scientific paper text in Markdown and humans colla
 | Paper model (F5) | `papers.ts`, `POST /api/paper`, `GET /api/papers`, `PapersPanel` | works |
 | Hybrid folder browse | `FolderBrowse.tsx` — INDEX hero, child cards, reorder, stale badge | works |
 | Split editor | `EditorWorkspace` — Source / Split / Preview | works |
-| Export (F6 v1) | `POST /api/export`, pandoc → `.tex`/`.pdf`, PapersPanel buttons | works |
+| Export (F6 v1) | `POST /api/export`, `GET /api/export/download`, pandoc → `.tex`/`.pdf`, PapersPanel buttons | works |
 | Frontend 3-col UI | sidebar + center (browse/edit) + hideable Agent panel | works |
 
 **Remaining gaps:**
@@ -150,7 +150,7 @@ output.push(await git(["push", "origin", "HEAD:main"]));
 | Method | Path | Body / Query | Behavior |
 |--------|------|--------------|----------|
 | POST | `/api/model/file` | `{ path, content? }` | Create a single file; `mkdir -p` parents; 409 if exists. |
-| POST | `/api/model/node` | `{ parent, name, kind }` | Create a tree node. `kind: "container"` → `parent/name/INDEX.md` (section/subsection skeleton). `kind: "unit"` → `parent/name/{INDEX.md (idea, status:outline), draft.md (empty)}`. Appends `name` to the parent `INDEX.md` `child_order`. 409 if exists. |
+| POST | `/api/model/node` | `{ parent, name, kind }` | Create a tree node. `kind: "container"` → `parent/name/INDEX.md` (section/subsection skeleton). `kind: "unit"` → `parent/name/{INDEX.md (metadata, status:outline), outline.md (overview), draft.md (empty)}`. Appends `name` to the parent `INDEX.md` `child_order`. 409 if exists. |
 | DELETE | `/api/model/file` | `?path=` | Delete file/dir; 409 if non-empty dir unless `?recursive=true`. Removes the entry from parent `child_order`. |
 | POST | `/api/model/move` | `{ from, to }` | `fs.rename`; `mkdir -p` target parent; update both parents' `child_order`; broadcast both paths. |
 | POST | `/api/model/reorder` | `{ parent, child_order[] }` | Rewrite a container `INDEX.md` `child_order` (drag-reorder in UI). |
@@ -246,7 +246,7 @@ Keep sidebar tree (cheap, complements graph). Graph replaces nothing destructive
 | POST | `/api/agent/preview` | `{ provider, unitPath, action, contextFiles[], options }` → `{ prompt, command, outputPath }` (no execution) |
 
 The dispatch target is a **unit** (`unitPath` = e.g. `papers/ml-study/sections/introduction/problem`). `preview` builds the prompt from action templates (draft / revise / expand / cite-check / custom) using:
-- the unit's `INDEX.md` **idea** (the comment — what this paragraph must say),
+- the unit's **`outline.md`** overview (what this paragraph must say),
 - comments on the unit's `INDEX.md` and `draft.md` (steer generation/revision),
 - wikilinked nodes in the unit `links:` (e.g. the results unit a claim depends on),
 - `notes/literature/*` whose `relevance` includes this section, `notes/data/*` whose `sections` includes it,
@@ -274,7 +274,7 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 
 **Why:** structure the model for papers; powers context auto-selection (F4) and export ordering (F6). See [[phase-2-paper-model]].
 
-**Structure** is the recursive section→unit tree defined in [[phase-2-paper-model]] (containers with `child_order`; units = folder of `INDEX.md` idea + `draft.md` text; `status` per unit replaces the old `drafts/`/`final/` split). Frontmatter schemas (paper / container / unit / notes) live in that doc.
+**Structure** is the recursive section→unit tree defined in [[phase-2-paper-model]] (containers with `child_order`; units = folder of `INDEX.md` metadata + `outline.md` overview + `draft.md` text; `status` per unit replaces the old `drafts/`/`final/` split). Frontmatter schemas (paper / container / unit / notes) live in that doc.
 
 **Scaffold** (via F2 `POST /api/model/node`) under `model/papers/{slug}/`: paper `INDEX.md`, `sections/` containing the journal's standard sections as empty containers (Introduction, Methods, Results, Discussion, Conclusion, Supporting Information), and `notes/{literature,data,feedback}/`. Section set + order come from `model/templates/{journal}.md`.
 
@@ -318,7 +318,7 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 | POST | `/api/agent/preview` | F4 | done |
 | GET | `/api/paper/templates` | F5 | done |
 | POST | `/api/paper` · GET `/api/papers` | F5 | done |
-| POST | `/api/export` | F6 | new |
+| POST | `/api/export` · GET `/api/export/download` | F6 | done |
 | GET/POST | `/api/git-sync/status` · `/run` | core | exists `:229/:233` (+conflictDetected F1) |
 | WS | `/terminal` · `/model-events` | core | exists `:281/:283` (+resize F0) |
 
@@ -331,7 +331,7 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 | M3 — Navigation | F3 | 2–3 days | done |
 | M4 — AI loop | F4 | 2–3 days | done (v1.1 polish open) |
 | M5 — Paper model | F5 full | 1–2 days | done |
-| M6 — Output | F6 (export), Overleaf v1.1 | 2–3 days | **next** |
+| M6 — Output | F6 (export v1), Overleaf v1.1 | 2–3 days | export v1 **done**; Overleaf push + comment import **next** |
 
 Total ≈ 10–14 working days for M1–M6. M1–M4 is the demoable core (≈ 7–9 days).
 
@@ -345,7 +345,7 @@ Total ≈ 10–14 working days for M1–M6. M1–M4 is the demoable core (≈ 7�
 - **fd-3 control channel portability** (F0): macOS/Linux only; fine for target. Fallback: encode resize as an escape on stdin parsed by the bridge.
 - **Wikilink resolution ambiguity** (F3): basename collisions across papers. Mitigate: prefer exact path, then nearest-by-directory; mark ambiguous as `missing` and log.
 - **Provider variance** (F4): Codex/Aider don't write files like Claude Code. Mitigate: `writesFiles` flag + shell redirect for stdout providers.
-- **Pandoc fidelity** (F6): complex LaTeX won't round-trip. Mitigate: `final/` Markdown is source; keep a `raw-latex/` `\input` escape hatch (see [[technical-decisions]] TD-1).
+- **Pandoc fidelity** (F6): complex LaTeX won't round-trip. Mitigate: unit `draft.md` Markdown is source; keep a `raw-latex/` `\input` escape hatch (see [[technical-decisions]] TD-1).
 - **Layout density** (F3/F4): four zones risk crowding. Mitigate: collapsible graph/dispatch panels; reuse existing grid.
 
 ## 8. Out of Scope (deferred, with trigger)

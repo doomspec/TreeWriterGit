@@ -5,6 +5,7 @@ dist/
 view/frontend/vite.config.d.ts
 view/frontend/vite.config.js
 .DS_Store
+.treewriter-exports/
 
 # Python bytecode
 __pycache__/

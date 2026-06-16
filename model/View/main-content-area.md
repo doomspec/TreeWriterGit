@@ -18,7 +18,13 @@ The center workspace uses a **hybrid browse/edit** pattern with three file roles
 * **Stale outline badge** — when `composed_at_commit` is missing in INDEX
 * **Refresh outline** — AI regenerates `outline.md` from children
 
-**File edit (unit folders):** [`EditorWorkspace`](../../view/frontend/src/components/editor/EditorWorkspace.tsx) opens **Outline** (`outline.md`) first, then **Draft** (`draft.md`).
+**Unit / section edit (outline + draft pair):** [`EditorWorkspace`](../../view/frontend/src/components/editor/EditorWorkspace.tsx) shows a **dual-pane** editor when the folder has `outline.md`:
+
+* **Left:** `outline.md` — rendered editing with live preview; **Rendered | Raw** toggle per pane
+* **Right:** `draft.md` — same; blank `draft.md` is created automatically when missing
+* Autosave on both panes
+
+**Other markdown files:** single editor with Source / Split / Preview toolbar.
 
 AI dispatch:
 

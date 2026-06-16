@@ -14,41 +14,35 @@ Current workflow is split across three tools with no integration:
 
 The gap: human collaborators who prefer Overleaf cannot see AI-generated drafts in real time. AI cannot see Overleaf comments and edits. There is no shared source of truth.
 
-## Vision
+## Vision (current model)
 
 ```
 model/ (Git, Markdown + wikilinks — single source of truth)
-  ├── papers/{slug}/
-  │   ├── outlines/   ← section goals, key claims, word budgets
-  │   ├── notes/      ← literature, data, Overleaf feedback
-  │   ├── drafts/     ← AI-generated text (versioned)
-  │   └── final/      ← approved, exports to LaTeX
-  └── shared/         ← abbreviations, authors, bibliography
+  └── papers/{slug}/
+        ├── INDEX.md          ← technical metadata (hidden in UI)
+        ├── outline.md        ← paper overview
+        ├── sections/…        ← or flat section folders (roboculture style)
+        │     └── {section}/
+        │           ├── outline.md
+        │           └── {unit}/outline.md + draft.md
+        └── notes/            ← literature, data, feedback
 
-        ↕  wikilinks define semantic graph
+        ↕  wikilinks + INDEX links
 
-Quartz (graph view — read/navigate layer)
-  ├── global graph    ← all papers, sections, notes as nodes
-  ├── local graph     ← per-section: what links to/from this node
-  ├── cross-paper     ← shared notes/figures appear in multiple papers
-  └── figure nodes    ← data files as navigable graph nodes
+TreeWriter view (5173 + 4000)
+  ├── Native graph panel (d3) — navigation
+  ├── Hybrid browse / dual-pane outline+draft editor
+  ├── AI dispatch → terminal
+  └── Export (pandoc → .tex / .pdf) — F6 v1
 
-        ↕  file watch + rebuild
+        ↕  optional v1.1
 
-TreeWriter backend (write/agent layer)
-  ├── Git sync (120s auto-commit + push)
-  ├── Terminal PTY (any AI CLI: Claude Code, Codex, Cursor, custom)
-  ├── AI Dispatch panel (UI → selects section + action → sends to AI)
-  └── Export pipeline (pandoc → .tex → Overleaf Git Bridge)
-
-        ↕  comment import
-
-Overleaf (LaTeX — collaborator-facing)
-  ├── main.tex        ← assembled from final/ on export
-  └── comments        ← imported back as notes/feedback/
+Overleaf (presentation layer)
+  ├── main.tex        ← from export
+  └── comments        ← import to notes/feedback/
 ```
 
-**Key upgrade:** Quartz replaces the custom React navigation UI. Its graph view navigates both within a paper (outline → draft → final) and across papers (shared methods, figures, literature nodes connected by wikilinks). The existing React frontend shrinks to an editor + AI dispatch panel only.
+> **Historical note:** An earlier plan used flat `outlines/`, `drafts/`, `final/` folders and Quartz as the primary nav layer. The recursive three-file model and native graph replaced that design. See [[phase-2-paper-model]] and [[tool-assessment]].
 
 ## Minimal Dev Stack
 
@@ -76,7 +70,7 @@ See [[tool-assessment]] for full rationale on PageIndex, claude-obsidian, and Qu
 * [Phase 0 — Fix Existing Bugs](phase-0-fixes.md) — **M1 done**
 * [Phase 1 — File CRUD and Search](phase-1-crud.md) — **M2 done** (search deferred)
 * [Phase 2 — Scientific Paper Model](phase-2-paper-model.md) — **M5 done**
-* [Phase 3 — LaTeX and Overleaf Integration](phase-3-overleaf.md) — **M6 next**
+* [Phase 3 — LaTeX and Overleaf Integration](phase-3-overleaf.md) — **M6 export v1 done**; Overleaf v1.1 next
 * [Phase 4 — AI Writing Agents](phase-4-ai-agents.md) — **M4 v1 done**
 * [Phase 5 — Collaborative Review](phase-5-collaboration.md)
 * [Technical Decisions](technical-decisions.md)

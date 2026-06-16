@@ -145,7 +145,7 @@ All node creation is from the UI (no manual file ops needed). Built on [[PRD]] F
 - **New paper** → scaffold from `templates/{journal}.md` (paper INDEX + `sections/` with the journal's standard sections incl. Supporting Information, each an empty container).
 - **New section** → create `sections/{name}/` container (INDEX skeleton) + append to paper `section_order`.
 - **New subsection / sub-subsection** → create `{parent}/{name}/` container + append to parent `child_order`. Recursive — available at any container node.
-- **New unit** → create `{parent}/{name}/` with `INDEX.md` (idea skeleton, `status: outline`) + empty `draft.md` + append to parent `child_order`.
+- **New unit** → create `{parent}/{name}/` with `INDEX.md` (metadata, `status: outline`), `outline.md` (overview skeleton), empty `draft.md`, and append to parent `child_order`.
 - **Convert** → a unit gains children (becomes a container that still has its own draft) or a container gets its first unit — both are just "New unit/subsection under here."
 
 Each create updates the parent `INDEX.md` `child_order` so order is explicit and reorderable (drag in sidebar). See [[PRD]] F2/F5 for endpoint and UI detail.

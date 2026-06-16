@@ -29,16 +29,45 @@ pnpm dev
 
 By default, the frontend runs on port `5173` and connects to the backend websocket at `ws://localhost:4000/terminal`.
 
-## Model Editing
+## Backend API (summary)
 
-The backend exposes the model tree and file contents:
+### Model
 
 * `GET /api/model/tree`
-* `GET /api/model/file?path=INDEX.md`
+* `GET /api/model/file?path=` — lazy-creates missing `outline.md` / `draft.md` when appropriate
 * `PUT /api/model/file`
-* `WS /model-events`
+* `POST /api/model/file`
+* `POST /api/model/node`
+* `DELETE /api/model/file?path=&recursive=`
+* `POST /api/model/move`
+* `POST /api/model/reorder`
+* `GET /api/model/graph?root=`
 
-The frontend uses these endpoints to display `model/`, edit Markdown files, save changes back to disk, and refresh when files change outside the browser.
+### Papers & export
+
+* `GET /api/paper/templates`
+* `GET /api/papers` · `GET /api/papers?slug=`
+* `POST /api/paper`
+* `POST /api/export` `{ paperSlug, format: "latex"|"pdf", includeDrafts? }`
+* `GET /api/export/download?file=`
+
+### AI dispatch & sessions
+
+* `GET /api/agent/providers`
+* `POST /api/agent/preview`
+* `GET /api/sessions?unitPath=`
+* `POST /api/sessions` · `PATCH /api/sessions`
+
+### Git sync & health
+
+* `GET /health`
+* `GET /api/git-sync/status`
+* `POST /api/git-sync/run`
+
+### WebSockets
+
+* `WS /terminal` — xterm PTY (resize via fd-3 control channel)
+* `WS /model-events` — file change notifications
 
 ## Git Sync
 
@@ -46,7 +75,13 @@ Git sync is enabled by default in the backend. Every 120 seconds it:
 
 1. Fetches `origin`.
 2. Commits pending `model/` changes with the message `Automated sync`.
-3. Rebases onto `origin/main`.
-4. Pushes `HEAD` to `origin/main`.
+3. Rebases onto the current branch's upstream.
+4. Pushes.
 
 Use `GIT_SYNC_ENABLED=false` to disable it or `GIT_SYNC_INTERVAL_MS=30000` to change the interval. The frontend header shows sync status and includes a manual sync button.
+
+## Export prerequisites
+
+LaTeX export requires [pandoc](https://pandoc.org/) (`brew install pandoc`). PDF export also needs a LaTeX engine (e.g. MacTeX).
+
+Exports are written to `.treewriter-exports/` at the repo root (gitignored).

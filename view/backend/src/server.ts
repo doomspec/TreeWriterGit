@@ -29,6 +29,7 @@ import {
   getPaperDetail,
   listJournalTemplates,
 } from "./papers.js";
+import { exportPaper, resolveExportDownload } from "./export.js";
 
 type ClientMessage =
   | {
@@ -525,6 +526,43 @@ app.post("/api/paper", async (request, response, next) => {
     });
     broadcastModelEvent({ type: "model-changed", path: `${created.path}/INDEX.md` });
     response.status(201).json({ ok: true, ...created });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/export", async (request, response, next) => {
+  try {
+    const { paperSlug, format, includeDrafts } = request.body as {
+      paperSlug?: string;
+      format?: string;
+      includeDrafts?: boolean;
+    };
+    if (!paperSlug?.trim()) {
+      response.status(400).json({ error: "paperSlug required" });
+      return;
+    }
+    if (format !== "latex" && format !== "pdf") {
+      response.status(400).json({ error: 'format must be "latex" or "pdf"' });
+      return;
+    }
+    const result = await exportPaper(modelRoot, repoRoot, {
+      paperSlug: paperSlug.trim(),
+      format,
+      includeDrafts,
+    });
+    broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
+    response.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/export/download", async (request, response, next) => {
+  try {
+    const fileName = String(request.query.file ?? "");
+    const abs = resolveExportDownload(repoRoot, fileName);
+    response.download(abs);
   } catch (error) {
     next(error);
   }
