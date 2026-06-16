@@ -48,11 +48,13 @@ One local app where AI writes scientific paper text in Markdown and humans colla
 | Resizable dual-pane + workspace persistence | `ResizableDualPane`, `workspacePreferences` localStorage | works |
 | Full-text search (F2) | `GET /api/model/search`, `SearchResults` in sidebar | works |
 | Graph zoom/pan | `GraphPanel` + d3-zoom, keyboard node focus | works |
+| Inline comments (M11) | `/api/comments`, `CommentsPanel`, sidecar JSON | works |
+| Edit presence (M11) | `/api/presence/*`, lock banner in editor | works |
+| Overleaf feedback import (M11) | `POST /api/overleaf/import`, PapersPanel button | works |
 | Inline CRUD dialogs | `NamePromptDialog` / `ConfirmDialog` — no `window.prompt` | works |
 | Frontend 3-col UI | sidebar + center (browse / section / unit edit) + hideable Agent panel | works |
 
 **Remaining gaps:**
-- Comments API (`/api/comments`) — deferred to collaboration phase
 - F4 polish — context checklist UI, keyboard shortcuts, section fan-out
 - F6 polish — CSL style files, approved-only export default, batch export
 - AI-autonomous conflict resolution (sync v2) — manual terminal fallback only (v1)
@@ -344,7 +346,7 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 | M8 — Authoring UX | Resizable split, workspace persistence, inline CRUD, dispatch textarea, CORS | 3–4 days | **done** |
 | M9 — Export + Overleaf | Duplicate headings, cite warnings, CSL/bib, Overleaf push | 3–5 days | **done** |
 | M10 — Nav polish | Search API, graph zoom/pan/cache, subsection reorder | 2–3 days | **done** |
-| M11 — Collab | Comments, Overleaf round-trip, presence | — | deferred |
+| M11 — Collab | Comments, Overleaf round-trip, presence | — | **done** |
 
 Total ≈ 18–24 working days for M1–M10. M1–M6.5 is the demoable core (≈ 10–12 days).
 

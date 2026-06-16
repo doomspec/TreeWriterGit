@@ -327,7 +327,7 @@ Severity scoped to **localhost single-user**. Each verified against source.
 
 ## 13. Roadmap
 
-> **Current sprint: M11 — Collab (deferred).** M10 navigation polish shipped.
+> **M11 collab shipped.** Roadmap M1–M11 complete; M-docs remains parallel/low urgency.
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|
@@ -338,7 +338,7 @@ Severity scoped to **localhost single-user**. Each verified against source.
 | **M8 — Authoring UX** | Resizable split, `localStorage` workspace prefs, inline CRUD, dispatch textarea, status auto-advance, CORS | **done** |
 | **M9 — Export + Overleaf v1.1** | Duplicate-heading skip, cite warnings, CSL/bib from literature notes, Overleaf push | **done** |
 | **M10 — Navigation polish** | Search API (F2), graph zoom/pan/cache, subsection reorder | **done** |
-| **M11 — Collab** | Comments sidecar, Overleaf round-trip, presence | deferred |
+| **M11 — Collab** | Comments sidecar, Overleaf round-trip, presence | **done** |
 
 ### M7 — Hardening (~2–3 days)
 
@@ -378,9 +378,11 @@ Backend + correctness only. No UI redesign.
 - Graph response cache + invalidate on model watch. (§12.21)
 - Subsection drag-reorder in Papers panel.
 
-### M11 — Collab (deferred, see [[phase-5-collaboration]])
+### M11 — Collab (see [[phase-5-collaboration]]) — **done**
 
-Comments sidecar API (`.comments/`), Overleaf round-trip, presence. Trigger: team > ~5 or non-localhost exposure.
+- Comments sidecar API (`.comments/`), `CommentsPanel` in editor.
+- Overleaf feedback import (`POST /api/overleaf/import`).
+- In-memory presence (`/api/presence/*`), edit-lock banner.
 
 ### M-docs (parallel, low urgency)
 
