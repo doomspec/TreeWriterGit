@@ -132,7 +132,7 @@ export function SectionWorkspace({
               Outline
             </span>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+          <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
             <MarkdownViewer
               markdown={compose.outlineMarkdown}
               linkContextPath={sectionPath}
@@ -148,7 +148,7 @@ export function SectionWorkspace({
               Draft
             </span>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto px-6 py-5">
+          <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
             {compose.draftMarkdown.trim() ? (
               <MarkdownViewer
                 markdown={compose.draftMarkdown.replace(/^#\s+.+\n+/, "")}

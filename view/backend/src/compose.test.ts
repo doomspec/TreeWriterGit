@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import matter from "gray-matter";
 
-import { composeSectionView, parseOutlineSummary } from "./compose.js";
+import { composeSectionView, displayChildTitle, parseOutlineSummary } from "./compose.js";
 
 let root: string;
 
@@ -37,6 +37,17 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+describe("displayChildTitle", () => {
+  it("uses titleCase when INDEX title is a lowercase slug", () => {
+    expect(displayChildTitle("background", "background")).toBe("Background");
+    expect(displayChildTitle("problem statement", "problem-statement")).toBe("Problem Statement");
+  });
+
+  it("keeps a distinct INDEX title", () => {
+    expect(displayChildTitle("Our Novel Method", "methods")).toBe("Our Novel Method");
+  });
+});
+
 describe("parseOutlineSummary", () => {
   it("reads ## Summary section", () => {
     const md = `# Title\n\n## Summary\n\nHello summary.\n\n## Outline\n`;
@@ -67,9 +78,22 @@ describe("composeSectionView", () => {
     const view = await composeSectionView(root, "introduction");
     expect(view.title).toBe("Introduction");
     expect(view.children).toHaveLength(2);
-    expect(view.outlineMarkdown).toContain("### [Background](background/INDEX.md)");
+    expect(view.outlineMarkdown).toContain("### Background");
+    expect(view.outlineMarkdown).toContain("[Open Background →](background/INDEX.md)");
+    expect(view.outlineMarkdown).not.toContain("### [Background]");
     expect(view.outlineMarkdown).toContain("Prior work summary.");
+    expect(view.draftMarkdown).toContain("## Background");
+    expect(view.draftMarkdown).toContain("[Open Background →](background/INDEX.md)");
     expect(view.draftMarkdown).toContain("Prior work draft prose.");
     expect(view.draftMarkdown).toContain("Claims draft prose.");
+  });
+
+  it("titleCases lowercase slug INDEX titles in outline", async () => {
+    await writeSection("section", { kind: "section", child_order: ["background"] });
+    await writeSection("section/background", { kind: "unit", title: "background" });
+
+    const view = await composeSectionView(root, "section");
+    expect(view.outlineMarkdown).toContain("### Background");
+    expect(view.children[0]?.title).toBe("Background");
   });
 });

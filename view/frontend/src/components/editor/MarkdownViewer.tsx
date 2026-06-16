@@ -47,13 +47,16 @@ export function MarkdownViewer({
           const target = resolveNavigateTarget(linkContextPath, href);
           if (target) {
             return (
-              <button
-                type="button"
-                className="inline text-left text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
-                onClick={() => onNavigate(target)}
+              <a
+                href={href}
+                className="text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
+                onClick={(event) => {
+                  event.preventDefault();
+                  onNavigate(target);
+                }}
               >
                 {children}
-              </button>
+              </a>
             );
           }
         }

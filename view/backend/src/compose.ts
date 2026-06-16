@@ -29,6 +29,26 @@ function titleCase(name: string): string {
     .trim();
 }
 
+/** Use titleCase(folderName) when INDEX title is missing or equals the slug. */
+export function displayChildTitle(indexTitle: unknown, folderName: string): string {
+  const slug = folderName.toLowerCase();
+  const fromIndex = String(indexTitle ?? "").trim();
+  if (!fromIndex || fromIndex.toLowerCase().replace(/\s+/g, "-") === slug) {
+    return titleCase(folderName);
+  }
+  return fromIndex;
+}
+
+function draftHeadingBlock(
+  depth: number,
+  childTitle: string,
+  linkHref: string,
+  body: string,
+): string {
+  const heading = "#".repeat(Math.min(depth + 1, 4));
+  return `${heading} ${childTitle}\n\n[Open ${childTitle} →](${linkHref})\n\n${body}\n\n`;
+}
+
 function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
@@ -137,7 +157,7 @@ async function composeDraftBlock(
   if (isUnit) {
     const draft = await readDraftContent(modelRoot, childRel);
     if (!draft) return "";
-    return `${heading} [${childTitle}](${linkHref})\n\n${stripLeadingH1(draft)}\n\n`;
+    return draftHeadingBlock(depth, childTitle, linkHref, stripLeadingH1(draft));
   }
 
   const inner: string[] = [];
@@ -145,7 +165,7 @@ async function composeDraftBlock(
     const grandRel = resolveChildPath(modelRoot, childRel, grandchild);
     if (!grandRel) continue;
     const grandData = await readIndexData(modelRoot, grandRel);
-    const grandTitle = String(grandData.title ?? titleCase(grandchild));
+    const grandTitle = displayChildTitle(grandData.title, grandchild);
     const grandHref = `${path.posix.relative(sectionRel, grandRel)}/INDEX.md`;
     const block = await composeDraftBlock(
       modelRoot,
@@ -159,7 +179,7 @@ async function composeDraftBlock(
   }
 
   if (inner.length === 0) return "";
-  return `${heading} [${childTitle}](${linkHref})\n\n${inner.join("")}`;
+  return `${heading} ${childTitle}\n\n[Open ${childTitle} →](${linkHref})\n\n${inner.join("")}`;
 }
 
 /** Build composed section outline (subsection summaries) and draft (stitched child drafts). */
@@ -189,7 +209,7 @@ export async function composeSectionView(
     if (!childRel) continue;
 
     const childIndex = await readIndexData(modelRoot, childRel);
-    const childTitle = String(childIndex.title ?? titleCase(childName));
+    const childTitle = displayChildTitle(childIndex.title, childName);
     const isUnit = await isUnitDir(modelRoot, childRel);
     const linkHref = `${childName}/INDEX.md`;
 
@@ -204,7 +224,7 @@ export async function composeSectionView(
       kind: isUnit ? "unit" : "section",
     });
 
-    outlineParts.push(`### [${childTitle}](${linkHref})\n\n`);
+    outlineParts.push(`### ${childTitle}\n\n[Open ${childTitle} →](${linkHref})\n\n`);
     outlineParts.push(childSummary ? `${childSummary}\n\n` : `*No summary yet — open to write.*\n\n`);
 
     const draftBlock = await composeDraftBlock(modelRoot, dirRel, childRel, childTitle, linkHref, 1);

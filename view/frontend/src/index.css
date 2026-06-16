@@ -247,7 +247,7 @@
 }
 
 .markdown-body {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .markdown-body > :first-child {
@@ -265,6 +265,18 @@
   font-size: 1.05rem;
   line-height: 1.65;
   color: hsl(var(--foreground));
+}
+
+.markdown-pane .markdown-reading {
+  max-width: none;
+  margin-inline: 0;
+}
+
+.markdown-pane .markdown-body h1,
+.markdown-pane .markdown-body h2,
+.markdown-pane .markdown-body h3,
+.markdown-pane .markdown-body h4 {
+  padding-inline-start: 0.05em;
 }
 
 .markdown-preview-edit textarea.markdown-reading {

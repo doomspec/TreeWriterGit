@@ -289,7 +289,7 @@ export function MarkdownEditor({
                 </div>
               </div>
             ) : null}
-            <div className="markdown-preview-edit min-h-0 flex-1 overflow-auto px-6 py-5">
+            <div className={cn("markdown-preview-edit min-h-0 flex-1 overflow-auto px-6 py-5", compact && "markdown-pane")}>
               {renderedEditable ? (
                 <div className="space-y-4">
                   {previewMeta.title ? (
