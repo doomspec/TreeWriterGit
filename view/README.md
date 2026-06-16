@@ -42,6 +42,7 @@ By default, the frontend runs on port `5173` and connects to the backend websock
 * `POST /api/model/move`
 * `POST /api/model/reorder`
 * `GET /api/model/graph?root=`
+* `GET /api/model/section-compose?path=` — stitched section outline + draft for `SectionWorkspace`
 
 ### Papers & export
 
