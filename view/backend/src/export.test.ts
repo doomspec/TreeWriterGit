@@ -9,6 +9,7 @@ import {
   buildCombinedMarkdown,
   extractCiteKeys,
   findMissingCitations,
+  resolveCslPath,
 } from "./export.js";
 
 let root: string;
@@ -138,5 +139,13 @@ describe("buildBibliography", () => {
     const bib = await buildBibliography(root, "papers/demo", markdown);
     expect(bib).toContain("@article{smith2024");
     expect(bib).toContain("Smith Paper");
+  });
+});
+
+describe("resolveCslPath", () => {
+  it("finds CSL under model/templates by journal slug", async () => {
+    await mkdir(path.join(root, "templates"), { recursive: true });
+    await writeFile(path.join(root, "templates", "plos-one.csl"), "<style/>", "utf8");
+    expect(resolveCslPath(root, "PLOS ONE")).toContain("plos-one.csl");
   });
 });

@@ -55,7 +55,10 @@ By default, the frontend runs on port `5173` and connects to the backend websock
 * `GET /api/paper/templates`
 * `GET /api/papers` · `GET /api/papers?slug=`
 * `POST /api/paper`
-* `POST /api/export` `{ paperSlug, format: "latex"|"pdf", includeDrafts? }`
+* `GET /api/agent/context?unitPath=&action=` — context file checklist for dispatch
+* `POST /api/agent/fan-out` — batch draft commands for all units in a section
+* `POST /api/export/batch` — export `.tex` + `.pdf` in one request
+* `POST /api/export` `{ paperSlug, format, includeDrafts? }` — default `includeDrafts: false` (approved only)
 * `GET /api/export/download?file=`
 
 ### AI dispatch & sessions

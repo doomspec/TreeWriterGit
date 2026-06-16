@@ -140,7 +140,28 @@ export function exportPaper(body: {
     format: string;
     notice?: string;
     missingCitations?: string[];
+    cslPath?: string;
   }>("/api/export", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function exportPaperBatch(body: {
+  paperSlug: string;
+  formats: ("latex" | "pdf")[];
+  includeDrafts?: boolean;
+}) {
+  return request<{
+    results: Array<{
+      path: string;
+      downloadUrl: string;
+      format: string;
+      notice?: string;
+      missingCitations?: string[];
+      cslPath?: string;
+    }>;
+  }>("/api/export/batch", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -254,5 +275,31 @@ export function importOverleafFeedback(paperSlug: string) {
   return request<{ imported: number; paths: string[] }>("/api/overleaf/import", {
     method: "POST",
     body: JSON.stringify({ paperSlug }),
+  });
+}
+
+export interface ContextCandidate {
+  path: string;
+  label: string;
+  category: string;
+  defaultIncluded: boolean;
+}
+
+export function fetchContextFiles(unitPath: string, action: string) {
+  const params = new URLSearchParams({ unitPath, action });
+  return request<{ files: ContextCandidate[] }>(`/api/agent/context?${params.toString()}`);
+}
+
+export function fanOutDispatch(body: {
+  sectionPath: string;
+  action: string;
+  provider: string;
+  customPrompt?: string;
+}) {
+  return request<{
+    units: Array<{ prompt: string; command: string; outputPath: string; sessionId?: string }>;
+  }>("/api/agent/fan-out", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }

@@ -586,6 +586,8 @@ export default function App() {
           onOpenChange={setAgentPanelOpen}
           currentPath={browsePath}
           refreshVersion={refreshVersion}
+          isUnit={isUnit}
+          canFanOut={isPaperSection && !isUnit}
           onSendToTerminal={sendToTerminal}
           onError={setError}
           onReconnect={() => setSessionKey((k) => k + 1)}

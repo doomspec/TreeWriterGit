@@ -289,46 +289,46 @@ Run: `pnpm test` in each of `view/backend` and `view/frontend`. Typecheck: `pnpm
 
 ## 12. Verified-issue catalogue
 
-Severity scoped to **localhost single-user**. Each verified against source.
+Severity scoped to **localhost single-user**. Items fixed in M7–M11 and polish passes are marked **(fixed)**.
 
-### Backend correctness
-- **12.1 (high)** Unit-detection diverges. `papers.isUnitDir` = `outline.md||draft.md`; `export`/`compose.isUnitDir` = `kind`-based → `draft.md`. → counts ≠ export. Fix: shared `isUnitDir` in `modelFs.ts`. ([papers.ts:96](../../view/backend/src/papers.ts), [export.ts:54](../../view/backend/src/export.ts), [compose.ts:66](../../view/backend/src/compose.ts))
-- **12.2 (medium)** Child-walk diverges: `countUnitsUnder` walks `child_order` only; export/compose also append on-disk dirs. → dashboard undercounts. Fix: shared `orderedChildren`. ([papers.ts:101](../../view/backend/src/papers.ts))
-- **12.3 (medium)** Unit `status` never auto-advances (`outline→drafted`); dispatch is fire-and-forget. Counts stuck at outline. Fix: on session→complete for draft/revise, bump unit status. ([agentDispatch.ts](../../view/backend/src/agentDispatch.ts))
-- **12.4 (medium)** Shared `.treewriter-prompt.txt` overwritten every preview → preview A, preview B, run A = runs B's prompt. Fix: per-session prompt file. ([agentDispatch.ts:201](../../view/backend/src/agentDispatch.ts))
+### Backend correctness (fixed M7)
+- **12.1 (fixed)** Unit-detection diverged → shared `isUnitDir` in `modelFs.ts`.
+- **12.2 (fixed)** Child-walk diverged → shared `orderedChildren`.
+- **12.3 (fixed)** Unit status auto-advances on session complete.
+- **12.4 (fixed)** Per-session prompt files in `.treewriter-prompts/`.
 
-### Security (fine for localhost; fix before any exposure)
-- **12.5 (medium)** `/api/agent/preview` `unitPath` unvalidated + interpolated **unquoted** into the shell command; `assertNodeName` allows `; $ \` | > space`. A `writesFiles:false` provider + crafted unit name = injection at Run. Fix: `resolveModelPath` + tighten `assertNodeName` + shell-quote `outputRelPath`. ([server.ts:399](../../view/backend/src/server.ts), [modelFs.ts:37](../../view/backend/src/modelFs.ts))
-- **12.6 (medium)** `/api/model/section-compose` (read) and all `/api/sessions` (incl. **write** via `mkdir`+`writeFile`, and `filename` joined raw) skip `resolveModelPath` → traversal. Write-traversal is worst of set. Fix: `resolveModelPath` on `unitPath`, `path.basename` on `filename`. ([server.ts:378](../../view/backend/src/server.ts), [sessions.ts](../../view/backend/src/sessions.ts))
-- **12.7 (medium)** `cors()` open to all origins → any visited site can fire side-effecting POSTs (create/delete/scaffold + §12.6 write-traversal). Fix: `cors({origin:"http://localhost:5173"})`. ([server.ts:83](../../view/backend/src/server.ts))
-- **12.8 (low)** `.treewriter.json` provider command executed unvalidated (matters only for cloned malicious repos; still needs Run-click).
-- **12.9 (low)** `resolveExportDownload` prefix check lacks trailing `path.sep` (neutralized by basename+`===`). ([export.ts:380](../../view/backend/src/export.ts))
+### Security (fixed M7; revisit before exposure)
+- **12.5 (fixed)** Path validation + `assertNodeName` + shell-quote on preview output.
+- **12.6 (fixed)** `resolveModelPath` on compose/sessions; basename session filenames.
+- **12.7 (fixed)** CORS locked to `http://localhost:5173`.
+- **12.8 (open)** `.treewriter.json` provider command unvalidated (trusted repos only).
+- **12.9 (low/open)** `resolveExportDownload` prefix check — neutralized by basename.
 
-### UI
-- **12.10 (high)** `window.prompt`/`confirm` for create/rename/delete — no inline validation/feedback. Biggest daily friction. ([App.tsx:313](../../view/frontend/src/App.tsx))
-- **12.11 (medium)** Session "mark complete" fully manual → persistent ⏳ warning. Tie to §12.3; auto-mark on post-dispatch `model-changed`.
-- **12.12 (medium)** Dispatch command is single-line `<input>` — truncates long commands. → `<textarea>`. ([DispatchPanel.tsx](../../view/frontend/src/DispatchPanel.tsx))
-- **12.13 (medium)** GraphPanel no zoom/pan/drag, recenters on resize; nodes mouse-only (no `tabindex`/`role`), SVG unnamed. Add `d3-zoom` + a11y. ([GraphPanel.tsx](../../view/frontend/src/GraphPanel.tsx))
-- **12.14 (low)** `NewPaperModal` missing `aria-modal`, Escape-close, focus trap, autofocus. ([NewPaperModal.tsx:60](../../view/frontend/src/NewPaperModal.tsx))
-- **12.15 (low)** Error toast: no `aria-live`, no auto-dismiss, no stacking (2nd replaces 1st). ([App.tsx:516](../../view/frontend/src/App.tsx))
-- **12.16 (low)** Fixed grid, no resizable splits; sidebar over-crammed in Papers tab.
-- **12.17 (low)** No loading skeletons.
+### UI (mostly fixed M8–M10)
+- **12.10 (fixed)** Inline CRUD via `NamePromptDialog` / `ConfirmDialog`.
+- **12.11 (fixed)** Auto-mark sessions complete on post-dispatch `model-changed`.
+- **12.12 (fixed)** Dispatch command `<textarea>`.
+- **12.13 (fixed)** Graph zoom/pan + keyboard node focus.
+- **12.14 (open)** `NewPaperModal` a11y (focus trap, Escape).
+- **12.15 (open)** Error toast: no `aria-live`, auto-dismiss, stacking.
+- **12.16 (fixed)** Resizable dual-pane + workspace persistence.
+- **12.17 (open)** No loading skeletons.
 
 ### Docs / devex
-- **12.19 (fixed)** `scaffold-roboculture.mjs` wrote idea into `INDEX.md` body and `status:"draft"`. Fixed in M7; live roboculture tree may still have legacy metadata.
-- **12.20 (medium)** Test gaps — see §11.
-- **12.21 (low)** `.treewriter-prompt.txt` not gitignored (untracked clutter; not auto-committed since sync does `git add model` only). No CI/typecheck gate. Graph endpoint rebuilds every request (PRD F3 promised cache+invalidate-on-watch).
+- **12.19 (fixed)** Scaffold script emits `outline.md`, `status:"drafted"`.
+- **12.20 (open)** Test gaps — see §11 (frontend components, supertest routes).
+- **12.21 (partial)** Graph cache done; `.treewriter-prompt.txt` gitignored; no CI gate yet.
 
 ### Recently fixed
-- **12.22 (fixed)** Section workspace heading text clipped first letter. Fixed in M6.5. (commit `dff1749`)
-- **12.18 (fixed)** Architecture doc + PRD API table synced to as-built (M-docs).
-- **M7–M11 (fixed)** Path safety, scaffold, per-session prompts, unified modelFs, authoring UX, export/Overleaf, search/graph cache, comments/presence — see §13 milestone notes.
+- **12.18 (fixed)** Architecture doc + PRD API table (M-docs).
+- **12.22 (fixed)** Section workspace heading clip (M6.5).
+- **F4/F6 polish (fixed)** Context checklist, shortcuts, fan-out; CSL lookup, approved-only export, batch export.
 
 ---
 
 ## 13. Roadmap
 
-> **Roadmap M1–M11 + M-docs complete.** Remaining work is polish (F4/F6), test gaps (§11), and optional roboculture metadata normalization.
+> **Roadmap M1–M11 + M-docs + F4/F6 polish complete.** Remaining: test gaps (§11), optional roboculture metadata, server-side agent jobs (F4 v1.1).
 
 | Milestone | Scope | Status |
 |-----------|-------|--------|

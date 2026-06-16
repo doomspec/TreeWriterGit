@@ -68,7 +68,7 @@ export async function pushToOverleaf(
   modelRoot: string,
   repoRoot: string,
   paperSlug: string,
-  includeDrafts = true,
+  includeDrafts = false,
 ): Promise<OverleafPushResult> {
   const paperRel = `papers/${paperSlug.trim()}`;
   resolveModelPath(modelRoot, paperRel);

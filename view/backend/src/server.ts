@@ -25,7 +25,7 @@ import { buildGraph } from "./graph.js";
 import { getCachedGraph, invalidateGraphCache } from "./graphCache.js";
 import { searchModel, validateSearchQuery } from "./search.js";
 import { composeSectionView } from "./compose.js";
-import { loadProviders, buildPreview, type DispatchAction } from "./agentDispatch.js";
+import { loadProviders, buildPreview, buildFanOutPreviews, listContextCandidates, type DispatchAction } from "./agentDispatch.js";
 import { listSessions, createSession, updateSessionStatus, advanceUnitStatusOnSessionComplete } from "./sessions.js";
 import {
   scaffoldPaper,
@@ -33,7 +33,7 @@ import {
   getPaperDetail,
   listJournalTemplates,
 } from "./papers.js";
-import { exportPaper, resolveExportDownload } from "./export.js";
+import { exportPaper, exportPaperBatch, resolveExportDownload } from "./export.js";
 import { pushToOverleaf, importOverleafFeedback } from "./overleaf.js";
 import {
   createComment,
@@ -428,15 +428,32 @@ app.get("/api/agent/providers", async (_request, response, next) => {
   }
 });
 
+app.get("/api/agent/context", async (request, response, next) => {
+  try {
+    const unitPath = String(request.query.unitPath ?? "");
+    const action = String(request.query.action ?? "draft") as DispatchAction;
+    if (!unitPath) {
+      response.status(400).json({ error: "unitPath required" });
+      return;
+    }
+    resolveModelPath(modelRoot, unitPath);
+    response.json({ files: await listContextCandidates(modelRoot, unitPath, action) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/agent/preview", async (request, response, next) => {
   try {
-    const { unitPath, action, provider: providerName, customPrompt, sessionId } = request.body as {
-      unitPath?: string;
-      action?: string;
-      provider?: string;
-      customPrompt?: string;
-      sessionId?: string;
-    };
+    const { unitPath, action, provider: providerName, customPrompt, sessionId, contextPaths } =
+      request.body as {
+        unitPath?: string;
+        action?: string;
+        provider?: string;
+        customPrompt?: string;
+        sessionId?: string;
+        contextPaths?: string[];
+      };
     if (!unitPath) {
       response.status(400).json({ error: "unitPath required" });
       return;
@@ -453,8 +470,39 @@ app.post("/api/agent/preview", async (request, response, next) => {
       provider,
       customPrompt,
       sessionId,
+      contextPaths,
     );
     response.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/agent/fan-out", async (request, response, next) => {
+  try {
+    const { sectionPath, action, provider: providerName, customPrompt } = request.body as {
+      sectionPath?: string;
+      action?: string;
+      provider?: string;
+      customPrompt?: string;
+    };
+    if (!sectionPath) {
+      response.status(400).json({ error: "sectionPath required" });
+      return;
+    }
+    resolveModelPath(modelRoot, sectionPath);
+    const config = await loadProviders(repoRoot);
+    const provider =
+      config.aiProviders.find((p) => p.name === providerName) ?? config.aiProviders[0];
+    const units = await buildFanOutPreviews(
+      modelRoot,
+      repoRoot,
+      sectionPath,
+      (action ?? "draft") as DispatchAction,
+      provider,
+      customPrompt,
+    );
+    response.json({ units });
   } catch (error) {
     next(error);
   }
@@ -618,6 +666,36 @@ app.post("/api/export", async (request, response, next) => {
   }
 });
 
+app.post("/api/export/batch", async (request, response, next) => {
+  try {
+    const { paperSlug, formats, includeDrafts } = request.body as {
+      paperSlug?: string;
+      formats?: string[];
+      includeDrafts?: boolean;
+    };
+    if (!paperSlug?.trim()) {
+      response.status(400).json({ error: "paperSlug required" });
+      return;
+    }
+    const validFormats = (formats ?? ["latex", "pdf"]).filter(
+      (f): f is "latex" | "pdf" => f === "latex" || f === "pdf",
+    );
+    if (validFormats.length === 0) {
+      response.status(400).json({ error: "formats must include latex and/or pdf" });
+      return;
+    }
+    const results = await exportPaperBatch(modelRoot, repoRoot, {
+      paperSlug: paperSlug.trim(),
+      formats: validFormats,
+      includeDrafts,
+    });
+    broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
+    response.json({ results });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/export/download", async (request, response, next) => {
   try {
     const fileName = String(request.query.file ?? "");
@@ -642,7 +720,7 @@ app.post("/api/overleaf/push", async (request, response, next) => {
       modelRoot,
       repoRoot,
       paperSlug.trim(),
-      includeDrafts !== false,
+      includeDrafts === true,
     );
     broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
     response.json(result);

@@ -25,6 +25,8 @@ export interface ExportPaperResult {
   notice?: string;
   /** Cite keys referenced in markdown but absent from generated .bib */
   missingCitations?: string[];
+  /** CSL file used, if any */
+  cslPath?: string;
 }
 
 function titleCase(name: string): string {
@@ -47,6 +49,28 @@ function stripDuplicateLeadingH1(draft: string, title: string): string {
     return trimmed.replace(/^#\s+.+?\r?\n?/, "").trim();
   }
   return trimmed;
+}
+
+function journalSlug(journal: string): string {
+  return journal
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+}
+
+/** Resolve optional CSL from paper journal → model/templates/{slug}.csl */
+export function resolveCslPath(modelRoot: string, journal: string): string | null {
+  const slug = journalSlug(journal);
+  if (!slug) return null;
+  const candidates = [
+    path.join(modelRoot, "templates", `${slug}.csl`),
+    path.join(modelRoot, "shared", `${slug}.csl`),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 function headingMarkdown(depth: number, title: string): string {
@@ -214,6 +238,7 @@ async function runPandocExport(
   format: ExportFormat,
   bibliography: string,
   bibPath: string,
+  cslPath: string | null,
 ): Promise<void> {
   const pandocArgs = [
     combinedPath,
@@ -225,6 +250,9 @@ async function runPandocExport(
   ];
   if (bibliography) {
     pandocArgs.push("--bibliography", bibPath);
+  }
+  if (cslPath) {
+    pandocArgs.push("--csl", cslPath);
   }
   if (format === "pdf") {
     const engine = await detectPdfEngine();
@@ -256,6 +284,9 @@ export async function exportPaper(
   }
 
   await assertPandocAvailable();
+
+  const paperData = await readIndexData(modelRoot, paperRel);
+  const cslPath = resolveCslPath(modelRoot, String(paperData.journal ?? ""));
 
   const includeDrafts = Boolean(input.includeDrafts);
   const { markdown: combined, unitCount } = await buildCombinedMarkdown(
@@ -294,7 +325,7 @@ export async function exportPaper(
   let notice: string | undefined;
 
   const tryExport = async (format: ExportFormat, outFile: string) => {
-    await runPandocExport(combinedPath, outFile, format, bibliography, bibPath);
+    await runPandocExport(combinedPath, outFile, format, bibliography, bibPath, cslPath);
   };
 
   try {
@@ -328,7 +359,27 @@ export async function exportPaper(
     format: effectiveFormat,
     notice,
     ...(missingCitations.length > 0 ? { missingCitations } : {}),
+    ...(cslPath ? { cslPath: path.relative(modelRoot, cslPath).split(path.sep).join("/") } : {}),
   };
+}
+
+export async function exportPaperBatch(
+  modelRoot: string,
+  repoRoot: string,
+  input: { paperSlug: string; formats: ExportFormat[]; includeDrafts?: boolean },
+): Promise<ExportPaperResult[]> {
+  const formats = input.formats.length > 0 ? input.formats : (["latex"] as ExportFormat[]);
+  const results: ExportPaperResult[] = [];
+  for (const format of formats) {
+    results.push(
+      await exportPaper(modelRoot, repoRoot, {
+        paperSlug: input.paperSlug,
+        format,
+        includeDrafts: input.includeDrafts,
+      }),
+    );
+  }
+  return results;
 }
 
 export function resolveExportDownload(repoRoot: string, fileName: string): string {

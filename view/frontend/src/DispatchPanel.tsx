@@ -3,7 +3,16 @@ import { Bot, Check, ChevronDown, ChevronRight, Clock, Eye, Send, X } from "luci
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import { fetchContextFiles, fanOutDispatch } from "@/modelApi";
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+
+interface ContextFileOption {
+  path: string;
+  label: string;
+  category: string;
+  defaultIncluded: boolean;
+}
 
 interface AiProvider {
   name: string;
@@ -73,6 +82,8 @@ export function DispatchPanel({
   onError,
   onToggle,
   embedded = false,
+  isUnit = false,
+  canFanOut = false,
 }: {
   currentPath: string;
   refreshVersion?: number;
@@ -80,6 +91,8 @@ export function DispatchPanel({
   onError: (message: string) => void;
   onToggle?: () => void;
   embedded?: boolean;
+  isUnit?: boolean;
+  canFanOut?: boolean;
 }) {
   const [open, setOpen] = useState(embedded);
   const [providers, setProviders] = useState<AiProvider[]>([]);
@@ -92,6 +105,10 @@ export function DispatchPanel({
   const [loading, setLoading] = useState(false);
   const [sessions, setSessions] = useState<SessionFile[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(true);
+  const [contextFiles, setContextFiles] = useState<ContextFileOption[]>([]);
+  const [selectedContext, setSelectedContext] = useState<Set<string>>(new Set());
+  const [fanOutRunning, setFanOutRunning] = useState(false);
   const pendingSessionRef = useRef<string | null>(null);
   const previewSessionIdRef = useRef<string>(
     `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -122,6 +139,22 @@ export function DispatchPanel({
       // non-fatal — sessions are informational
     }
   }, []);
+
+  useEffect(() => {
+    if ((!open && !embedded) || !isUnit || !currentPath) {
+      setContextFiles([]);
+      setSelectedContext(new Set());
+      return;
+    }
+    void fetchContextFiles(currentPath, action)
+      .then(({ files }) => {
+        setContextFiles(files);
+        setSelectedContext(new Set(files.filter((f) => f.defaultIncluded).map((f) => f.path)));
+      })
+      .catch(() => {
+        setContextFiles([]);
+      });
+  }, [action, currentPath, embedded, isUnit, open]);
 
   useEffect(() => {
     if (open || embedded) void loadProviders();
@@ -168,11 +201,16 @@ export function DispatchPanel({
       onError("Navigate to a unit or folder first");
       return;
     }
+    if (!isUnit && !canFanOut && action !== "refresh-index") {
+      onError("Open a unit folder to preview, or use section fan-out");
+      return;
+    }
     setLoading(true);
     setPreview(null);
     setEditedCommand("");
     previewSessionIdRef.current = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     try {
+      const contextPaths = isUnit ? [...selectedContext] : undefined;
       const res = await fetch(`${apiBaseUrl}/api/agent/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -182,6 +220,7 @@ export function DispatchPanel({
           provider: selectedProvider,
           customPrompt: action === "custom" ? customPrompt : undefined,
           sessionId: previewSessionIdRef.current,
+          contextPaths,
         }),
       });
       if (!res.ok) {
@@ -235,6 +274,42 @@ export function DispatchPanel({
     }
   };
 
+  const handleFanOut = async () => {
+    if (!canFanOut || !currentPath) return;
+    setFanOutRunning(true);
+    try {
+      const { units } = await fanOutDispatch({
+        sectionPath: currentPath,
+        action,
+        provider: selectedProvider,
+        customPrompt: action === "custom" ? customPrompt : undefined,
+      });
+      if (units.length === 0) {
+        onError("No units found under this section");
+        return;
+      }
+      for (const unit of units) {
+        onSendToTerminal(unit.command + "\n");
+        await new Promise((resolve) => window.setTimeout(resolve, 400));
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFanOutRunning(false);
+    }
+  };
+
+  const toggleContextPath = (filePath: string, checked: boolean) => {
+    setSelectedContext((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(filePath);
+      else next.delete(filePath);
+      return next;
+    });
+    setPreview(null);
+    setEditedCommand("");
+  };
+
   const handleMarkStatus = async (session: SessionFile, status: SessionFile["status"]) => {
     try {
       await fetch(`${apiBaseUrl}/api/sessions`, {
@@ -247,6 +322,23 @@ export function DispatchPanel({
       // non-fatal
     }
   };
+
+  useEffect(() => {
+    if (!embedded && !open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.metaKey && !event.ctrlKey) return;
+      if (event.shiftKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        handleRun();
+      }
+      if (event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        void handlePreview(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [embedded, open]);
 
   return (
     <div className="bg-[hsl(var(--sidebar-bg))]">
@@ -309,6 +401,52 @@ export function DispatchPanel({
             />
           )}
 
+          {isUnit && contextFiles.length > 0 ? (
+            <div className="rounded-sm border border-border">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent/40"
+                onClick={() => setContextOpen((v) => !v)}
+              >
+                {contextOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                Context files ({selectedContext.size}/{contextFiles.length})
+              </button>
+              {contextOpen ? (
+                <ul className="max-h-32 space-y-1 overflow-auto border-t border-border px-2 py-1.5">
+                  {contextFiles.map((file) => (
+                    <li key={file.path}>
+                      <label className="flex cursor-pointer items-start gap-2 text-[11px]">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={selectedContext.has(file.path)}
+                          onChange={(e) => toggleContextPath(file.path, e.target.checked)}
+                        />
+                        <span>
+                          <span className="font-medium">{file.label}</span>
+                          <span className="ml-1 text-muted-foreground">({file.category})</span>
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+
+          {canFanOut ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 w-full text-xs"
+              disabled={fanOutRunning || loading || action === "custom"}
+              title="Draft all units in this section sequentially"
+              onClick={() => void handleFanOut()}
+            >
+              Draft all units in section
+            </Button>
+          ) : null}
+
           {/* Prompt preview */}
           {preview && (
             <details className="text-xs">
@@ -338,7 +476,7 @@ export function DispatchPanel({
               size="icon"
               className="h-7 w-7 shrink-0"
               title="Preview prompt"
-              disabled={loading || !currentPath}
+              disabled={loading || (!isUnit && !canFanOut)}
               onClick={() => void handlePreview(false)}
             >
               <Eye className="h-3.5 w-3.5" aria-hidden="true" />
@@ -349,7 +487,7 @@ export function DispatchPanel({
               size="icon"
               className="h-7 w-7 shrink-0"
               title="Run in terminal"
-              disabled={loading || !currentPath}
+              disabled={loading || (!isUnit && !canFanOut)}
               onClick={handleRun}
             >
               <Send className="h-3.5 w-3.5" aria-hidden="true" />

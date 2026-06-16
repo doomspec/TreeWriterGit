@@ -1,9 +1,9 @@
 import path from "node:path";
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import matter from "gray-matter";
 
-import { shellQuote } from "./modelFs.js";
+import { isUnitDir, orderedChildren, resolveChildPath, shellQuote } from "./modelFs.js";
 
 export interface AiProvider {
   name: string;
@@ -163,6 +163,125 @@ async function gatherContext(modelRoot: string, links: string[]): Promise<string
   return parts.length > 0 ? `RELATED SECTIONS:\n${parts.join("\n\n")}` : "";
 }
 
+export interface ContextCandidate {
+  path: string;
+  label: string;
+  category: "unit" | "link" | "literature" | "data" | "feedback";
+  defaultIncluded: boolean;
+}
+
+function paperRelFromUnitPath(unitPath: string): string | null {
+  const match = unitPath.match(/^papers\/([^/]+)/);
+  return match ? `papers/${match[1]}` : null;
+}
+
+function actionNeedsDraft(action: DispatchAction): boolean {
+  return action !== "draft" && action !== "custom" && action !== "refresh-index";
+}
+
+async function readContextSnippet(modelRoot: string, relPath: string): Promise<string> {
+  const abs = path.join(modelRoot, relPath);
+  if (!existsSync(abs)) return "";
+  try {
+    const raw = await readFile(abs, "utf8");
+    const body = relPath.endsWith("INDEX.md") ? matter(raw).content : raw;
+    return body.trim().slice(0, 800);
+  } catch {
+    return "";
+  }
+}
+
+async function gatherContextFromPaths(modelRoot: string, paths: string[]): Promise<string> {
+  const parts: string[] = [];
+  for (const relPath of paths.slice(0, 12)) {
+    const snippet = await readContextSnippet(modelRoot, relPath);
+    if (snippet) parts.push(`[${relPath}]\n${snippet}`);
+  }
+  return parts.length > 0 ? `CONTEXT FILES:\n${parts.join("\n\n")}` : "";
+}
+
+async function listNoteContextFiles(
+  modelRoot: string,
+  paperRel: string,
+  subdir: string,
+  category: ContextCandidate["category"],
+  defaultIncluded: boolean,
+): Promise<ContextCandidate[]> {
+  const notesDir = path.join(modelRoot, paperRel, "notes", subdir);
+  if (!existsSync(notesDir)) return [];
+  const entries = await readdir(notesDir);
+  return entries
+    .filter((name) => name.endsWith(".md") && name !== "INDEX.md")
+    .map((name) => ({
+      path: `${paperRel}/notes/${subdir}/${name}`,
+      label: name.replace(/\.md$/, ""),
+      category,
+      defaultIncluded,
+    }));
+}
+
+/** Context files available for dispatch preview (checklist UI). */
+export async function listContextCandidates(
+  modelRoot: string,
+  unitPath: string,
+  action: DispatchAction,
+): Promise<ContextCandidate[]> {
+  const candidates: ContextCandidate[] = [
+    {
+      path: `${unitPath}/outline.md`,
+      label: "Unit outline",
+      category: "unit",
+      defaultIncluded: true,
+    },
+  ];
+  if (actionNeedsDraft(action)) {
+    candidates.push({
+      path: `${unitPath}/draft.md`,
+      label: "Current draft",
+      category: "unit",
+      defaultIncluded: true,
+    });
+  }
+
+  const links = await readIndexLinks(modelRoot, unitPath);
+  for (const link of links.slice(0, 8)) {
+    const rel = link.endsWith(".md") ? link : `${link}/outline.md`;
+    candidates.push({
+      path: rel,
+      label: link,
+      category: "link",
+      defaultIncluded: true,
+    });
+  }
+
+  const paperRel = paperRelFromUnitPath(unitPath);
+  if (paperRel) {
+    candidates.push(
+      ...(await listNoteContextFiles(modelRoot, paperRel, "literature", "literature", true)),
+      ...(await listNoteContextFiles(modelRoot, paperRel, "data", "data", false)),
+      ...(await listNoteContextFiles(modelRoot, paperRel, "feedback", "feedback", false)),
+    );
+  }
+
+  const seen = new Set<string>();
+  return candidates.filter((c) => {
+    if (seen.has(c.path)) return false;
+    seen.add(c.path);
+    return true;
+  });
+}
+
+export async function collectUnitPaths(modelRoot: string, rootRel: string): Promise<string[]> {
+  if (await isUnitDir(modelRoot, rootRel)) return [rootRel];
+  const units: string[] = [];
+  for (const child of await orderedChildren(modelRoot, rootRel)) {
+    const childRel = resolveChildPath(modelRoot, rootRel, child);
+    if (!childRel) continue;
+    units.push(...(await collectUnitPaths(modelRoot, childRel)));
+  }
+  return units;
+}
+
 export interface PreviewResult {
   prompt: string;
   command: string;
@@ -184,6 +303,7 @@ export async function buildPreview(
   provider: AiProvider,
   customPrompt?: string,
   sessionId?: string,
+  contextPaths?: string[],
 ): Promise<PreviewResult> {
   const outlineRelPath = `${unitPath}/outline.md`;
   const outputRelPath =
@@ -193,10 +313,14 @@ export async function buildPreview(
 
   const idea = await readOutlineDoc(modelRoot, unitPath);
   const links = await readIndexLinks(modelRoot, unitPath);
-  const needsDraft =
-    action !== "draft" && action !== "custom" && action !== "refresh-index";
+  const needsDraft = actionNeedsDraft(action);
   const draft = needsDraft ? await readDraft(modelRoot, unitPath) : "";
-  const context = await gatherContext(modelRoot, links);
+  let context: string;
+  if (contextPaths && contextPaths.length > 0) {
+    context = await gatherContextFromPaths(modelRoot, contextPaths);
+  } else {
+    context = await gatherContext(modelRoot, links);
+  }
 
   const prompt = TEMPLATES[action]
     .replace("{idea}", idea || "(no overview defined)")
@@ -238,4 +362,34 @@ export async function buildPreview(
     sessionId: id,
     promptFile: path.relative(repoRoot, promptFile).split(path.sep).join("/"),
   };
+}
+
+export async function buildFanOutPreviews(
+  modelRoot: string,
+  repoRoot: string,
+  sectionPath: string,
+  action: DispatchAction,
+  provider: AiProvider,
+  customPrompt?: string,
+): Promise<PreviewResult[]> {
+  const unitPaths = await collectUnitPaths(modelRoot, sectionPath);
+  if (unitPaths.length === 0) {
+    return [];
+  }
+  const previews: PreviewResult[] = [];
+  for (const unitPath of unitPaths) {
+    const sessionId = `fanout-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${previews.length}`;
+    previews.push(
+      await buildPreview(
+        modelRoot,
+        repoRoot,
+        unitPath,
+        action,
+        provider,
+        customPrompt,
+        sessionId,
+      ),
+    );
+  }
+  return previews;
 }

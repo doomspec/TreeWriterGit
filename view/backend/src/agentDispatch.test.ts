@@ -164,6 +164,45 @@ describe("buildPreview", () => {
     expect(result.prompt).toContain("Describe the statistical analysis.");
   });
 
+  it("listContextCandidates includes outline and links", async () => {
+    const { listContextCandidates } = await import("./agentDispatch.js");
+    await makeUnit("papers/demo/intro/claim", "Claim idea.", ["papers/demo/methods"]);
+    await mkdir(path.join(modelRoot, "papers/demo/methods"), { recursive: true });
+    await writeFile(path.join(modelRoot, "papers/demo/methods/outline.md"), "# Methods\n", "utf8");
+    const files = await listContextCandidates(modelRoot, "papers/demo/intro/claim", "draft");
+    expect(files.some((f) => f.path.endsWith("outline.md"))).toBe(true);
+    expect(files.some((f) => f.category === "link")).toBe(true);
+  });
+
+  it("buildFanOutPreviews drafts each unit under a section", async () => {
+    const { buildFanOutPreviews } = await import("./agentDispatch.js");
+    await mkdir(path.join(modelRoot, "papers/demo/intro/a"), { recursive: true });
+    await mkdir(path.join(modelRoot, "papers/demo/intro/b"), { recursive: true });
+    for (const name of ["a", "b"]) {
+      const unit = `papers/demo/intro/${name}`;
+      await writeFile(
+        path.join(modelRoot, unit, "INDEX.md"),
+        "---\nkind: unit\nstatus: outline\n---\n",
+        "utf8",
+      );
+      await writeFile(path.join(modelRoot, unit, "outline.md"), `# ${name}\n`, "utf8");
+      await writeFile(path.join(modelRoot, unit, "draft.md"), "", "utf8");
+    }
+    await writeFile(
+      path.join(modelRoot, "papers/demo/intro/INDEX.md"),
+      "---\nkind: section\nchild_order: [a,b]\n---\n",
+      "utf8",
+    );
+    const previews = await buildFanOutPreviews(
+      modelRoot,
+      repoRoot,
+      "papers/demo/intro",
+      "draft",
+      provider,
+    );
+    expect(previews).toHaveLength(2);
+  });
+
   it("gracefully handles missing unit INDEX.md", async () => {
     // unit folder exists but no INDEX.md
     const abs = path.join(modelRoot, "orphan/unit");

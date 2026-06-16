@@ -14,6 +14,7 @@ import {
 } from "@/lib/modelTree";
 import {
   exportPaper,
+  exportPaperBatch,
   importOverleafFeedback,
   pushToOverleaf,
   fetchPaperDetail,
@@ -311,6 +312,7 @@ export function PapersPanel({
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [pushingOverleaf, setPushingOverleaf] = useState(false);
   const [importingOverleaf, setImportingOverleaf] = useState(false);
+  const [includeDrafts, setIncludeDrafts] = useState(false);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
@@ -435,7 +437,7 @@ export function PapersPanel({
       const result = await exportPaper({
         paperSlug: selectedSlug,
         format,
-        includeDrafts: true,
+        includeDrafts,
       });
       window.open(`${apiBaseUrl}${result.downloadUrl}`, "_blank");
       const notices: string[] = [];
@@ -452,12 +454,41 @@ export function PapersPanel({
     }
   };
 
+  const handleExportBatch = async () => {
+    if (!selectedSlug) return;
+    setExporting(true);
+    setExportNotice(null);
+    try {
+      const { results } = await exportPaperBatch({
+        paperSlug: selectedSlug,
+        formats: ["latex", "pdf"],
+        includeDrafts,
+      });
+      for (const result of results) {
+        window.open(`${apiBaseUrl}${result.downloadUrl}`, "_blank");
+      }
+      const notices: string[] = [];
+      for (const result of results) {
+        if (result.notice) notices.push(result.notice);
+        if (result.cslPath) notices.push(`CSL: ${result.cslPath}`);
+      }
+      const missing = [...new Set(results.flatMap((r) => r.missingCitations ?? []))];
+      if (missing.length) notices.push(`Missing citations: ${missing.join(", ")}`);
+      setExportNotice(notices.length ? notices.join(" · ") : "Exported .tex and PDF");
+      await reload();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleOverleafPush = async () => {
     if (!selectedSlug) return;
     setPushingOverleaf(true);
     setExportNotice(null);
     try {
-      const result = await pushToOverleaf({ paperSlug: selectedSlug, includeDrafts: true });
+      const result = await pushToOverleaf({ paperSlug: selectedSlug, includeDrafts });
       const notices = [result.message];
       if (result.missingCitations?.length) {
         notices.push(`Missing citations: ${result.missingCitations.join(", ")}`);
@@ -572,6 +603,14 @@ export function PapersPanel({
               <CountsLine counts={detail.counts} />
             </div>
           ) : null}
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={includeDrafts}
+              onChange={(e) => setIncludeDrafts(e.target.checked)}
+            />
+            Include non-approved drafts
+          </label>
           <div className="flex flex-wrap gap-1.5">
             <Button
               type="button"
@@ -593,6 +632,17 @@ export function PapersPanel({
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
               Export PDF
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 gap-1 px-2 text-xs"
+              disabled={exporting || pushingOverleaf || importingOverleaf}
+              title="Export .tex and PDF in one step"
+              onClick={() => void handleExportBatch()}
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              Export both
             </Button>
             <Button
               type="button"

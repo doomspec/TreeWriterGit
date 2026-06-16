@@ -6,7 +6,7 @@ composed_at_commit: null
 
 # AI Terminal Controls
 
-> **Status (2026-06-15):** v1 shipped — `DispatchPanel.tsx`, `/api/agent/providers`, `/api/agent/preview`, terminal execution, session history. Notes/literature/data/feedback context now included in prompt building via `agentDispatch.ts`. Open: context checklist UI, keyboard shortcuts, status auto-advance, section fan-out.
+> **Status (2026-06-16):** v1 shipped — context checklist, ⌘⇧R/P shortcuts, section fan-out, per-session prompts. Open: server-side job manager (F4 v1.1).
 
 > **Path note:** this doc predates the recursive unit model and native graph. Provider abstraction, the dispatch panel, and prompt construction are current; but the dispatch target is a **unit** (its `INDEX.md` idea → its `draft.md` text), not `outlines/`/`drafts/-vN` paths, and navigation state comes from the **native graph panel**, not Quartz. [[phase-2-paper-model]] + [[PRD]] F4 are authoritative for paths.
 

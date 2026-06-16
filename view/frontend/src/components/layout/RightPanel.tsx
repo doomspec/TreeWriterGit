@@ -15,6 +15,8 @@ export function RightPanel({
   onReconnect,
   onLayoutChange,
   terminalHostRef,
+  isUnit = false,
+  canFanOut = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -25,6 +27,8 @@ export function RightPanel({
   onReconnect: () => void;
   onLayoutChange?: () => void;
   terminalHostRef: React.RefObject<HTMLDivElement | null>;
+  isUnit?: boolean;
+  canFanOut?: boolean;
 }) {
   const [dispatchOpen, setDispatchOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -134,6 +138,8 @@ export function RightPanel({
                 embedded
                 currentPath={currentPath}
                 refreshVersion={refreshVersion}
+                isUnit={isUnit}
+                canFanOut={canFanOut}
                 onSendToTerminal={onSendToTerminal}
                 onError={onError}
                 onToggle={handleDispatchToggle}
