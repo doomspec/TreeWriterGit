@@ -1,1 +1,0 @@
-RoboCulture automates key biological tasks—liquid handling, pipette tip exchange, and optical density-based growth monitoring—using a general-purpose robotic manipulator. We demonstrate a fully autonomous 15-hour yeast culture experiment where RoboCulture uses vision and force feedback and a modular behavior tree framework to robustly execute, monitor, and manage experiments.
