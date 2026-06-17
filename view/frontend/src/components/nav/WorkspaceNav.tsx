@@ -68,11 +68,13 @@ export function WorkspaceNav({
           embedded
           tree={tree}
           currentPath={currentPath}
+          activeFile={activeFile}
           refreshVersion={refreshVersion}
           searchQuery={searchQuery}
           onSearchChange={onSearchChange}
           onSearchSelect={onSearchSelect}
           onNavigate={onNavigate}
+          onOpenFile={onOpenFile}
           onPaperCreated={onPaperCreated}
           onModelChanged={onModelChanged}
           onError={onError}

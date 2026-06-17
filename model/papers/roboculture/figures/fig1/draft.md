@@ -1,1 +1,1 @@
-**Fig1.** _Self-driving Laboratory._
+**Fig1.** _Caption text._

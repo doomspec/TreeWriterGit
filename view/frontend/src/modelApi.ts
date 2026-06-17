@@ -1,6 +1,6 @@
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
-export type NodeKind = "section" | "subsection" | "unit" | "figure";
+export type NodeKind = "section" | "subsection" | "unit" | "figure" | "table";
 
 export class ApiError extends Error {
   status: number;
@@ -61,6 +61,42 @@ export function deleteNode(path: string, recursive = false) {
   return request<{ ok: true; path: string }>(
     `/api/model/file?path=${encodeURIComponent(path)}${query}`,
     { method: "DELETE" }
+  );
+}
+
+export type TrashedItem = {
+  id: string;
+  trashPath: string;
+  originalPath: string;
+  originalParent: string;
+  label: string;
+  deletedAt: string;
+};
+
+export function archiveNode(path: string) {
+  return request<{ ok: true; item: TrashedItem }>("/api/model/archive", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}
+
+export function fetchTrashedItems(paperPath: string) {
+  return request<{ items: TrashedItem[] }>(
+    `/api/model/trash?paper=${encodeURIComponent(paperPath)}`,
+  );
+}
+
+export function restoreTrashedItem(paperPath: string, itemId: string) {
+  return request<{ ok: true; item: TrashedItem }>("/api/model/trash/restore", {
+    method: "POST",
+    body: JSON.stringify({ paper: paperPath, itemId }),
+  });
+}
+
+export function purgeTrashedItem(paperPath: string, itemId: string) {
+  return request<{ ok: true; item: TrashedItem }>(
+    `/api/model/trash?paper=${encodeURIComponent(paperPath)}&itemId=${encodeURIComponent(itemId)}`,
+    { method: "DELETE" },
   );
 }
 

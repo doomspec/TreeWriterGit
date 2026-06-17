@@ -8,11 +8,13 @@ import {
   PanelBottomClose,
   PanelBottomOpen,
   RefreshCw,
+  Settings,
   TerminalSquare,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SettingsPage } from "@/components/settings/SettingsPage";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { BottomPanel } from "@/components/layout/BottomPanel";
 import { ResizableSidebarLayout } from "@/components/layout/ResizableSidebarLayout";
@@ -71,7 +73,11 @@ type GitSyncState = {
   lastError: string | null;
   lastOutput?: string | null;
   conflictDetected?: boolean;
+  autoSync?: boolean;
+  intervalMs?: number;
 };
+
+type AppView = "workspace" | "settings";
 
 function formatGitSyncError(state: GitSyncState): string {
   const parts: string[] = [];
@@ -113,6 +119,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState(savedPrefs.searchQuery);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [gitSync, setGitSync] = useState<GitSyncState | null>(null);
+  const [appView, setAppView] = useState<AppView>("workspace");
   const [error, setError] = useState<string | null>(null);
   const [agentPanelOpen, setAgentPanelOpen] = useState(savedPrefs.agentPanelOpen);
   const [dualPaneSplit, setDualPaneSplit] = useState(savedPrefs.dualPaneSplit);
@@ -142,10 +149,11 @@ export default function App() {
   const sectionPath = isPaperSection && !activeFile ? browsePath : null;
   const graphFocusPath = activeFile ? parentPath(activeFile) : currentPath || browsePath;
   const graphFetchRoot = resolveGraphFetchRoot(graphFocusPath);
-  const exportPaperSlug = useMemo(
-    () => /^papers\/([^/]+)/.exec(browsePath)?.[1] ?? null,
-    [browsePath],
+  const paperPath = useMemo(
+    () => (paperSlug ? `papers/${paperSlug}` : null),
+    [paperSlug],
   );
+  const exportPaperSlug = paperSlug;
 
   useEffect(() => {
     saveWorkspacePreferences({
@@ -502,18 +510,26 @@ export default function App() {
             <span className="text-sm font-semibold tracking-tight">TreeWriter</span>
           </div>
           <div className="hidden h-4 w-px bg-border sm:block" />
-          <WorkspaceModeTabs activeTab={sidebarTab} onTabChange={handleSidebarTabChange} />
-          <div className="hidden h-4 w-px bg-border sm:block" />
-          <div className="hidden min-w-0 sm:block">
-            <Breadcrumbs
-              path={browsePath}
-              onNavigate={navigateTo}
-              variant={sidebarTab === "papers" ? "papers" : "default"}
-            />
-          </div>
+          {appView === "workspace" ? (
+            <>
+              <WorkspaceModeTabs activeTab={sidebarTab} onTabChange={handleSidebarTabChange} />
+              <div className="hidden h-4 w-px bg-border sm:block" />
+              <div className="hidden min-w-0 sm:block">
+                <Breadcrumbs
+                  path={browsePath}
+                  onNavigate={navigateTo}
+                  variant={sidebarTab === "papers" ? "papers" : "default"}
+                />
+              </div>
+            </>
+          ) : (
+            <span className="text-sm text-muted-foreground">Settings</span>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          {appView === "workspace" ? (
+            <>
           <button
             type="button"
             className={cn(
@@ -532,7 +548,9 @@ export default function App() {
               gitSync && gitSyncHasError(gitSync)
                 ? formatGitSyncError(gitSync)
                 : gitSync?.enabled
-                  ? "Git sync (auto every 2 min) — click to sync now"
+                  ? gitSync.autoSync === false
+                    ? "Git sync — auto sync off (click to sync now)"
+                    : `Git sync (auto every ${Math.round((gitSync.intervalMs ?? 120_000) / 1000)}s) — click to sync now`
                   : "Git sync disabled"
             }
             disabled={!gitSync?.enabled || gitSync?.running}
@@ -564,9 +582,35 @@ export default function App() {
             onError={setError}
             onComplete={() => reloadModel()}
           />
+            </>
+          ) : null}
+          <Button
+            type="button"
+            variant={appView === "settings" ? "default" : "outline"}
+            size="icon"
+            title="Settings"
+            aria-label="Settings"
+            aria-pressed={appView === "settings"}
+            onClick={() => setAppView((view) => (view === "settings" ? "workspace" : "settings"))}
+          >
+            <Settings className="h-4 w-4" aria-hidden="true" />
+          </Button>
         </div>
       </header>
 
+      {appView === "settings" ? (
+        <SettingsPage
+          onBack={() => setAppView("workspace")}
+          onError={setError}
+          onGitSyncChange={(settings) => {
+            setGitSync({
+              ...settings.status,
+              autoSync: settings.autoSync,
+              intervalMs: settings.intervalMs,
+            });
+          }}
+        />
+      ) : (
       <div className="workspace-shell flex min-h-0 min-w-0 flex-1 flex-col">
         <ResizableSidebarLayout
           width={sidebarWidth}
@@ -620,6 +664,8 @@ export default function App() {
                 onDispatchComplete={reloadModel}
                 onBackToSectionView={showSectionViewBack ? backToSectionView : undefined}
                 isFigure={isFigure}
+                onModelChanged={reloadModel}
+                paperPath={paperPath}
               />
             ) : sectionPath ? (
               <SectionWorkspace
@@ -728,6 +774,7 @@ export default function App() {
           terminalHostRef={terminalElementRef}
         />
       </div>
+      )}
 
       <NamePromptDialog
         open={createPrompt !== null}

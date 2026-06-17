@@ -52,6 +52,33 @@ export async function loadProviders(repoRoot: string): Promise<ProviderConfig> {
   }
 }
 
+export async function saveDefaultProvider(
+  repoRoot: string,
+  defaultProvider: string,
+): Promise<ProviderConfig> {
+  const name = defaultProvider.trim();
+  if (!name) {
+    throw new Error("defaultProvider is required");
+  }
+  const configPath = path.join(repoRoot, ".treewriter.json");
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    // start fresh
+  }
+  const current = await loadProviders(repoRoot);
+  if (!current.aiProviders.some((provider) => provider.name === name)) {
+    throw new Error(`Unknown provider: ${name}`);
+  }
+  parsed.defaultProvider = name;
+  if (!Array.isArray(parsed.aiProviders) || parsed.aiProviders.length === 0) {
+    parsed.aiProviders = current.aiProviders;
+  }
+  await writeFile(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return loadProviders(repoRoot);
+}
+
 export type DispatchAction =
   | "draft"
   | "revise"

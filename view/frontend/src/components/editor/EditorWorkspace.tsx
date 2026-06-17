@@ -1,10 +1,17 @@
+import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
-import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
+import { outlinePathFor, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
+
+function captionFromDraft(content: string): string {
+  return stripFrontmatter(content)
+    .replace(/^\s*#(?!#)\s+[^\n\r]+\r?\n?/, "")
+    .trim();
+}
 
 export function EditorWorkspace({
   unitPath,
@@ -22,6 +29,8 @@ export function EditorWorkspace({
   onDispatchComplete,
   onBackToSectionView,
   isFigure = false,
+  onModelChanged,
+  paperPath = null,
 }: {
   unitPath: string | null;
   activeFile: string;
@@ -39,10 +48,24 @@ export function EditorWorkspace({
   /** Return to composed section outline + draft view. */
   onBackToSectionView?: () => void;
   isFigure?: boolean;
+  onModelChanged?: () => void;
+  paperPath?: string | null;
 }) {
   const isLeafEditor = Boolean(unitPath);
   const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
   const draftPath = unitPath ? `${unitPath}/draft.md` : null;
+  const [liveDraftCaption, setLiveDraftCaption] = useState<string | null>(null);
+
+  const handleDraftContentChange = useCallback(
+    (content: string) => {
+      if (isFigure) setLiveDraftCaption(captionFromDraft(content));
+    },
+    [isFigure],
+  );
+
+  useEffect(() => {
+    setLiveDraftCaption(null);
+  }, [unitPath, refreshVersion]);
 
   const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = [
     { id: "source", icon: FileCode2, label: "Source" },
@@ -73,6 +96,7 @@ export function EditorWorkspace({
               onSendToTerminal={onSendToTerminal}
               onBeforeDispatch={onBeforeDispatch}
               onDispatchComplete={onDispatchComplete}
+              paperPath={paperPath}
             />
           }
           right={
@@ -92,6 +116,8 @@ export function EditorWorkspace({
               onSendToTerminal={onSendToTerminal}
               onBeforeDispatch={onBeforeDispatch}
               onDispatchComplete={onDispatchComplete}
+              onContentChange={handleDraftContentChange}
+              paperPath={paperPath}
             />
           }
         />
@@ -99,7 +125,10 @@ export function EditorWorkspace({
           <FigurePreviewPanel
             unitPath={unitPath}
             refreshVersion={refreshVersion}
-            onNavigate={onNavigate}
+            liveCaption={liveDraftCaption}
+            embeddedInEditor
+            onModelChanged={onModelChanged}
+            onError={onError}
           />
         ) : null}
       </div>
@@ -146,11 +175,13 @@ export function EditorWorkspace({
         filePath={activeFile}
         refreshVersion={refreshVersion}
         layout={layout}
+        className="min-h-0 flex-1"
         onError={onError}
         linkContextPath={linkContextPath}
         onNavigate={onNavigate}
         splitPercent={dualPaneSplit}
         onSplitChange={onDualPaneSplitChange}
+        paperPath={paperPath}
       />
     </div>
   );

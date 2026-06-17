@@ -580,7 +580,7 @@ export type PaperSectionItem = {
   title: string;
 };
 
-const PAPER_SKIP_FOLDERS = new Set(["notes", ".sessions"]);
+const PAPER_SKIP_FOLDERS = new Set(["notes", ".sessions", ".trash"]);
 
 function orderedDirectoryChildren(
   tree: ModelNode[],

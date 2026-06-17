@@ -1,6 +1,6 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
 
 import { parseOutlineSummary } from "./compose.js";
@@ -8,6 +8,7 @@ import {
   isFigureDir,
   isTableDir,
   isUnitDir,
+  ModelFsError,
   orderedChildren,
   readIndexData,
   resolveChildPath,
@@ -38,7 +39,7 @@ export type FigureMetadata = {
 };
 
 const FIGURE_ASSET_NAMES = /\.(png|jpe?g|svg|mmd|gif|webp)$/i;
-const SKIP_DIRS = new Set([".sessions", "notes"]);
+const SKIP_DIRS = new Set([".sessions", "notes", ".trash"]);
 
 function stripLeadingH1(markdown: string): string {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "")
@@ -273,4 +274,82 @@ export async function listPaperFigures(
   }
 
   return figures;
+}
+
+export const FIGURE_IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".svg",
+  ".gif",
+  ".webp",
+]);
+
+export function isFigureImageExtension(relativePath: string): boolean {
+  const ext = path.posix.extname(relativePath).toLowerCase();
+  return FIGURE_IMAGE_EXTENSIONS.has(ext);
+}
+
+function sanitizeFigureFilename(name: string): string {
+  const base = path.posix.basename(name).replace(/[^a-zA-Z0-9._-]+/g, "-");
+  if (!base || base === "." || base === "..") return "preview.png";
+  return base;
+}
+
+/** Save an image into a figure unit folder or data note and update metadata. */
+export async function uploadFigureImage(
+  modelRoot: string,
+  figurePath: string,
+  filename: string,
+  data: Buffer,
+): Promise<{ assetPath: string; figure: FigureMetadata }> {
+  const normalized = figurePath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const meta = await resolveFigureMetadata(modelRoot, normalized);
+  if (!meta) {
+    throw new ModelFsError("Figure not found", 404);
+  }
+
+  const safeName = sanitizeFigureFilename(filename);
+  if (!isFigureImageExtension(safeName)) {
+    throw new ModelFsError(`Unsupported image type: ${path.posix.extname(safeName)}`, 400);
+  }
+
+  let assetRel: string;
+
+  if (meta.kind === "figure-unit") {
+    assetRel = path.posix.join(meta.path, safeName);
+    resolveModelPath(modelRoot, assetRel);
+    await writeFile(path.join(modelRoot, assetRel), data);
+
+    const indexAbs = path.join(modelRoot, meta.path, "INDEX.md");
+    const raw = await readFile(indexAbs, "utf8");
+    const parsed = matter(raw);
+    parsed.data.figure_preview = safeName;
+    parsed.data.figure_source = safeName;
+    await writeFile(indexAbs, matter.stringify(parsed.content, parsed.data), "utf8");
+  } else {
+    const noteRel = meta.outlinePath;
+    if (!noteRel) {
+      throw new ModelFsError("Figure note path missing", 400);
+    }
+    const noteDir = path.posix.dirname(noteRel);
+    assetRel = path.posix.join(noteDir, safeName);
+    resolveModelPath(modelRoot, assetRel);
+    await writeFile(path.join(modelRoot, assetRel), data);
+
+    const noteAbs = path.join(modelRoot, noteRel);
+    const raw = await readFile(noteAbs, "utf8");
+    const parsed = matter(raw);
+    parsed.data.figure_path = safeName;
+    parsed.data.figure_preview = safeName;
+    parsed.data.figure_source = safeName;
+    await writeFile(noteAbs, matter.stringify(parsed.content, parsed.data), "utf8");
+  }
+
+  const figure = await resolveFigureMetadata(modelRoot, normalized);
+  if (!figure) {
+    throw new ModelFsError("Figure metadata unavailable after upload", 500);
+  }
+
+  return { assetPath: assetRel, figure };
 }

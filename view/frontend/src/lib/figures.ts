@@ -69,3 +69,58 @@ export async function fetchMermaidSource(relativePath: string): Promise<string> 
   if (!res.ok) throw new Error(`Mermaid source load failed (${res.status})`);
   return res.text();
 }
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Failed to read file"));
+        return;
+      }
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function uploadFigureImage(figurePath: string, file: File): Promise<FigureMetadata> {
+  const key = figurePath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  figureCache.delete(key);
+
+  const data = await fileToBase64(file);
+  const res = await fetch(`${apiBaseUrl}/api/model/figure/upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      path: key,
+      filename: file.name,
+      data,
+    }),
+  });
+  const text = await res.text();
+  let body: unknown = {};
+  if (text) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(`Invalid JSON from API (${res.status})`);
+    }
+  }
+  if (!res.ok) {
+    const message =
+      typeof body === "object" && body && "error" in body
+        ? String((body as { error: unknown }).error)
+        : `Upload failed (${res.status})`;
+    throw new Error(message);
+  }
+  const result = body as { figure: FigureMetadata };
+  figureCache.set(key, result.figure);
+  return result.figure;
+}
+
+export const FIGURE_IMAGE_ACCEPT =
+  "image/png,image/jpeg,image/jpg,image/svg+xml,image/gif,image/webp,.png,.jpg,.jpeg,.svg,.gif,.webp";

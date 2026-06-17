@@ -16,6 +16,7 @@ import {
   Type,
 } from "lucide-react";
 
+import { AssetInsertMenu } from "@/components/editor/AssetInsertMenu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { MarkdownFormatAction } from "@/lib/markdownFormat";
@@ -100,9 +101,14 @@ export function MarkdownToolbar({
   unresolvedComments = 0,
   disabled = false,
   defaultToolsOpen = false,
+  embedded = false,
+  paperPath = null,
+  filePath = "",
+  refreshVersion = 0,
   onFormat,
   onToggleComments,
   onInsertInlineNote,
+  onInsertSnippet,
 }: {
   renderedMode?: boolean;
   commentsOpen?: boolean;
@@ -110,9 +116,15 @@ export function MarkdownToolbar({
   disabled?: boolean;
   /** When false, formatting actions stay behind the tools toggle. */
   defaultToolsOpen?: boolean;
+  /** Render inside pane header without a separate toolbar bar. */
+  embedded?: boolean;
+  paperPath?: string | null;
+  filePath?: string;
+  refreshVersion?: number;
   onFormat: (action: MarkdownFormatAction) => void;
   onToggleComments: () => void;
   onInsertInlineNote?: () => void;
+  onInsertSnippet?: (snippet: string) => void;
 }) {
   const [toolsOpen, setToolsOpen] = useState(defaultToolsOpen);
 
@@ -186,9 +198,25 @@ export function MarkdownToolbar({
   };
 
   return (
-    <div className="ui-toolbar markdown-toolbar px-2 py-1" role="toolbar" aria-label="Formatting">
+    <div
+      className={cn(
+        embedded ? "markdown-toolbar min-w-0" : "ui-toolbar markdown-toolbar px-2 py-1",
+      )}
+      role="toolbar"
+      aria-label="Formatting"
+    >
       <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
         {commentItem ? renderItem(commentItem) : null}
+        {paperPath && onInsertSnippet ? (
+          <AssetInsertMenu
+            paperPath={paperPath}
+            filePath={filePath}
+            refreshVersion={refreshVersion}
+            disabled={disabled}
+            embedded={embedded}
+            onInsert={onInsertSnippet}
+          />
+        ) : null}
         <Button
           type="button"
           variant={toolsOpen ? "default" : "ghost"}

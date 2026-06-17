@@ -65,7 +65,7 @@ export function RenderedMarkdownField({
       </div>
       <textarea
         ref={textareaRef}
-        className="rendered-markdown-field__input markdown-reading-edit relative z-[1] block w-full min-h-full resize-none border-0 bg-transparent p-0 outline-none focus:ring-0"
+        className="rendered-markdown-field__input markdown-reading-edit relative z-[1] block w-full min-h-full resize-none border-0 bg-transparent p-0 outline-none focus:ring-0 focus-visible:outline-none"
         value={value}
         spellCheck={true}
         aria-label={ariaLabel}

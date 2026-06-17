@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { ExternalLink, FileImage, FileText } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { FileImage, Upload } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { MermaidBlock } from "@/components/editor/MermaidBlock";
 import { Button } from "@/components/ui/button";
@@ -7,6 +9,8 @@ import {
   assetUrl,
   fetchFigureMetadata,
   fetchMermaidSource,
+  FIGURE_IMAGE_ACCEPT,
+  uploadFigureImage,
   type FigureMetadata,
 } from "@/lib/figures";
 import { cn } from "@/lib/utils";
@@ -14,12 +18,35 @@ import type { NavigateTarget } from "@/lib/modelTree";
 
 type FigureCardProps = {
   targetPath: string;
+  refreshVersion?: number;
+  liveCaption?: string | null;
+  embeddedInEditor?: boolean;
   linkContextPath?: string;
   onNavigate?: (target: NavigateTarget) => void;
+  onModelChanged?: () => void;
+  onError?: (message: string) => void;
   className?: string;
 };
 
-function FigurePreview({ figure }: { figure: FigureMetadata }) {
+function FigureCaption({ markdown }: { markdown: string }) {
+  return (
+    <div className="figure-caption-markdown text-sm leading-relaxed text-foreground [&>p]:m-0">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+    </div>
+  );
+}
+
+function FigurePreview({
+  figure,
+  imageVersion = 0,
+  onUploadClick,
+  uploading,
+}: {
+  figure: FigureMetadata;
+  imageVersion?: number;
+  onUploadClick?: () => void;
+  uploading?: boolean;
+}) {
   const [mermaidSource, setMermaidSource] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,9 +70,13 @@ function FigurePreview({ figure }: { figure: FigureMetadata }) {
   }, [figure.previewPath, figure.sourcePath]);
 
   if (figure.previewPath) {
+    const src =
+      imageVersion > 0
+        ? `${assetUrl(figure.previewPath)}&_v=${imageVersion}`
+        : assetUrl(figure.previewPath);
     return (
       <img
-        src={assetUrl(figure.previewPath)}
+        src={src}
         alt={figure.title}
         className="max-h-64 w-full rounded-md border border-border object-contain bg-background"
       />
@@ -62,19 +93,45 @@ function FigurePreview({ figure }: { figure: FigureMetadata }) {
 
   return (
     <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-      No preview available
+      {onUploadClick ? (
+        <div className="flex flex-col items-center gap-2">
+          <span>No preview yet</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2 text-[10px]"
+            disabled={uploading}
+            onClick={onUploadClick}
+          >
+            <Upload className="h-3 w-3" aria-hidden="true" />
+            {uploading ? "Uploading…" : "Upload image"}
+          </Button>
+        </div>
+      ) : (
+        "No preview available"
+      )}
     </div>
   );
 }
 
 export function FigureCard({
   targetPath,
+  refreshVersion = 0,
+  liveCaption,
+  embeddedInEditor = false,
   onNavigate,
+  onModelChanged,
+  onError,
   className,
 }: FigureCardProps) {
   const [figure, setFigure] = useState<FigureMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [imageVersion, setImageVersion] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const canUpload = Boolean(onModelChanged || onError);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,7 +157,27 @@ export function FigureCard({
     return () => {
       cancelled = true;
     };
-  }, [targetPath]);
+  }, [targetPath, refreshVersion]);
+
+  const handleUploadClick = () => fileInputRef.current?.click();
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const updated = await uploadFigureImage(targetPath, file);
+      setFigure(updated);
+      setImageVersion((v) => v + 1);
+      setMissing(false);
+      onModelChanged?.();
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -132,9 +209,9 @@ export function FigureCard({
     onNavigate?.({ type: "file", path });
   };
 
-  const openFolder = (folderPath: string) => {
-    onNavigate?.({ type: "folder", path: folderPath });
-  };
+  const displayCaption =
+    liveCaption !== null && liveCaption !== undefined ? liveCaption : figure.caption;
+  const showSummary = !displayCaption && figure.summary;
 
   return (
     <figure
@@ -143,55 +220,46 @@ export function FigureCard({
         className,
       )}
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={FIGURE_IMAGE_ACCEPT}
+        className="hidden"
+        onChange={(event) => void handleFileChange(event)}
+      />
       <div className="border-b border-border bg-muted/20 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         Figure
         {figure.figureLabel ? ` · ${figure.figureLabel}` : ""}
       </div>
       <div className="space-y-3 p-3">
-        <FigurePreview figure={figure} />
-        {figure.caption ? (
-          <figcaption className="text-sm leading-relaxed text-foreground">{figure.caption}</figcaption>
-        ) : figure.summary ? (
+        <FigurePreview
+          figure={figure}
+          imageVersion={imageVersion}
+          uploading={uploading}
+          onUploadClick={canUpload ? handleUploadClick : undefined}
+        />
+        {displayCaption ? (
+          <figcaption className="text-sm leading-relaxed text-foreground">
+            <FigureCaption markdown={displayCaption} />
+          </figcaption>
+        ) : showSummary ? (
           <figcaption className="text-sm italic text-muted-foreground">{figure.summary}</figcaption>
         ) : null}
         <div className="flex flex-wrap gap-1">
-          {figure.outlinePath ? (
+          {canUpload ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="h-6 gap-1 px-2 text-[10px]"
-              onClick={() => openFile(figure.outlinePath!)}
+              disabled={uploading}
+              onClick={handleUploadClick}
             >
-              <FileText className="h-3 w-3" aria-hidden="true" />
-              Outline
+              <Upload className="h-3 w-3" aria-hidden="true" />
+              {uploading ? "Uploading…" : figure.previewPath ? "Replace image" : "Upload image"}
             </Button>
           ) : null}
-          {figure.draftPath ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-6 gap-1 px-2 text-[10px]"
-              onClick={() => openFile(figure.draftPath!)}
-            >
-              <FileText className="h-3 w-3" aria-hidden="true" />
-              Caption
-            </Button>
-          ) : null}
-          {figure.kind === "figure-unit" ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-6 gap-1 px-2 text-[10px]"
-              onClick={() => openFolder(figure.path)}
-            >
-              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-              Open figure
-            </Button>
-          ) : null}
-          {figure.sourcePath ? (
+          {!embeddedInEditor && figure.sourcePath ? (
             <Button
               type="button"
               variant="outline"

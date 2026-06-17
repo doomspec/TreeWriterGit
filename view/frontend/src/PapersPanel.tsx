@@ -4,7 +4,10 @@ import { GripVertical } from "lucide-react";
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
+import { TreeCreateButtons, TreeRowActions } from "@/components/nav/TreeRowActions";
+import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { cn } from "@/lib/utils";
+import { navigateAfterArchive, useArchiveNodeDialog } from "@/lib/useArchiveNodeDialog";
 import {
   indexPathFor,
   orderedChildFolders,
@@ -14,8 +17,10 @@ import {
   type PaperSectionItem,
 } from "@/lib/modelTree";
 import {
+  createNode,
   fetchPaperDetail,
   reorderChildren,
+  type NodeKind,
   type PaperDetail,
   type UnitStatusCounts,
 } from "@/modelApi";
@@ -36,6 +41,8 @@ function SubsectionOrderList({
   reordering,
   onNavigate,
   onReorder,
+  onCreate,
+  onDelete,
 }: {
   parent: SectionRow;
   subsections: PaperSectionItem[];
@@ -45,6 +52,8 @@ function SubsectionOrderList({
   reordering: boolean;
   onNavigate: (path: string) => void;
   onReorder: (parentPath: string, order: string[]) => Promise<void>;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
+  onDelete: (path: string, label: string) => void;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -64,7 +73,17 @@ function SubsectionOrderList({
   };
 
   return (
-    <ul className="ml-6 space-y-0.5 border-l border-border/60 pl-2" aria-label={`Subsections of ${parent.title}`}>
+    <div className="ml-6 border-l border-border/60 pl-2">
+      <div className="px-1 py-1">
+        <TreeCreateButtons
+          compact
+          showSubsection
+          showUnit
+          onCreateSubsection={() => onCreate(parent.path, "subsection")}
+          onCreateUnit={() => onCreate(parent.path, "unit")}
+        />
+      </div>
+      <ul className="space-y-0.5" aria-label={`Subsections of ${parent.title}`}>
       {subsections.map((child, index) => {
         const childActive = currentPath === child.path || currentPath.startsWith(`${child.path}/`);
         const nested = orderedChildFolders(tree, child.path, childOrders[child.path] ?? []);
@@ -74,7 +93,7 @@ function SubsectionOrderList({
           <li key={child.path}>
             <div
               className={cn(
-                "flex items-stretch gap-0.5 rounded-md",
+                "group flex items-stretch gap-0.5 rounded-md",
                 dragIndex === index ? "opacity-50" : undefined,
                 overIndex === index && dragIndex !== null && dragIndex !== index
                   ? "ring-1 ring-primary/40"
@@ -113,33 +132,55 @@ function SubsectionOrderList({
               >
                 <span className="truncate">{child.title}</span>
               </button>
+              <TreeRowActions
+                onDelete={() => onDelete(child.path, child.title)}
+                deleteLabel={`Delete ${child.title}`}
+              />
             </div>
             {showNested ? (
-              <ul className="ml-3 space-y-0.5 border-l border-border/40 pl-2">
+              <div className="ml-3 border-l border-border/40 pl-2">
+                <div className="px-1 py-1">
+                  <TreeCreateButtons
+                    compact
+                    showSubsection
+                    showUnit
+                    onCreateSubsection={() => onCreate(child.path, "subsection")}
+                    onCreateUnit={() => onCreate(child.path, "unit")}
+                  />
+                </div>
+                <ul className="space-y-0.5">
                 {nested.map((unit) => {
                   const unitActive =
                     currentPath === unit.path || currentPath.startsWith(`${unit.path}/`);
                   return (
                     <li key={unit.path}>
-                      <button
-                        type="button"
-                        className={cn(
-                          "w-full truncate rounded-md px-2 py-0.5 text-left text-[10px] hover:bg-accent/40",
-                          unitActive ? "bg-accent/40 font-medium" : "text-muted-foreground",
-                        )}
-                        onClick={() => onNavigate(unit.path)}
-                      >
-                        {unit.title}
-                      </button>
+                      <div className="group flex items-stretch gap-0.5">
+                        <button
+                          type="button"
+                          className={cn(
+                            "min-w-0 flex-1 truncate rounded-md px-2 py-0.5 text-left text-[10px] hover:bg-accent/40",
+                            unitActive ? "bg-accent/40 font-medium" : "text-muted-foreground",
+                          )}
+                          onClick={() => onNavigate(unit.path)}
+                        >
+                          {unit.title}
+                        </button>
+                        <TreeRowActions
+                          onDelete={() => onDelete(unit.path, unit.title)}
+                          deleteLabel={`Delete ${unit.title}`}
+                        />
+                      </div>
                     </li>
                   );
                 })}
-              </ul>
+                </ul>
+              </div>
             ) : null}
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </div>
   );
 }
 
@@ -152,6 +193,8 @@ function SectionOrderList({
   onNavigate,
   onReorder,
   onChildReorder,
+  onCreate,
+  onDelete,
 }: {
   sections: SectionRow[];
   currentPath: string;
@@ -161,6 +204,8 @@ function SectionOrderList({
   onNavigate: (path: string) => void;
   onReorder: (order: string[]) => Promise<void>;
   onChildReorder: (parentPath: string, order: string[]) => Promise<void>;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
+  onDelete: (path: string, label: string) => void;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -203,6 +248,8 @@ function SectionOrderList({
         reordering={reordering}
         onNavigate={onNavigate}
         onReorder={onChildReorder}
+        onCreate={onCreate}
+        onDelete={onDelete}
       />
     );
   };
@@ -216,7 +263,7 @@ function SectionOrderList({
           <li key={section.path}>
             <div
               className={cn(
-                "flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
+                "group flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
                 active ? "border-primary/40 bg-accent/50" : undefined,
                 dragIndex === index ? "opacity-50" : undefined,
                 overIndex === index && dragIndex !== null && dragIndex !== index
@@ -258,6 +305,11 @@ function SectionOrderList({
                   </span>
                 ) : null}
               </button>
+              <TreeRowActions
+                onDelete={() => onDelete(section.path, section.title)}
+                deleteLabel={`Delete ${section.title}`}
+                className="pr-1"
+              />
             </div>
             {renderChildren(section)}
           </li>
@@ -294,6 +346,7 @@ export function PapersPanel({
   const [childOrders, setChildOrders] = useState<Record<string, string[]>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [createPrompt, setCreatePrompt] = useState<{ parent: string; kind: NodeKind } | null>(null);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
@@ -342,6 +395,38 @@ export function PapersPanel({
       setDetailLoading(false);
     }
   }, [loadSectionOrder, onError, paperPath, selectedSlug]);
+
+  const handleModelChanged = useCallback(() => {
+    onModelChanged?.();
+    void reload();
+  }, [onModelChanged, reload]);
+
+  const { requestArchive, dialogs: archiveDialogs } = useArchiveNodeDialog({
+    onChanged: handleModelChanged,
+    onError,
+    onArchived: (path) => navigateAfterArchive(path, currentPath, onNavigate),
+  });
+
+  const openCreate = useCallback((parent: string, kind: NodeKind) => {
+    setCreatePrompt({ parent, kind });
+  }, []);
+
+  const submitCreate = async (name: string) => {
+    if (!createPrompt) return;
+    const { parent, kind } = createPrompt;
+    setCreatePrompt(null);
+    try {
+      const created = await createNode(parent, name, kind);
+      handleModelChanged();
+      if (kind !== "unit") {
+        onNavigate(created.path);
+      } else {
+        onNavigate(created.path);
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   useEffect(() => {
     void reload();
@@ -456,8 +541,13 @@ export function PapersPanel({
                 Sections
               </p>
             ) : null}
+            <TreeCreateButtons
+              compact
+              showSection
+              onCreateSection={() => openCreate(paperPath, "section")}
+            />
             {sections.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No sections in this paper.</p>
+              <p className="text-xs text-muted-foreground">No sections yet — create one above.</p>
             ) : (
               <SectionOrderList
                 sections={sections}
@@ -468,16 +558,29 @@ export function PapersPanel({
                 onNavigate={onNavigate}
                 onReorder={handleSectionReorder}
                 onChildReorder={handleChildReorder}
+                onCreate={openCreate}
+                onDelete={requestArchive}
               />
             )}
             {sections.length > 0 ? (
-              <p className="text-[10px] text-muted-foreground">Drag to reorder</p>
+              <p className="text-[10px] text-muted-foreground">Drag to reorder · hover to remove</p>
             ) : null}
           </div>
         </div>
       ) : papers.length === 0 && !papersLoading ? (
         <p className="text-xs text-muted-foreground">Create a paper to get started.</p>
       ) : null}
+
+      <NamePromptDialog
+        open={createPrompt !== null}
+        title={createPrompt ? `New ${createPrompt.kind}` : "New node"}
+        label="Folder name (lowercase, hyphens ok)"
+        defaultValue=""
+        confirmLabel="Create"
+        onConfirm={(name) => void submitCreate(name)}
+        onCancel={() => setCreatePrompt(null)}
+      />
+      {archiveDialogs}
     </div>
   );
 }

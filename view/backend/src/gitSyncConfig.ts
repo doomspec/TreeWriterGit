@@ -1,7 +1,4 @@
 import path from "node:path";
-import { readFile } from "node:fs/promises";
-
-import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 
 export type GitSyncConfig = {

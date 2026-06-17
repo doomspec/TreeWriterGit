@@ -226,6 +226,10 @@ export async function scaffoldPaper(
     await createNode(modelRoot, sectionsRel, sectionName, "section");
   }
 
+  for (const assetDir of ["figures", "tables"] as const) {
+    await createNode(modelRoot, paperRel, assetDir, "section");
+  }
+
   for (const notesDir of ["literature", "data", "feedback"]) {
     const notesRel = `${paperRel}/notes/${notesDir}`;
     await mkdir(path.join(modelRoot, notesRel), { recursive: true });

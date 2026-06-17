@@ -85,6 +85,7 @@ export function MarkdownEditor({
   paneLabel,
   defaultPaneMode = "rendered",
   onSaveStateChange,
+  onContentChange,
   onError,
   className,
   linkContextPath = "",
@@ -95,6 +96,7 @@ export function MarkdownEditor({
   splitPercent = 50,
   onSplitChange,
   isFigureUnit = false,
+  paperPath = null,
 }: {
   filePath: string;
   refreshVersion: number;
@@ -103,6 +105,7 @@ export function MarkdownEditor({
   paneLabel?: string;
   defaultPaneMode?: PaneEditMode;
   onSaveStateChange?: (state: SaveState) => void;
+  onContentChange?: (content: string) => void;
   onError?: (message: string) => void;
   className?: string;
   linkContextPath?: string;
@@ -113,6 +116,8 @@ export function MarkdownEditor({
   splitPercent?: number;
   onSplitChange?: (percent: number) => void;
   isFigureUnit?: boolean;
+  /** Paper root for asset insert picker, e.g. `papers/roboculture`. */
+  paperPath?: string | null;
 }) {
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
@@ -206,6 +211,10 @@ export function MarkdownEditor({
   useEffect(() => {
     onSaveStateChange?.(saveState);
   }, [onSaveStateChange, saveState]);
+
+  useEffect(() => {
+    onContentChange?.(content);
+  }, [content, onContentChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -380,14 +389,50 @@ export function MarkdownEditor({
       const end = target.selectionEnd;
       const selected = currentValue.slice(start, end);
       const note = wrapInlineNote(authorNoteMacro(getUserName()), selected);
-      const nextValue = `${currentValue.slice(0, start)}${note}${currentValue.slice(end)}`;
-      setValue(nextValue);
-      requestAnimationFrame(() => {
-        target.focus();
-        const cursor = start + note.length;
-        target.setSelectionRange(cursor, cursor);
-        updateSelectedLine();
-      });
+      insertIntoTarget(target, currentValue, setValue, `${currentValue.slice(0, start)}${note}${currentValue.slice(end)}`, start + note.length);
+    },
+    [content, handlePreviewBodyChange, previewBody, renderedEditable, showPreview, showSource],
+  );
+
+  const insertIntoTarget = (
+    target: HTMLTextAreaElement,
+    _currentValue: string,
+    setValue: (value: string) => void,
+    nextValue: string,
+    cursor: number,
+  ) => {
+    setValue(nextValue);
+    requestAnimationFrame(() => {
+      target.focus();
+      target.setSelectionRange(cursor, cursor);
+      updateSelectedLine();
+    });
+  };
+
+  const insertSnippet = useCallback(
+    (snippet: string, targetPane?: "preview" | "source") => {
+      const previewEl = previewRef.current;
+      const sourceEl = sourceRef.current;
+      let usePreview: boolean;
+      if (targetPane === "preview") {
+        usePreview = true;
+      } else if (targetPane === "source") {
+        usePreview = false;
+      } else {
+        usePreview = Boolean(
+          previewEl &&
+            renderedEditable &&
+            (document.activeElement === previewEl || (showPreview && !showSource)),
+        );
+      }
+      const target = usePreview && previewEl ? previewEl : sourceEl;
+      if (!target) return;
+      const currentValue = usePreview ? previewBody : content;
+      const setValue = usePreview ? handlePreviewBodyChange : setContent;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const nextValue = `${currentValue.slice(0, start)}${snippet}${currentValue.slice(end)}`;
+      insertIntoTarget(target, currentValue, setValue, nextValue, start + snippet.length);
     },
     [content, handlePreviewBodyChange, previewBody, renderedEditable, showPreview, showSource],
   );
@@ -501,15 +546,19 @@ export function MarkdownEditor({
     commentsOpen,
     unresolvedComments,
     defaultToolsOpen: !compact,
+    paperPath,
+    filePath,
+    refreshVersion,
     onFormat: (action: MarkdownFormatAction) => applyFormat(action, compactTargetPane),
     onToggleComments: () => setCommentsOpen((open) => !open),
     onInsertInlineNote: () => insertInlineNote(compactTargetPane),
+    onInsertSnippet: (snippet: string) => insertSnippet(snippet, compactTargetPane),
   };
 
-  const compactToolbar = compact ? <MarkdownToolbar {...toolbarProps} /> : null;
+  const compactToolbar = compact ? <MarkdownToolbar {...toolbarProps} embedded /> : null;
 
   const sourcePane = (
-    <div className="flex min-h-0 flex-col bg-editor">
+    <div className="flex min-h-0 flex-1 flex-col bg-editor">
       {!compact ? (
         <>
           <div className="ui-pane-header h-8">
@@ -526,12 +575,13 @@ export function MarkdownEditor({
             renderedMode={false}
             onFormat={(action) => applyFormat(action, "source")}
             onInsertInlineNote={() => insertInlineNote("source")}
+            onInsertSnippet={(snippet) => insertSnippet(snippet, "source")}
           />
         </>
       ) : null}
       <textarea
         ref={sourceRef}
-        className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-transparent p-4 font-mono text-[13px] leading-6 outline-none focus:ring-0"
+        className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-transparent p-4 font-mono text-[13px] leading-6 outline-none focus:ring-0 focus-visible:outline-none"
         value={content}
         spellCheck={false}
         aria-label={`Edit source ${filePath}`}
@@ -545,7 +595,7 @@ export function MarkdownEditor({
   );
 
   const previewPane = (
-    <div className="flex min-h-0 flex-col bg-reading">
+    <div className="flex min-h-0 flex-1 flex-col bg-reading">
       {!compact ? (
         <>
           <div className="ui-pane-header h-8">
@@ -563,6 +613,7 @@ export function MarkdownEditor({
               renderedMode={true}
               onFormat={(action) => applyFormat(action, "preview")}
               onInsertInlineNote={() => insertInlineNote("preview")}
+              onInsertSnippet={(snippet) => insertSnippet(snippet, "preview")}
             />
           ) : null}
         </>
@@ -652,8 +703,11 @@ export function MarkdownEditor({
         ) : null}
 
         {compact ? (
-          <div className="ui-pane-header">
-            <span className="ui-label truncate">{paneLabel ?? "Document"}</span>
+          <div className="ui-pane-header gap-2 overflow-visible">
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-visible">
+              <span className="ui-label shrink-0 truncate">{paneLabel ?? "Document"}</span>
+              {compactToolbar}
+            </div>
             <div className="flex shrink-0 items-center gap-2">
               <span className="font-mono text-ui-2xs text-muted-foreground">
                 {isDirty ? "unsaved" : saveState}
@@ -671,8 +725,6 @@ export function MarkdownEditor({
             </div>
           </div>
         ) : null}
-
-        {compactToolbar}
 
         {editorPanes}
       </div>

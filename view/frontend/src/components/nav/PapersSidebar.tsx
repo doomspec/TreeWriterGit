@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Search } from "lucide-react";
 
+import { PaperAssetsPanel } from "@/components/nav/PaperAssetsPanel";
+import { TrashPanel } from "@/components/nav/TrashPanel";
 import { GraphPanel } from "@/GraphPanel";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
@@ -49,11 +51,13 @@ function SidebarSection({
 export function PapersSidebar({
   tree,
   currentPath,
+  activeFile,
   refreshVersion,
   searchQuery,
   onSearchChange,
   onSearchSelect,
   onNavigate,
+  onOpenFile,
   onPaperCreated,
   onModelChanged,
   onError,
@@ -67,11 +71,13 @@ export function PapersSidebar({
 }: {
   tree: ModelNode[];
   currentPath: string;
+  activeFile: string | null;
   refreshVersion: number;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onSearchSelect?: (hit: SearchHit) => void;
   onNavigate: (path: string) => void;
+  onOpenFile: (path: string) => void;
   onPaperCreated: (path: string) => void;
   onModelChanged: () => void;
   onError: (message: string) => void;
@@ -84,8 +90,13 @@ export function PapersSidebar({
   embedded?: boolean;
 }) {
   const [sectionsOpen, setSectionsOpen] = useState(true);
+  const [assetsOpen, setAssetsOpen] = useState(true);
+  const [removedOpen, setRemovedOpen] = useState(false);
   const [graphOpen, setGraphOpen] = useState(true);
   const selectedSlug = paperSlugFromPath(currentPath);
+  const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
+  const otherPanelsOpen =
+    Number(sectionsOpen) + Number(assetsOpen) + Number(removedOpen) + Number(graphOpen);
 
   return (
     <div
@@ -135,8 +146,8 @@ export function PapersSidebar({
         open={sectionsOpen}
         onToggle={() => setSectionsOpen((open) => !open)}
         className={cn(
-          sectionsOpen && graphOpen && "max-h-[min(50%,22rem)] shrink-0",
-          sectionsOpen && !graphOpen && "min-h-0 flex-1",
+          sectionsOpen && otherPanelsOpen > 1 && "max-h-[min(38%,18rem)] shrink-0",
+          sectionsOpen && otherPanelsOpen === 1 && "min-h-0 flex-1",
         )}
       >
         <div className="min-h-0 overflow-auto">
@@ -149,6 +160,49 @@ export function PapersSidebar({
             onNavigate={onNavigate}
             onModelChanged={onModelChanged}
             onPaperCreated={onPaperCreated}
+            onError={onError}
+          />
+        </div>
+      </SidebarSection>
+
+      <SidebarSection
+        title="Assets"
+        open={assetsOpen}
+        onToggle={() => setAssetsOpen((open) => !open)}
+        className={cn(
+          assetsOpen && otherPanelsOpen > 1 && "max-h-[min(32%,16rem)] shrink-0",
+          assetsOpen && otherPanelsOpen === 1 && "min-h-0 flex-1",
+        )}
+      >
+        <div className="min-h-0 overflow-auto">
+          <PaperAssetsPanel
+          paperPath={paperPath}
+          currentPath={currentPath}
+          activeFile={activeFile}
+          refreshVersion={refreshVersion}
+          onNavigate={onNavigate}
+          onOpenFile={onOpenFile}
+          onModelChanged={onModelChanged}
+          onError={onError}
+        />
+        </div>
+      </SidebarSection>
+
+      <SidebarSection
+        title="Removed"
+        open={removedOpen}
+        onToggle={() => setRemovedOpen((open) => !open)}
+        className={cn(
+          removedOpen && otherPanelsOpen > 1 && "max-h-[min(28%,14rem)] shrink-0",
+          removedOpen && otherPanelsOpen === 1 && "min-h-0 flex-1",
+        )}
+      >
+        <div className="min-h-0 overflow-auto">
+          <TrashPanel
+            paperPath={paperPath}
+            refreshVersion={refreshVersion}
+            onModelChanged={onModelChanged}
+            onNavigate={onNavigate}
             onError={onError}
           />
         </div>

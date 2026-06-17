@@ -20,6 +20,12 @@ import {
   resolveModelPath,
   type NodeKind
 } from "./modelFs.js";
+import {
+  archiveNode,
+  listTrashedItems,
+  purgeTrashedItem,
+  restoreTrashedItem,
+} from "./trash.js";
 import { buildGraph } from "./graph.js";
 import { getCachedGraph, invalidateGraphCache } from "./graphCache.js";
 import { searchModel, validateSearchQuery } from "./search.js";
@@ -29,8 +35,12 @@ import {
   isAllowedAssetPath,
   listPaperFigures,
   resolveFigureMetadata,
+  uploadFigureImage,
 } from "./figures.js";
-import { loadProviders, buildPreview, buildFanOutPreviews, listContextCandidates, runDispatch, runFanOutDispatch, type DispatchAction } from "./agentDispatch.js";
+import { listPaperAssets } from "./paperAssets.js";
+import { importBibtexReferences } from "./bibtexImport.js";
+import { loadProviders, saveDefaultProvider, buildPreview, buildFanOutPreviews, listContextCandidates, runDispatch, runFanOutDispatch, type DispatchAction } from "./agentDispatch.js";
+import { loadGitSyncConfig, saveGitSyncPreferences, type GitSyncConfig } from "./gitSyncConfig.js";
 import { listSessions, createSession, updateSessionStatus, advanceUnitStatusOnSessionComplete } from "./sessions.js";
 import {
   scaffoldPaper,
@@ -119,9 +129,48 @@ const gitSyncState: GitSyncState = {
   pendingStashRestore: false
 };
 
+let gitSyncConfigCache: GitSyncConfig | null = null;
+
+async function getGitSyncConfig(): Promise<GitSyncConfig> {
+  gitSyncConfigCache = await loadGitSyncConfig(repoRoot);
+  return gitSyncConfigCache;
+}
+
 const app = express();
 const corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:5173";
 app.use(cors({ origin: corsOrigin }));
+
+app.post("/api/model/figure/upload", express.json({ limit: "25mb" }), async (request, response, next) => {
+  try {
+    const figurePath = String(request.body?.path ?? "").trim();
+    const filename = String(request.body?.filename ?? "preview.png");
+    const dataBase64 = String(request.body?.data ?? "");
+    if (!figurePath) {
+      response.status(400).json({ error: "path is required" });
+      return;
+    }
+    if (!dataBase64) {
+      response.status(400).json({ error: "data is required" });
+      return;
+    }
+    resolveModelPath(modelRoot, figurePath.replace(/\.md$/, ""));
+    const buffer = Buffer.from(dataBase64, "base64");
+    if (buffer.length === 0) {
+      response.status(400).json({ error: "Empty file data" });
+      return;
+    }
+    if (buffer.length > 20 * 1024 * 1024) {
+      response.status(400).json({ error: "File too large (max 20MB)" });
+      return;
+    }
+    const result = await uploadFigureImage(modelRoot, figurePath, filename, buffer);
+    broadcastModelEvent({ type: "model-changed", path: result.assetPath });
+    response.status(201).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use(express.json({ limit: "2mb" }));
 
 function toModelPath(relativePath: string) {
@@ -409,8 +458,8 @@ app.post("/api/model/node", async (request, response, next) => {
     const parent = String(request.body?.parent ?? "");
     const name = String(request.body?.name ?? "");
     const kind = String(request.body?.kind ?? "") as NodeKind;
-    if (!["section", "subsection", "unit", "figure"].includes(kind)) {
-      response.status(400).json({ error: "kind must be section, subsection, unit, or figure" });
+    if (!["section", "subsection", "unit", "figure", "table"].includes(kind)) {
+      response.status(400).json({ error: "kind must be section, subsection, unit, figure, or table" });
       return;
     }
     const created = await createNode(modelRoot, parent, name, kind);
@@ -428,6 +477,52 @@ app.delete("/api/model/file", async (request, response, next) => {
     await deleteNode(modelRoot, relativePath, recursive);
     broadcastModelEvent({ type: "model-changed", path: relativePath });
     response.json({ ok: true, path: relativePath });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/archive", async (request, response, next) => {
+  try {
+    const relativePath = String(request.body?.path ?? "");
+    const item = await archiveNode(modelRoot, relativePath);
+    broadcastModelEvent({ type: "model-changed", path: relativePath });
+    broadcastModelEvent({ type: "model-changed", path: item.trashPath });
+    response.status(201).json({ ok: true, item });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/trash", async (request, response, next) => {
+  try {
+    const paper = String(request.query.paper ?? "");
+    const items = await listTrashedItems(modelRoot, paper);
+    response.json({ items });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/trash/restore", async (request, response, next) => {
+  try {
+    const paper = String(request.body?.paper ?? "");
+    const itemId = String(request.body?.itemId ?? "");
+    const item = await restoreTrashedItem(modelRoot, paper, itemId);
+    broadcastModelEvent({ type: "model-changed", path: item.originalPath });
+    response.json({ ok: true, item });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/model/trash", async (request, response, next) => {
+  try {
+    const paper = String(request.query.paper ?? "");
+    const itemId = String(request.query.itemId ?? "");
+    const item = await purgeTrashedItem(modelRoot, paper, itemId);
+    broadcastModelEvent({ type: "model-changed", path: item.trashPath });
+    response.json({ ok: true, item });
   } catch (error) {
     next(error);
   }
@@ -551,6 +646,43 @@ app.get("/api/model/figures", async (request, response, next) => {
     }
     resolveModelPath(modelRoot, paperPath);
     response.json({ figures: await listPaperFigures(modelRoot, paperPath) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/assets", async (request, response, next) => {
+  try {
+    const paperPath = String(request.query.paper ?? "").trim();
+    if (!paperPath) {
+      response.status(400).json({ error: "paper query parameter is required" });
+      return;
+    }
+    resolveModelPath(modelRoot, paperPath);
+    response.json(await listPaperAssets(modelRoot, paperPath));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/references/import", async (request, response, next) => {
+  try {
+    const paperPath = String(request.body?.paper ?? "").trim();
+    const bibtex = String(request.body?.bibtex ?? "");
+    if (!paperPath) {
+      response.status(400).json({ error: "paper is required" });
+      return;
+    }
+    if (!bibtex.trim()) {
+      response.status(400).json({ error: "bibtex is required" });
+      return;
+    }
+    resolveModelPath(modelRoot, paperPath);
+    const result = await importBibtexReferences(modelRoot, paperPath, bibtex);
+    if (result.created.length > 0) {
+      broadcastModelEvent({ type: "model-changed", path: `${paperPath}/notes/literature` });
+    }
+    response.status(201).json(result);
   } catch (error) {
     next(error);
   }
@@ -815,12 +947,58 @@ app.patch("/api/sessions", async (request, response, next) => {
   }
 });
 
-app.get("/api/git-sync/status", (_request, response) => {
-  response.json(gitSyncState);
+app.get("/api/git-sync/status", async (_request, response) => {
+  const config = await getGitSyncConfig();
+  response.json({ ...gitSyncState, autoSync: config.autoSync, intervalMs: config.intervalMs });
 });
 
 app.post("/api/git-sync/run", async (_request, response) => {
   response.json(await runGitSync("manual"));
+});
+
+app.get("/api/settings", async (_request, response, next) => {
+  try {
+    const gitSync = await getGitSyncConfig();
+    const agents = await loadProviders(repoRoot);
+    response.json({
+      gitSync: {
+        ...gitSync,
+        status: gitSyncState,
+      },
+      agents,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/settings/git-sync", async (request, response, next) => {
+  try {
+    const autoSync = request.body?.autoSync;
+    if (typeof autoSync !== "boolean") {
+      response.status(400).json({ error: "autoSync boolean is required" });
+      return;
+    }
+    await saveGitSyncPreferences(repoRoot, { autoSync });
+    const config = await getGitSyncConfig();
+    response.json(config);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch("/api/settings/agent", async (request, response, next) => {
+  try {
+    const defaultProvider = String(request.body?.defaultProvider ?? "").trim();
+    if (!defaultProvider) {
+      response.status(400).json({ error: "defaultProvider is required" });
+      return;
+    }
+    const agents = await saveDefaultProvider(repoRoot, defaultProvider);
+    response.json(agents);
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get("/api/paper/templates", async (_request, response, next) => {
@@ -1214,8 +1392,13 @@ fs.watch(modelRoot, { recursive: true }, (_eventType, filename) => {
 });
 
 if (gitSyncEnabled) {
+  void getGitSyncConfig();
   setInterval(() => {
-    void runGitSync("interval");
+    void (async () => {
+      const config = gitSyncConfigCache ?? (await getGitSyncConfig());
+      if (!config.autoSync) return;
+      await runGitSync("interval");
+    })();
   }, gitSyncIntervalMs);
 }
 
