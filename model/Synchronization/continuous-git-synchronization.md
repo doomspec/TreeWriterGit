@@ -32,4 +32,24 @@ Continuous synchronization is what makes the repository viable as a live, shared
 
 ## Sync scope (current implementation)
 
-The automated commit step stages **`model/` only**. Changes under `view/` or other repo paths are not committed by the sync loop. Before rebase, uncommitted non-`model/` changes are **autostashed** and restored after a successful push so developer WIP does not block sync.
+Automated sync only commits configured **commit paths** (default: `model/`). Paths listed under **exclude paths** (default: `view/`) are never committed; they are temporarily stashed during rebase and restored after push so local source edits do not block sync.
+
+Configure in `.treewriter.json`:
+
+```json
+{
+  "gitSync": {
+    "commitPaths": ["model"],
+    "excludePaths": ["view"]
+  }
+}
+```
+
+Or with environment variables (override the file):
+
+* `GIT_SYNC_COMMIT_PATHS=model,exports` — comma-separated folders to commit
+* `GIT_SYNC_EXCLUDE_PATHS=view,scripts` — never committed; stashed only for rebase
+* `GIT_SYNC_ENABLED=false` — disable the loop
+* `GIT_SYNC_INTERVAL_MS=120000` — interval in milliseconds (default 120s)
+
+Other repo paths outside commit and exclude lists are autostashed during rebase and restored after a successful push.
