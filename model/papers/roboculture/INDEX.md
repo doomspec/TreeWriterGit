@@ -20,12 +20,11 @@ thesis: >-
   culture at lower cost than industrial automation.
 section_order:
   - introduction
-  - summary
   - results
   - discussion
   - experimental-procedures
+  - summary
   - supplementary
-  - notes
 composed_at_commit: d80bdd8e306399b7be7f39d5e95f2f63e1f8b430
 last_export: '2026-06-16T06:09:24.649Z'
 ---
