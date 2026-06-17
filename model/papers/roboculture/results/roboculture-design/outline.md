@@ -1,4 +1,4 @@
-Updated [outline.md](/Users/iyakavets/Documents/Github/TreeWriterGit/model/papers/roboculture/results/roboculture-design/outline.md) to reflect the manuscript draft as written.
+Updated [outline.md](/Users/iyakavets/Documents/Github/TreeWriterGit/model/papers/roboculture/asdresults/roboculture-design/outline.md) to reflect the manuscript draft as written.
 
 It now captures the actual section emphasis: Franka-based workstation setup, AprilTag-based localization of static hardware, recalibration after layout changes, the higher-precision exception for well plates, and the validation arc from component optimization to the 15-hour autonomous yeast culture experiment. I also preserved the `@olson2011tags` citation and added a revision note that the current draft is less about “modular design rationale” than the old overview implied.
 e from a central home pose under the camera.
