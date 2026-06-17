@@ -1,7 +1,8 @@
 ---
-kind: "unit"
-title: "visual servoing"
-status: "draft"
+kind: unit
+title: visual servoing
+status: drafted
 links:
-  - "experimental-procedures/visual-servoing-methods"
+  - experimental-procedures/visual-servoing-methods
 ---
+
