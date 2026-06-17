@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, rename, rm, stat, readdir } from "node:fs/promises";
 import matter from "gray-matter";
 
-export type NodeKind = "section" | "subsection" | "unit";
+export type NodeKind = "section" | "subsection" | "unit" | "figure" | "table";
 
 export class ModelFsError extends Error {
   status: number;
@@ -74,14 +74,59 @@ export function resolveChildPath(
   return null;
 }
 
+const FIGURE_ASSET_PATTERN = /\.(png|jpe?g|svg|mmd|gif|webp)$/i;
+
+/** True when folder is a table leaf (kind: table). */
+export async function isTableDir(modelRoot: string, relPath: string): Promise<boolean> {
+  const data = await readIndexData(modelRoot, relPath);
+  if (data.kind === "table") return true;
+  if (
+    data.kind === "unit" ||
+    data.kind === "figure" ||
+    data.kind === "section" ||
+    data.kind === "subsection" ||
+    data.kind === "paper"
+  ) {
+    return false;
+  }
+  return false;
+}
+
+/** True when folder is a figure leaf (kind: figure or outline+draft+asset heuristic). */
+export async function isFigureDir(modelRoot: string, relPath: string): Promise<boolean> {
+  const data = await readIndexData(modelRoot, relPath);
+  if (data.kind === "table") return false;
+  if (data.kind === "figure") return true;
+  if (data.kind === "unit" || data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
+    return false;
+  }
+
+  const abs = path.join(modelRoot, relPath);
+  if (!existsSync(abs)) return false;
+
+  const entries = await readdir(abs, { withFileTypes: true });
+  const hasChildDir = entries.some(
+    (entry) => entry.isDirectory() && entry.name !== ".sessions" && entry.name !== "notes",
+  );
+  if (hasChildDir) return false;
+
+  const hasOutline = existsSync(path.join(abs, "outline.md"));
+  const hasDraft = existsSync(path.join(abs, "draft.md"));
+  const hasAsset = entries.some((entry) => entry.isFile() && FIGURE_ASSET_PATTERN.test(entry.name));
+  return hasOutline && hasDraft && hasAsset;
+}
+
 /** True when folder is a leaf unit (kind-based with draft.md fallback for legacy trees). */
 export async function isUnitDir(modelRoot: string, relPath: string): Promise<boolean> {
   const data = await readIndexData(modelRoot, relPath);
+  if (data.kind === "figure" || data.kind === "table") return false;
   if (data.kind === "unit") return true;
   if (data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
     return false;
   }
-  return existsSync(path.join(modelRoot, relPath, "draft.md"));
+  if (!existsSync(path.join(modelRoot, relPath, "draft.md"))) return false;
+  if (await isFigureDir(modelRoot, relPath)) return false;
+  return true;
 }
 
 /** Merge frontmatter child_order/section_order with on-disk directories (stable, deduped). */
@@ -130,6 +175,25 @@ export function indexSkeleton(name: string, kind: NodeKind): string {
   if (kind === "unit") {
     return matter.stringify("\n", { kind: "unit", title, status: "outline", links: [] });
   }
+  if (kind === "figure") {
+    return matter.stringify("\n", {
+      kind: "figure",
+      title,
+      status: "outline",
+      figure_source: "source.mmd",
+      figure_preview: null,
+      links: [],
+    });
+  }
+  if (kind === "table") {
+    return matter.stringify("\n", {
+      kind: "table",
+      title,
+      status: "outline",
+      table_label: null,
+      links: [],
+    });
+  }
   return matter.stringify("\n", {
     kind,
     title,
@@ -144,6 +208,12 @@ export function outlineDocSkeleton(name: string, kind: NodeKind): string {
   const title = titleCase(name);
   if (kind === "unit") {
     return `# ${title}\n\nOverview: _what this paragraph covers in the manuscript — main point, evidence, and citations._\n`;
+  }
+  if (kind === "figure") {
+    return `# ${title}\n\n## Summary\n\n_Describe panels, axes, data sources, and what the reader should take away._\n`;
+  }
+  if (kind === "table") {
+    return `# ${title}\n\n## Summary\n\n_Describe rows, columns, statistics, and what the reader should take away._\n`;
   }
   return `# ${title}\n\n## Summary\n\n_Overview of this section for authors and readers._\n\n## Outline\n\n`;
 }
@@ -200,7 +270,11 @@ export async function materializeOutline(modelRoot: string, outlineRel: string):
     const name = parentRel ? path.posix.basename(parentRel) : "model";
     const rawKind = String(fm.kind ?? "section");
     const kind: NodeKind =
-      rawKind === "unit" || rawKind === "subsection" || rawKind === "section"
+      rawKind === "unit" ||
+      rawKind === "figure" ||
+      rawKind === "table" ||
+      rawKind === "subsection" ||
+      rawKind === "section"
         ? rawKind
         : "section";
     content = outlineDocSkeleton(name, kind);
@@ -265,8 +339,23 @@ export async function createNode(
   await mkdir(abs, { recursive: true });
   await writeFile(path.join(abs, "INDEX.md"), indexSkeleton(name, kind), "utf8");
   await writeFile(path.join(abs, "outline.md"), outlineDocSkeleton(name, kind), "utf8");
-  if (kind === "unit") {
-    await writeFile(path.join(abs, "draft.md"), "", "utf8");
+  if (kind === "unit" || kind === "figure" || kind === "table") {
+    await writeFile(
+      path.join(abs, "draft.md"),
+      kind === "figure"
+        ? `**${titleCase(name)}.** _Caption text._\n`
+        : kind === "table"
+          ? `**${titleCase(name)}.** _Caption text._\n\n| Column A | Column B |\n| --- | --- |\n|  |  |\n`
+          : "",
+      "utf8",
+    );
+  }
+  if (kind === "figure") {
+    await writeFile(
+      path.join(abs, "source.mmd"),
+      "flowchart TD\n  A[Start] --> B[End]\n",
+      "utf8",
+    );
   }
   await patchNodeOrder(modelRoot, parentRel, (order) =>
     order.includes(name) ? order : [...order, name],

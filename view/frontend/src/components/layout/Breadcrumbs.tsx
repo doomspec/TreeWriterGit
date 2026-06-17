@@ -1,18 +1,24 @@
 import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { breadcrumbSegments } from "@/lib/modelTree";
+import { breadcrumbSegments, papersBreadcrumbSegments } from "@/lib/modelTree";
 
 export function Breadcrumbs({
   path,
   onNavigate,
   compact = false,
+  variant = "default",
 }: {
   path: string;
   onNavigate: (path: string) => void;
   compact?: boolean;
+  variant?: "default" | "papers";
 }) {
-  const segments = breadcrumbSegments(path);
+  const segments = variant === "papers" ? papersBreadcrumbSegments(path) : breadcrumbSegments(path);
+
+  if (segments.length === 0) {
+    return null;
+  }
 
   return (
     <nav

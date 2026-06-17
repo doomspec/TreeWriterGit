@@ -5,7 +5,8 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
-import { ModelFsError, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { ModelFsError, isFigureDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { resolveFigureMetadata } from "./figures.js";
 import { buildInlineNoteLatexPreamble } from "./inlineNotes.js";
 
 const execFileAsync = promisify(execFile);
@@ -153,6 +154,27 @@ export function findMissingCitations(combinedMarkdown: string, bibliography: str
   return wanted.filter((key) => !inBib.has(key));
 }
 
+async function readFigureExportBody(modelRoot: string, dirRel: string): Promise<string | null> {
+  const meta = await resolveFigureMetadata(modelRoot, dirRel);
+  if (!meta) return null;
+  const caption = meta.caption.trim() || meta.summary?.trim();
+  if (!caption) return null;
+
+  if (meta.previewPath && !meta.previewPath.endsWith(".mmd")) {
+    const assetName = path.posix.basename(meta.previewPath);
+    return [
+      "\\begin{figure}[htbp]",
+      "\\centering",
+      `\\includegraphics[width=0.9\\linewidth]{${assetName}}`,
+      `\\caption{${caption.replace(/\\/g, "\\\\")}}`,
+      "\\end{figure}",
+      "",
+    ].join("\n");
+  }
+
+  return `${caption}\n\n*(Mermaid figure: ${meta.sourcePath ?? dirRel})*\n`;
+}
+
 async function readUnitExportBody(
   modelRoot: string,
   dirRel: string,
@@ -227,6 +249,18 @@ async function walkPaper(
   parts: string[],
 ): Promise<number> {
   if (dirRel.includes("/notes/") || dirRel.endsWith("/notes")) return 0;
+
+  if (dirRel.includes("/notes/") || dirRel.endsWith("/notes")) return 0;
+
+  if (await isFigureDir(modelRoot, dirRel)) {
+    const data = await readIndexData(modelRoot, dirRel);
+    const status = String(data.status ?? "outline");
+    if (!shouldIncludeUnit(status, includeDrafts)) return 0;
+    const body = await readFigureExportBody(modelRoot, dirRel);
+    if (!body) return 0;
+    parts.push(`${body}\n\n`);
+    return 1;
+  }
 
   if (await isUnitDir(modelRoot, dirRel)) {
     const data = await readIndexData(modelRoot, dirRel);

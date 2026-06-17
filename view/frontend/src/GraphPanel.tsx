@@ -44,6 +44,7 @@ const GRAPH_COLOR_VAR: Record<GraphNodeType, string> = {
   paper: "--graph-paper",
   section: "--graph-section",
   unit: "--graph-unit",
+  figure: "--graph-note",
   note: "--graph-note",
   doc: "--graph-doc",
   missing: "--graph-missing",
@@ -66,6 +67,7 @@ export function GraphPanel({
   graphScope: graphScopeProp,
   onGraphScopeChange,
   active = true,
+  refreshVersion = 0,
 }: {
   /** Directory passed to GET /api/model/graph?root= (paper root, not leaf unit). */
   fetchRoot: string;
@@ -78,6 +80,8 @@ export function GraphPanel({
   onGraphScopeChange?: (scope: GraphScope) => void;
   /** When false, skip layout measurement (panel hidden). */
   active?: boolean;
+  /** Bump to refetch graph after model changes. */
+  refreshVersion?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -160,7 +164,7 @@ export function GraphPanel({
     return () => {
       cancelled = true;
     };
-  }, [fetchRoot]);
+  }, [fetchRoot, refreshVersion]);
 
   const focusId = useMemo(() => resolveFocusId(rawNodes, focusPath), [rawNodes, focusPath]);
 

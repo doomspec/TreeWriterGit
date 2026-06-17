@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Pencil } from "lucide-react";
+import { Pencil } from "lucide-react";
 
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
+import { DispatchAiButton } from "@/components/editor/DispatchAiButton";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
 import {
   dispatchActionForSectionPane,
   dispatchActionLabel,
   isDispatchRunShortcut,
-  runFanOutDispatchSilent,
 } from "@/lib/agentDispatchClient";
+import { useDispatchJob } from "@/lib/useDispatchJob";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
@@ -25,7 +26,7 @@ type SectionCompose = {
     path: string;
     title: string;
     summary: string | null;
-    kind: "unit" | "section";
+    kind: "unit" | "section" | "figure";
   }>;
 };
 
@@ -51,8 +52,31 @@ export function SectionWorkspace({
   const [compose, setCompose] = useState<SectionCompose | null>(null);
   const [loading, setLoading] = useState(true);
   const [focusedPane, setFocusedPane] = useState<"outline" | "draft">("outline");
-  const [dispatching, setDispatching] = useState(false);
-  const [dispatchingPane, setDispatchingPane] = useState<"outline" | "draft" | null>(null);
+  const outlineDispatch = useDispatchJob({
+    scope: "section",
+    targetPath: sectionPath,
+    pane: "outline",
+    onResumeComplete: onDispatchComplete,
+    onError,
+  });
+  const draftDispatch = useDispatchJob({
+    scope: "section",
+    targetPath: sectionPath,
+    pane: "draft",
+    onResumeComplete: onDispatchComplete,
+    onError,
+  });
+  const {
+    progress: outlineProgress,
+    dispatching: outlineDispatching,
+    runSectionFanOut: runOutlineFanOut,
+  } = outlineDispatch;
+  const {
+    progress: draftProgress,
+    dispatching: draftDispatching,
+    runSectionFanOut: runDraftFanOut,
+  } = draftDispatch;
+  const dispatching = outlineDispatching || draftDispatching;
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const loadCompose = useCallback(() => {
@@ -97,11 +121,10 @@ export function SectionWorkspace({
   const handleFanOut = useCallback(
     async (pane: "outline" | "draft") => {
       setFocusedPane(pane);
-      setDispatchingPane(pane);
       const action = dispatchActionForSectionPane(pane);
-      setDispatching(true);
+      const runFanOut = pane === "outline" ? runOutlineFanOut : runDraftFanOut;
       try {
-        const count = await runFanOutDispatchSilent({
+        const count = await runFanOut({
           sectionPath,
           action,
         });
@@ -113,12 +136,9 @@ export function SectionWorkspace({
         onDispatchComplete?.();
       } catch (err) {
         onError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setDispatching(false);
-        setDispatchingPane(null);
       }
     },
-    [loadCompose, onDispatchComplete, onError, sectionPath],
+    [loadCompose, onDispatchComplete, onError, runDraftFanOut, runOutlineFanOut, sectionPath],
   );
 
   useEffect(() => {
@@ -152,28 +172,18 @@ export function SectionWorkspace({
   }
 
   const aiButton = (pane: "outline" | "draft") => (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="h-6 gap-1 px-2 text-[10px]"
-      title={`${dispatchActionLabel(dispatchActionForSectionPane(pane))} (⌘⇧R)`}
+    <DispatchAiButton
+      actionLabel={dispatchActionLabel(dispatchActionForSectionPane(pane))}
+      dispatching={pane === "outline" ? outlineDispatching : draftDispatching}
+      progress={pane === "outline" ? outlineProgress : draftProgress}
       disabled={dispatching}
-      aria-busy={dispatching && dispatchingPane === pane}
       onClick={() => void handleFanOut(pane)}
-    >
-      <Bot className="h-3 w-3" aria-hidden="true" />
-      {dispatching && dispatchingPane === pane ? "…" : "AI"}
-    </Button>
+    />
   );
 
   return (
     <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-card px-4">
-        <span className="text-xs font-medium text-muted-foreground">
-          Section · {compose.title}
-          {compose.kind ? ` (${compose.kind})` : ""}
-        </span>
+      <div className="flex h-10 shrink-0 items-center justify-end border-b border-border bg-card px-4">
         <div className="flex items-center gap-1">
           <Button
             type="button"

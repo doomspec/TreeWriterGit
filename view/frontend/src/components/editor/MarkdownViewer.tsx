@@ -2,14 +2,18 @@ import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { FigureCard, FigureLink } from "@/components/editor/FigureCard";
 import { InlineNoteBadge } from "@/components/editor/InlineNoteBadge";
-import { cn } from "@/lib/utils";
+import { MermaidBlock } from "@/components/editor/MermaidBlock";
+import { resolveAssetSrc } from "@/lib/figures";
 import { parseInlineNoteCodeSpan, preprocessInlineNotesForMarkdown } from "@/lib/inlineNotes";
 import {
+  FIGURE_BLOCK_LANG,
   preprocessMarkdownLinks,
   resolveNavigateTarget,
   type NavigateTarget,
 } from "@/lib/modelTree";
+import { cn } from "@/lib/utils";
 
 export function MarkdownViewer({
   markdown,
@@ -39,14 +43,46 @@ export function MarkdownViewer({
         className?: string;
       }) => {
         const raw = String(children ?? "").replace(/\n$/, "");
+        if (codeClassName === `language-${FIGURE_BLOCK_LANG}`) {
+          return (
+            <FigureCard
+              targetPath={raw.trim()}
+              linkContextPath={linkContextPath}
+              onNavigate={onNavigate}
+            />
+          );
+        }
+        if (codeClassName === "language-mermaid") {
+          return <MermaidBlock source={raw} className="my-4 overflow-x-auto" />;
+        }
         const note = !codeClassName ? parseInlineNoteCodeSpan(raw) : null;
         if (note) {
           return <InlineNoteBadge author={note.author} text={note.text} />;
         }
+        return <code className={codeClassName}>{children}</code>;
+      },
+      pre: ({
+        children,
+      }: {
+        children?: React.ReactNode;
+      }) => {
+        return <pre>{children}</pre>;
+      },
+      img: ({
+        src,
+        alt,
+      }: {
+        src?: string;
+        alt?: string;
+      }) => {
+        if (!src) return null;
+        const resolved = resolveAssetSrc(src, linkContextPath);
         return (
-          <code className={codeClassName}>
-            {children}
-          </code>
+          <img
+            src={resolved}
+            alt={alt ?? ""}
+            className="my-3 max-h-96 w-full rounded-md border border-border object-contain"
+          />
         );
       },
       a: ({
@@ -63,6 +99,19 @@ export function MarkdownViewer({
             <a href={href} target="_blank" rel="noreferrer noopener" className="text-primary underline">
               {children}
             </a>
+          );
+        }
+
+        if (href.startsWith("figure://")) {
+          return (
+            <FigureLink
+              href={href}
+              linkContextPath={linkContextPath}
+              onNavigate={onNavigate}
+              linksClickable={linksClickable}
+            >
+              {children}
+            </FigureLink>
           );
         }
 

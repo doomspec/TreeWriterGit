@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  papersBreadcrumbSegments,
   childCardsForFolder,
   displayFileLabel,
   isIndexStale,
@@ -262,5 +263,16 @@ describe("sectionsForPaper", () => {
   it("orders sections by section_order", () => {
     const sections = sectionsForPaper(tree, "papers/roboculture", ["introduction", "results"]);
     expect(sections.map((s) => s.name)).toEqual(["introduction", "results"]);
+  });
+});
+
+describe("papersBreadcrumbSegments", () => {
+  it("omits model and papers prefixes", () => {
+    expect(papersBreadcrumbSegments("papers")).toEqual([]);
+    expect(papersBreadcrumbSegments("papers/roboculture/introduction/background")).toEqual([
+      { label: "roboculture", path: "papers/roboculture" },
+      { label: "introduction", path: "papers/roboculture/introduction" },
+      { label: "background", path: "papers/roboculture/introduction/background" },
+    ]);
   });
 });

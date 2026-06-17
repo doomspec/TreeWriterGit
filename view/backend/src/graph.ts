@@ -5,7 +5,7 @@ import matter from "gray-matter";
 
 import { resolveModelPath, toRelative } from "./modelFs.js";
 
-export type GraphNodeType = "paper" | "section" | "unit" | "note" | "missing" | "doc";
+export type GraphNodeType = "paper" | "section" | "unit" | "figure" | "note" | "missing" | "doc";
 
 export interface GraphNode {
   id: string;
@@ -61,6 +61,7 @@ async function walkMarkdown(absDir: string, modelRoot: string, acc: string[]): P
 }
 
 function inferType(kind: unknown, id: string): GraphNodeType {
+  if (kind === "figure") return "figure";
   if (kind === "unit") return "unit";
   if (kind === "section" || kind === "subsection") return "section";
   if (kind === "paper") return "paper";
@@ -124,6 +125,18 @@ export function resolveTarget(
     return matches[0];
   }
   return null;
+}
+
+/** Extract ::figure[path] embed targets from markdown. */
+export function parseFigureEmbeds(text: string): string[] {
+  const out: string[] = [];
+  const re = /::figure\[([^\]]+)\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const target = match[1].trim();
+    if (target) out.push(target);
+  }
+  return out;
 }
 
 /** Extract plain path targets from frontmatter `links:` arrays. */
@@ -258,6 +271,22 @@ export async function buildGraph(modelRoot: string, rootRel = ""): Promise<Graph
         bump(targetId);
         if (!resolved && !nodes.has(targetId)) {
           nodes.set(targetId, { id: targetId, label: target, type: "missing", links: 0 });
+        }
+      }
+
+      const draftRel = isFolder ? (sourceDir ? `${sourceDir}/draft.md` : "draft.md") : "";
+      if (draftRel && mdFiles.includes(draftRel)) {
+        const draftRaw = await readFile(resolveModelPath(modelRoot, draftRel), "utf8");
+        const draftTargets = [...parseFigureEmbeds(draftRaw), ...parseWikilinks(draftRaw)];
+        for (const target of draftTargets) {
+          const resolved = resolveTarget(target, sourceDir, nodeIds, byBasename);
+          if (!resolved) continue;
+          const edgeKey = `${id}->${resolved}:outline`;
+          if (seenEdge.has(edgeKey) || resolved === id) continue;
+          seenEdge.add(edgeKey);
+          edges.push({ source: id, target: resolved, kind: "outline" });
+          bump(id);
+          bump(resolved);
         }
       }
 

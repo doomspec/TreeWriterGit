@@ -338,6 +338,11 @@ export function FolderBrowse({
                     onClick={() => openOutlineLink(link.targetPath, link.href)}
                   >
                     {link.label}
+                    {link.isFigure ? (
+                      <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
+                        Fig
+                      </span>
+                    ) : null}
                   </button>
                 </li>
               ))}

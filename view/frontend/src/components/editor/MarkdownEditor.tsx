@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Eye, FileCode2 } from "lucide-react";
+import { Eye, FileCode2 } from "lucide-react";
 
 import { CommentsPanel } from "@/components/editor/CommentsPanel";
+import { DispatchAiButton } from "@/components/editor/DispatchAiButton";
 import { MarkdownToolbar } from "@/components/editor/MarkdownToolbar";
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
@@ -12,9 +13,9 @@ import {
   dispatchActionForUnitPane,
   dispatchActionLabel,
   isDispatchRunShortcut,
-  runAgentDispatchSilent,
   unitPathFromUnitFile,
 } from "@/lib/agentDispatchClient";
+import { useDispatchJob } from "@/lib/useDispatchJob";
 import { authorNoteMacro, wrapInlineNote } from "@/lib/inlineNotes";
 import { cn } from "@/lib/utils";
 import { getUserName } from "@/lib/userIdentity";
@@ -93,6 +94,7 @@ export function MarkdownEditor({
   onDispatchComplete,
   splitPercent = 50,
   onSplitChange,
+  isFigureUnit = false,
 }: {
   filePath: string;
   refreshVersion: number;
@@ -110,6 +112,7 @@ export function MarkdownEditor({
   onDispatchComplete?: () => void;
   splitPercent?: number;
   onSplitChange?: (percent: number) => void;
+  isFigureUnit?: boolean;
 }) {
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
@@ -121,7 +124,7 @@ export function MarkdownEditor({
   const [unresolvedComments, setUnresolvedComments] = useState(0);
   const [selectedLine, setSelectedLine] = useState(1);
   const [otherEditor, setOtherEditor] = useState<string | null>(null);
-  const [dispatching, setDispatching] = useState(false);
+  const dispatchPane = paneLabel === "Outline" ? "outline" : paneLabel === "Draft" ? "draft" : undefined;
   const authorName = useMemo(() => getUserName(), []);
   const sourceRef = useRef<HTMLTextAreaElement | null>(null);
   const previewRef = useRef<HTMLTextAreaElement | null>(null);
@@ -134,10 +137,22 @@ export function MarkdownEditor({
   const unitStatus = useMemo(() => parseFrontmatterStatus(content), [content]);
   const unitPath = useMemo(() => unitPathFromUnitFile(filePath), [filePath]);
   const dispatchAction = useMemo(
-    () => dispatchActionForUnitPane(paneLabel, Boolean(previewBody.trim() || content.trim())),
-    [content, paneLabel, previewBody],
+    () =>
+      dispatchActionForUnitPane(
+        paneLabel,
+        Boolean(previewBody.trim() || content.trim()),
+        isFigureUnit,
+      ),
+    [content, isFigureUnit, paneLabel, previewBody],
   );
   const canDispatch = Boolean(compact && unitPath && dispatchAction);
+  const { progress: dispatchProgress, dispatching, runUnitDispatch } = useDispatchJob({
+    scope: "unit",
+    targetPath: unitPath,
+    pane: dispatchPane,
+    onResumeComplete: onDispatchComplete,
+    onError,
+  });
 
   const flushSave = useCallback(async () => {
     if (!isDirty) return;
@@ -171,20 +186,17 @@ export function MarkdownEditor({
 
   const handleDispatch = useCallback(async () => {
     if (!canDispatch || !unitPath || !dispatchAction) return;
-    setDispatching(true);
     try {
       await flushSave();
-      await runAgentDispatchSilent({
+      await runUnitDispatch({
         unitPath,
         action: dispatchAction,
       });
       onDispatchComplete?.();
     } catch (err) {
       onError?.(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDispatching(false);
     }
-  }, [canDispatch, dispatchAction, flushSave, onDispatchComplete, onError, unitPath]);
+  }, [canDispatch, dispatchAction, flushSave, onDispatchComplete, onError, runUnitDispatch, unitPath]);
 
   useEffect(() => {
     setPreviewRawEdit(false);
@@ -488,6 +500,7 @@ export function MarkdownEditor({
     renderedMode: renderedEditable && !showSource,
     commentsOpen,
     unresolvedComments,
+    defaultToolsOpen: !compact,
     onFormat: (action: MarkdownFormatAction) => applyFormat(action, compactTargetPane),
     onToggleComments: () => setCommentsOpen((open) => !open),
     onInsertInlineNote: () => insertInlineNote(compactTargetPane),
@@ -647,19 +660,12 @@ export function MarkdownEditor({
                 {unitStatus ? ` · ${unitStatus}` : ""}
               </span>
               {canDispatch && dispatchAction ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-6 gap-1 px-2 text-[10px]"
-                  title={`${dispatchActionLabel(dispatchAction)} (⌘⇧R)`}
-                  disabled={dispatching}
-                  aria-busy={dispatching}
+                <DispatchAiButton
+                  actionLabel={dispatchActionLabel(dispatchAction)}
+                  dispatching={dispatching}
+                  progress={dispatchProgress}
                   onClick={() => void handleDispatch()}
-                >
-                  <Bot className="h-3 w-3" aria-hidden="true" />
-                  {dispatching ? "…" : "AI"}
-                </Button>
+                />
               ) : null}
               {modeToggle}
             </div>

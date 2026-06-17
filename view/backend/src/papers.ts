@@ -236,6 +236,28 @@ export async function scaffoldPaper(
     );
   }
 
+  const exampleSection = template.sectionOrder[0] ?? "introduction";
+  const exampleFigureRel = `${paperRel}/notes/data/fig-example`;
+  await writeFile(
+    path.join(modelRoot, `${exampleFigureRel}.md`),
+    matter.stringify(
+      `# Example figure\n\n## Summary\n\n_Describe panels, axes, and what readers should take away._\n`,
+      {
+        kind: "figure",
+        title: "Example figure",
+        caption: "Figure 1. Example comparison across conditions.",
+        figure_source: `${exampleFigureRel}.mmd`,
+        sections: [exampleSection],
+      },
+    ),
+    "utf8",
+  );
+  await writeFile(
+    path.join(modelRoot, `${exampleFigureRel}.mmd`),
+    "flowchart LR\n  A[Input] --> B[Output]\n",
+    "utf8",
+  );
+
   return { slug, path: paperRel };
 }
 

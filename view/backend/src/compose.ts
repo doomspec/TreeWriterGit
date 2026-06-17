@@ -2,14 +2,15 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import { isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { isFigureDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { resolveFigureMetadata } from "./figures.js";
 
 export type SectionChild = {
   name: string;
   path: string;
   title: string;
   summary: string | null;
-  kind: "unit" | "section";
+  kind: "unit" | "section" | "figure";
 };
 
 export type SectionComposeResult = {
@@ -88,6 +89,22 @@ async function readOutlineContent(modelRoot: string, relPath: string): Promise<s
   return await readFile(outlinePath, "utf8");
 }
 
+async function composeFigureDraftBlock(
+  modelRoot: string,
+  childRel: string,
+  childTitle: string,
+  linkHref: string,
+  depth: number,
+): Promise<string> {
+  const meta = await resolveFigureMetadata(modelRoot, childRel);
+  const caption = meta?.caption?.trim() || meta?.summary?.trim() || "";
+  const figureEmbed = `::figure[${childRel}]\n\n`;
+  if (!caption) {
+    return linkedHeadingBlock(depth, childTitle, linkHref, figureEmbed);
+  }
+  return draftHeadingBlock(depth, childTitle, linkHref, `${figureEmbed}${caption}`);
+}
+
 async function composeDraftBlock(
   modelRoot: string,
   sectionRel: string,
@@ -96,6 +113,10 @@ async function composeDraftBlock(
   linkHref: string,
   depth: number,
 ): Promise<string> {
+  if (await isFigureDir(modelRoot, childRel)) {
+    return composeFigureDraftBlock(modelRoot, childRel, childTitle, linkHref, depth);
+  }
+
   const unit = await isUnitDir(modelRoot, childRel);
 
   if (unit) {
@@ -154,7 +175,8 @@ export async function composeSectionView(
 
     const childIndex = await readIndexData(modelRoot, childRel);
     const childTitle = displayChildTitle(childIndex.title, childName);
-    const unit = await isUnitDir(modelRoot, childRel);
+    const figure = await isFigureDir(modelRoot, childRel);
+    const unit = figure ? false : await isUnitDir(modelRoot, childRel);
     const linkHref = `${childName}/INDEX.md`;
 
     const childOutline = await readOutlineContent(modelRoot, childRel);
@@ -165,10 +187,11 @@ export async function composeSectionView(
       path: childRel,
       title: childTitle,
       summary: childSummary,
-      kind: unit ? "unit" : "section",
+      kind: figure ? "figure" : unit ? "unit" : "section",
     });
 
-    outlineParts.push(linkedHeadingBlock(3, childTitle, linkHref));
+    const figureBadge = figure ? " *(Figure)*" : "";
+    outlineParts.push(linkedHeadingBlock(3, `${childTitle}${figureBadge}`, linkHref));
     outlineParts.push(childSummary ? `${childSummary}\n\n` : `*No summary yet — open to write.*\n\n`);
 
     const draftBlock = await composeDraftBlock(modelRoot, dirRel, childRel, childTitle, linkHref, 1);

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { ChevronDown, GripVertical, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { GripVertical } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { paperSlugFromPath } from "@/components/nav/PaperSelect";
+import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
+import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
 import { cn } from "@/lib/utils";
 import {
-  childrenOf,
   indexPathFor,
   orderedChildFolders,
   parseIndexFrontmatter,
@@ -15,170 +15,17 @@ import {
 } from "@/lib/modelTree";
 import {
   fetchPaperDetail,
-  fetchPapers,
   reorderChildren,
   type PaperDetail,
-  type PaperSummary,
   type UnitStatusCounts,
 } from "@/modelApi";
-import { NewPaperModal } from "@/NewPaperModal";
+import { usePaperList } from "@/lib/usePaperList";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
 type SectionRow = PaperSectionItem & {
   counts?: UnitStatusCounts;
 };
-
-function CountsLine({ counts }: { counts: UnitStatusCounts }) {
-  return (
-    <span className="font-mono text-[10px] text-muted-foreground">
-      {counts.approved}a · {counts.drafted}d · {counts.outline}o
-    </span>
-  );
-}
-
-function paperSlugFromPath(path: string): string | null {
-  return /^papers\/([^/]+)/.exec(path)?.[1] ?? null;
-}
-
-function PaperSelect({
-  papers,
-  selectedSlug,
-  loading,
-  onChange,
-}: {
-  papers: PaperSummary[];
-  selectedSlug: string | null;
-  loading: boolean;
-  onChange: (slug: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLUListElement>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number } | null>(
-    null,
-  );
-  const selected = papers.find((p) => p.slug === selectedSlug);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setMenuPosition(null);
-      return;
-    }
-
-    const updatePosition = () => {
-      const button = buttonRef.current;
-      if (!button) return;
-      const rect = button.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: rect.width,
-      });
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
-
-  const label = selected
-    ? `${selected.title}${selected.journal ? ` · ${selected.journal}` : ""}`
-    : papers.length === 0
-      ? "No papers yet"
-      : "Select a paper…";
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        ref={buttonRef}
-        type="button"
-        id="paper-select"
-        disabled={loading && papers.length === 0}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className={cn(
-          "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 text-left text-xs outline-none ring-primary focus-visible:ring-1",
-          loading ? "opacity-60" : undefined,
-        )}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span className="min-w-0 truncate">{label}</span>
-        <ChevronDown
-          className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-          aria-hidden="true"
-        />
-      </button>
-      {open && menuPosition
-        ? createPortal(
-            <ul
-              ref={menuRef}
-              role="listbox"
-              aria-labelledby="paper-select"
-              style={{
-                top: menuPosition.top,
-                left: menuPosition.left,
-                width: menuPosition.width,
-              }}
-              className="fixed z-overlay max-h-48 overflow-auto rounded-md border border-border bg-card py-1 text-card-foreground shadow-xl"
-            >
-              {papers.length === 0 ? (
-                <li className="bg-card px-2.5 py-2 text-xs text-muted-foreground">No papers yet</li>
-              ) : (
-                papers.map((paper) => {
-                  const active = paper.slug === selectedSlug;
-                  return (
-                    <li key={paper.slug} role="option" aria-selected={active} className="bg-card">
-                      <button
-                        type="button"
-                        className={cn(
-                          "flex w-full flex-col items-start bg-card px-2.5 py-1.5 text-left text-xs hover:bg-accent",
-                          active && "bg-accent font-medium",
-                        )}
-                        onClick={() => {
-                          onChange(paper.slug);
-                          setOpen(false);
-                        }}
-                      >
-                        <span className="line-clamp-2">{paper.title}</span>
-                        {paper.journal ? (
-                          <span className="text-[10px] text-muted-foreground">{paper.journal}</span>
-                        ) : null}
-                      </button>
-                    </li>
-                  );
-                })
-              )}
-            </ul>,
-            document.body,
-          )
-        : null}
-    </div>
-  );
-}
 
 function SubsectionOrderList({
   parent,
@@ -429,6 +276,7 @@ export function PapersPanel({
   onModelChanged,
   onError,
   embedded = false,
+  hidePaperHeader = false,
 }: {
   tree: ModelNode[];
   currentPath: string;
@@ -438,14 +286,14 @@ export function PapersPanel({
   onModelChanged?: () => void;
   onError: (message: string) => void;
   embedded?: boolean;
+  hidePaperHeader?: boolean;
 }) {
-  const [papers, setPapers] = useState<PaperSummary[]>([]);
+  const { papers, loading: papersLoading } = usePaperList(tree, refreshVersion ?? 0, onError);
   const [detail, setDetail] = useState<PaperDetail | null>(null);
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
   const [childOrders, setChildOrders] = useState<Record<string, string[]>>({});
-  const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [reordering, setReordering] = useState(false);
-  const [showNewPaper, setShowNewPaper] = useState(false);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
@@ -473,26 +321,8 @@ export function PapersPanel({
   );
 
   const reload = useCallback(async () => {
-    setLoading(true);
+    setDetailLoading(true);
     try {
-      try {
-        const list = await fetchPapers();
-        setPapers(list.papers);
-      } catch {
-        const paperNodes = childrenOf(tree, "papers").filter((n) => n.type === "directory");
-        setPapers(
-          paperNodes.map((n) => ({
-            slug: n.name,
-            path: n.path,
-            title: n.name,
-            journal: "",
-            status: "",
-            lastExport: null,
-            counts: { approved: 0, drafted: 0, outline: 0, total: 0 },
-          })),
-        );
-      }
-
       if (selectedSlug && paperPath) {
         await loadSectionOrder(paperPath);
         try {
@@ -509,20 +339,20 @@ export function PapersPanel({
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      setDetailLoading(false);
     }
-  }, [loadSectionOrder, onError, paperPath, selectedSlug, tree]);
+  }, [loadSectionOrder, onError, paperPath, selectedSlug]);
 
   useEffect(() => {
     void reload();
   }, [reload, currentPath, refreshVersion]);
 
   useEffect(() => {
-    if (loading || selectedSlug || papers.length === 0) return;
+    if (papersLoading || detailLoading || selectedSlug || papers.length === 0) return;
     if (currentPath === "papers" || currentPath === "") {
       onNavigate(`papers/${papers[0].slug}`);
     }
-  }, [currentPath, loading, onNavigate, papers, selectedSlug]);
+  }, [currentPath, detailLoading, onNavigate, papers, papersLoading, selectedSlug]);
 
   const sections = useMemo((): SectionRow[] => {
     if (!paperPath) return [];
@@ -569,14 +399,6 @@ export function PapersPanel({
     };
   }, [childOrders, foldersNeedingChildOrder, loadChildOrder]);
 
-  const handlePaperChange = (slug: string) => {
-    if (!slug) {
-      onNavigate("papers");
-      return;
-    }
-    onNavigate(`papers/${slug}`);
-  };
-
   const handleSectionReorder = async (order: string[]) => {
     if (!paperPath) return;
     setReordering(true);
@@ -606,46 +428,34 @@ export function PapersPanel({
   };
 
   return (
-    <div className={cn("space-y-3", embedded ? "p-3" : "border-b border-border px-4 py-3")}>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <label htmlFor="paper-select" className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Paper
-          </label>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-7 gap-1 px-2 text-xs"
-            onClick={() => setShowNewPaper(true)}
-          >
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            New
-          </Button>
-        </div>
-
-        <PaperSelect
-          papers={papers}
-          selectedSlug={selectedSlug}
-          loading={loading}
-          onChange={handlePaperChange}
+    <div className={cn("space-y-3", embedded ? "p-3 pt-0" : "border-b border-border px-4 py-3")}>
+      {!hidePaperHeader ? (
+        <PaperSelectorBar
+          tree={tree}
+          currentPath={currentPath}
+          refreshVersion={refreshVersion ?? 0}
+          onNavigate={onNavigate}
+          onPaperCreated={onPaperCreated}
+          onError={onError}
         />
+      ) : null}
 
-        {detail ? (
-          <p className="text-[11px] leading-snug text-muted-foreground">
-            {detail.journal ? `${detail.journal} · ` : null}
-            {detail.status}
-            {" · "}
-            <CountsLine counts={detail.counts} />
-          </p>
-        ) : null}
-      </div>
+      {detail && !hidePaperHeader ? (
+        <PaperInfoLine
+          slug={selectedSlug}
+          refreshVersion={refreshVersion ?? 0}
+          onError={onError}
+        />
+      ) : null}
 
       {selectedSlug && paperPath ? (
         <div className="space-y-3">
           <div className="space-y-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Sections
-            </p>
+            {!hidePaperHeader ? (
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Sections
+              </p>
+            ) : null}
             {sections.length === 0 ? (
               <p className="text-xs text-muted-foreground">No sections in this paper.</p>
             ) : (
@@ -665,19 +475,8 @@ export function PapersPanel({
             ) : null}
           </div>
         </div>
-      ) : papers.length === 0 && !loading ? (
+      ) : papers.length === 0 && !papersLoading ? (
         <p className="text-xs text-muted-foreground">Create a paper to get started.</p>
-      ) : null}
-
-      {showNewPaper ? (
-        <NewPaperModal
-          onClose={() => setShowNewPaper(false)}
-          onCreated={(path) => {
-            setShowNewPaper(false);
-            onPaperCreated(path);
-          }}
-          onError={onError}
-        />
       ) : null}
     </div>
   );

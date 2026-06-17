@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import matter from "gray-matter";
 
-import { isUnitDir, orderedChildren, resolveChildPath, shellQuote } from "./modelFs.js";
+import { isUnitDir, orderedChildren, readIndexData, resolveChildPath, shellQuote } from "./modelFs.js";
 import { stripInlineNotes } from "./inlineNotes.js";
 
 const execFileAsync = promisify(execFile);
@@ -52,7 +52,15 @@ export async function loadProviders(repoRoot: string): Promise<ProviderConfig> {
   }
 }
 
-export type DispatchAction = "draft" | "revise" | "expand" | "cite-check" | "custom" | "refresh-index" | "sync-outline";
+export type DispatchAction =
+  | "draft"
+  | "revise"
+  | "expand"
+  | "cite-check"
+  | "custom"
+  | "refresh-index"
+  | "sync-outline"
+  | "generate-figure";
 
 // Template variables: {idea}, {draft}, {context}, {outputPath}, {outlinePath}, {customPrompt}
 const TEMPLATES: Record<DispatchAction, string> = {
@@ -120,6 +128,18 @@ CURRENT DRAFT (manuscript text):
 {draft}
 
 Write an updated outline.md to {outlinePath}. Summarize what the draft actually says — main point, claims, and citations to preserve. The overview guides future draft revisions.`,
+
+  "generate-figure": `Generate or update a scientific figure as Mermaid source for this figure unit.
+
+FIGURE BRIEF (outline.md):
+{idea}
+
+CURRENT CAPTION (draft.md):
+{draft}
+
+{context}
+
+Write Mermaid diagram source to {figureSourcePath}. Use clear node labels suitable for a publication figure. Prefer flowchart TD or LR unless another diagram type fits better. Optionally update the caption in {captionPath} if needed.`,
 };
 
 async function readOutlineDoc(modelRoot: string, unitPath: string): Promise<string> {
@@ -189,7 +209,12 @@ function paperRelFromUnitPath(unitPath: string): string | null {
 }
 
 function actionNeedsDraft(action: DispatchAction): boolean {
-  return action !== "draft" && action !== "custom" && action !== "refresh-index";
+  return (
+    action !== "draft" &&
+    action !== "custom" &&
+    action !== "refresh-index" &&
+    action !== "generate-figure"
+  );
 }
 
 async function readContextSnippet(modelRoot: string, relPath: string): Promise<string> {
@@ -211,6 +236,39 @@ async function gatherContextFromPaths(modelRoot: string, paths: string[]): Promi
     if (snippet) parts.push(`[${relPath}]\n${snippet}`);
   }
   return parts.length > 0 ? `CONTEXT FILES:\n${parts.join("\n\n")}` : "";
+}
+
+async function listDataFigureContextFiles(
+  modelRoot: string,
+  paperRel: string,
+  unitPath: string,
+): Promise<ContextCandidate[]> {
+  const notesDir = path.join(modelRoot, paperRel, "notes", "data");
+  if (!existsSync(notesDir)) return [];
+  const sectionSlug = path.posix.basename(path.posix.dirname(unitPath));
+  const entries = await readdir(notesDir);
+  const out: ContextCandidate[] = [];
+  for (const name of entries.filter((entry) => entry.endsWith(".md") && entry !== "INDEX.md")) {
+    const relPath = `${paperRel}/notes/data/${name}`;
+    let defaultIncluded = false;
+    try {
+      const parsed = matter(await readFile(path.join(modelRoot, relPath), "utf8"));
+      const data = parsed.data as Record<string, unknown>;
+      if (data.kind === "figure") {
+        const sections = Array.isArray(data.sections) ? (data.sections as string[]) : [];
+        defaultIncluded = sections.some((section) => section === sectionSlug);
+      }
+    } catch {
+      // skip unreadable notes
+    }
+    out.push({
+      path: relPath,
+      label: name.replace(/\.md$/, ""),
+      category: "data",
+      defaultIncluded,
+    });
+  }
+  return out;
 }
 
 async function listNoteContextFiles(
@@ -271,7 +329,7 @@ export async function listContextCandidates(
   if (paperRel) {
     candidates.push(
       ...(await listNoteContextFiles(modelRoot, paperRel, "literature", "literature", true)),
-      ...(await listNoteContextFiles(modelRoot, paperRel, "data", "data", false)),
+      ...(await listDataFigureContextFiles(modelRoot, paperRel, unitPath)),
       ...(await listNoteContextFiles(modelRoot, paperRel, "feedback", "feedback", false)),
     );
   }
@@ -319,10 +377,14 @@ export async function buildPreview(
   contextPaths?: string[],
 ): Promise<PreviewResult> {
   const outlineRelPath = `${unitPath}/outline.md`;
+  const indexData = await readIndexData(modelRoot, unitPath);
+  const figureSourceRel = `${unitPath}/${String(indexData.figure_source ?? "source.mmd")}`;
   const outputRelPath =
     action === "refresh-index" || action === "sync-outline"
       ? outlineRelPath
-      : `${unitPath}/draft.md`;
+      : action === "generate-figure"
+        ? figureSourceRel
+        : `${unitPath}/draft.md`;
 
   const idea = await readOutlineDoc(modelRoot, unitPath);
   const links = await readIndexLinks(modelRoot, unitPath);
@@ -341,6 +403,8 @@ export async function buildPreview(
     .replace("{context}", context)
     .replace("{outputPath}", outputRelPath)
     .replace("{outlinePath}", outlineRelPath)
+    .replace("{figureSourcePath}", figureSourceRel)
+    .replace("{captionPath}", `${unitPath}/draft.md`)
     .replace("{customPrompt}", customPrompt ?? "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

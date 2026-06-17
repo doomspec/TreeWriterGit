@@ -1,5 +1,7 @@
+import { useState } from "react";
 import {
   Bold,
+  ChevronDown,
   Heading1,
   Heading2,
   Heading3,
@@ -11,9 +13,11 @@ import {
   Pilcrow,
   Quote,
   StickyNote,
+  Type,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { MarkdownFormatAction } from "@/lib/markdownFormat";
 
 type ToolbarItem = {
@@ -95,6 +99,7 @@ export function MarkdownToolbar({
   commentsOpen = false,
   unresolvedComments = 0,
   disabled = false,
+  defaultToolsOpen = false,
   onFormat,
   onToggleComments,
   onInsertInlineNote,
@@ -103,77 +108,109 @@ export function MarkdownToolbar({
   commentsOpen?: boolean;
   unresolvedComments?: number;
   disabled?: boolean;
+  /** When false, formatting actions stay behind the tools toggle. */
+  defaultToolsOpen?: boolean;
   onFormat: (action: MarkdownFormatAction) => void;
   onToggleComments: () => void;
   onInsertInlineNote?: () => void;
 }) {
+  const [toolsOpen, setToolsOpen] = useState(defaultToolsOpen);
+
+  const visibleItems = TOOLBAR_ITEMS.filter(
+    (item) => !renderedMode || item.showInRendered !== false,
+  );
+  const commentItem = visibleItems.find((item) => item.action === "comment");
+  const formatItems = visibleItems.filter((item) => item.action !== "comment");
+
+  const renderItem = (item: ToolbarItem) => {
+    if (item.action === "comment") {
+      return (
+        <Button
+          key={item.action}
+          type="button"
+          variant={commentsOpen ? "default" : "ghost"}
+          size="sm"
+          className="relative h-7 shrink-0 gap-1 px-2 text-[10px]"
+          title={item.title}
+          aria-label={item.label}
+          aria-pressed={commentsOpen}
+          disabled={disabled}
+          onClick={onToggleComments}
+        >
+          <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="hidden sm:inline">{item.label}</span>
+          {unresolvedComments > 0 ? (
+            <span className="markdown-toolbar__comment-badge absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
+              {unresolvedComments > 99 ? "99+" : unresolvedComments}
+            </span>
+          ) : null}
+        </Button>
+      );
+    }
+
+    if (item.action === "inlineNote") {
+      return (
+        <Button
+          key={item.action}
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+          title={item.title}
+          aria-label={item.label}
+          disabled={disabled || !onInsertInlineNote}
+          onClick={() => onInsertInlineNote?.()}
+        >
+          <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="hidden md:inline">{item.label}</span>
+        </Button>
+      );
+    }
+
+    return (
+      <Button
+        key={item.action}
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+        title={item.title}
+        aria-label={item.label}
+        disabled={disabled}
+        onClick={() => onFormat(item.action as MarkdownFormatAction)}
+      >
+        <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="hidden md:inline">{item.label}</span>
+      </Button>
+    );
+  };
+
   return (
     <div className="ui-toolbar markdown-toolbar px-2 py-1" role="toolbar" aria-label="Formatting">
       <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
-        {TOOLBAR_ITEMS.filter((item) => !renderedMode || item.showInRendered !== false).map(
-          (item) => {
-            if (item.action === "comment") {
-              return (
-                <Button
-                  key={item.action}
-                  type="button"
-                  variant={commentsOpen ? "default" : "ghost"}
-                  size="sm"
-                  className="relative h-7 shrink-0 gap-1 px-2 text-[10px]"
-                  title={item.title}
-                  aria-label={item.label}
-                  aria-pressed={commentsOpen}
-                  disabled={disabled}
-                  onClick={onToggleComments}
-                >
-                  <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="hidden sm:inline">{item.label}</span>
-                  {unresolvedComments > 0 ? (
-                    <span className="markdown-toolbar__comment-badge absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
-                      {unresolvedComments > 99 ? "99+" : unresolvedComments}
-                    </span>
-                  ) : null}
-                </Button>
-              );
-            }
-
-            if (item.action === "inlineNote") {
-              return (
-                <Button
-                  key={item.action}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-                  title={item.title}
-                  aria-label={item.label}
-                  disabled={disabled || !onInsertInlineNote}
-                  onClick={() => onInsertInlineNote?.()}
-                >
-                  <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span className="hidden md:inline">{item.label}</span>
-                </Button>
-              );
-            }
-
-            return (
-              <Button
-                key={item.action}
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-                title={item.title}
-                aria-label={item.label}
-                disabled={disabled}
-                onClick={() => onFormat(item.action as MarkdownFormatAction)}
-              >
-                <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="hidden md:inline">{item.label}</span>
-              </Button>
-            );
-          },
-        )}
+        {commentItem ? renderItem(commentItem) : null}
+        <Button
+          type="button"
+          variant={toolsOpen ? "default" : "ghost"}
+          size="sm"
+          className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+          title={toolsOpen ? "Hide formatting tools" : "Show formatting tools"}
+          aria-label={toolsOpen ? "Hide formatting tools" : "Show formatting tools"}
+          aria-pressed={toolsOpen}
+          aria-expanded={toolsOpen}
+          disabled={disabled}
+          onClick={() => setToolsOpen((open) => !open)}
+        >
+          <Type className="h-3.5 w-3.5" aria-hidden="true" />
+          <ChevronDown
+            className={cn(
+              "h-3 w-3 text-muted-foreground transition-transform",
+              toolsOpen && "rotate-180",
+            )}
+            aria-hidden="true"
+          />
+        </Button>
+        {toolsOpen ? formatItems.map(renderItem) : null}
       </div>
     </div>
   );

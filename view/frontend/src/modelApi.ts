@@ -1,6 +1,6 @@
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
-export type NodeKind = "section" | "subsection" | "unit";
+export type NodeKind = "section" | "subsection" | "unit" | "figure";
 
 export class ApiError extends Error {
   status: number;

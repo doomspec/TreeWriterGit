@@ -24,6 +24,12 @@ import { buildGraph } from "./graph.js";
 import { getCachedGraph, invalidateGraphCache } from "./graphCache.js";
 import { searchModel, validateSearchQuery } from "./search.js";
 import { composeSectionView } from "./compose.js";
+import {
+  assetContentType,
+  isAllowedAssetPath,
+  listPaperFigures,
+  resolveFigureMetadata,
+} from "./figures.js";
 import { loadProviders, buildPreview, buildFanOutPreviews, listContextCandidates, runDispatch, runFanOutDispatch, type DispatchAction } from "./agentDispatch.js";
 import { listSessions, createSession, updateSessionStatus, advanceUnitStatusOnSessionComplete } from "./sessions.js";
 import {
@@ -403,8 +409,8 @@ app.post("/api/model/node", async (request, response, next) => {
     const parent = String(request.body?.parent ?? "");
     const name = String(request.body?.name ?? "");
     const kind = String(request.body?.kind ?? "") as NodeKind;
-    if (!["section", "subsection", "unit"].includes(kind)) {
-      response.status(400).json({ error: "kind must be section, subsection, or unit" });
+    if (!["section", "subsection", "unit", "figure"].includes(kind)) {
+      response.status(400).json({ error: "kind must be section, subsection, unit, or figure" });
       return;
     }
     const created = await createNode(modelRoot, parent, name, kind);
@@ -483,6 +489,68 @@ app.get("/api/model/section-compose", async (request, response, next) => {
     }
     resolveModelPath(modelRoot, pathParam);
     response.json(await composeSectionView(modelRoot, pathParam));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/asset", async (request, response, next) => {
+  try {
+    const relativePath = String(request.query.path ?? "").trim();
+    if (!relativePath) {
+      response.status(400).json({ error: "path query parameter is required" });
+      return;
+    }
+    if (!isAllowedAssetPath(relativePath)) {
+      response.status(400).json({ error: "Unsupported asset type" });
+      return;
+    }
+    const absolutePath = toModelPath(relativePath);
+    const fileStat = await stat(absolutePath);
+    if (!fileStat.isFile()) {
+      response.status(400).json({ error: "Path is not a file" });
+      return;
+    }
+    const ext = path.extname(relativePath).toLowerCase();
+    const body =
+      ext === ".mmd" || ext === ".svg"
+        ? await readFile(absolutePath, "utf8")
+        : await readFile(absolutePath);
+    response.setHeader("Content-Type", assetContentType(relativePath));
+    response.send(body);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/figure", async (request, response, next) => {
+  try {
+    const pathParam = String(request.query.path ?? "").trim();
+    if (!pathParam) {
+      response.status(400).json({ error: "path query parameter is required" });
+      return;
+    }
+    resolveModelPath(modelRoot, pathParam.replace(/\.md$/, ""));
+    const figure = await resolveFigureMetadata(modelRoot, pathParam);
+    if (!figure) {
+      response.status(404).json({ error: "Figure not found" });
+      return;
+    }
+    response.json(figure);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/figures", async (request, response, next) => {
+  try {
+    const paperPath = String(request.query.paper ?? "").trim();
+    if (!paperPath) {
+      response.status(400).json({ error: "paper query parameter is required" });
+      return;
+    }
+    resolveModelPath(modelRoot, paperPath);
+    response.json({ figures: await listPaperFigures(modelRoot, paperPath) });
   } catch (error) {
     next(error);
   }

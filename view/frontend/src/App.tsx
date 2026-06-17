@@ -15,7 +15,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { BottomPanel } from "@/components/layout/BottomPanel";
-import { Sidebar, type SidebarTab } from "@/components/layout/Sidebar";
+import { ResizableSidebarLayout } from "@/components/layout/ResizableSidebarLayout";
+import { WorkspaceNav, type WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
+import { WorkspaceModeTabs } from "@/components/layout/WorkspaceModeTabs";
 import { EditorWorkspace } from "@/components/editor/EditorWorkspace";
 import { SectionWorkspace } from "@/components/editor/SectionWorkspace";
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
@@ -23,6 +25,7 @@ import { FolderBrowse } from "@/components/nav/FolderBrowse";
 import {
   findNode,
   flattenFiles,
+  isFigureFolder,
   isSectionContainer,
   isUnitFolder,
   outlinePathFor,
@@ -33,8 +36,6 @@ import {
   type NavigateTarget,
 } from "@/lib/modelTree";
 import { createNode, fetchCommentSummary, type NodeKind } from "@/modelApi";
-import { GraphPanel } from "@/GraphPanel";
-import { PapersPanel } from "@/PapersPanel";
 import { PaperExportMenu } from "@/components/paper/PaperExportMenu";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import {
@@ -108,13 +109,14 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState(savedPrefs.currentPath);
   const [activeFile, setActiveFile] = useState<string | null>(savedPrefs.activeFile);
   const [editorLayout, setEditorLayout] = useState<EditorLayout>(savedPrefs.editorLayout);
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(savedPrefs.sidebarTab);
+  const [sidebarTab, setSidebarTab] = useState<WorkspaceNavTab>(savedPrefs.sidebarTab);
   const [searchQuery, setSearchQuery] = useState(savedPrefs.searchQuery);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [gitSync, setGitSync] = useState<GitSyncState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [agentPanelOpen, setAgentPanelOpen] = useState(savedPrefs.agentPanelOpen);
   const [dualPaneSplit, setDualPaneSplit] = useState(savedPrefs.dualPaneSplit);
+  const [sidebarWidth, setSidebarWidth] = useState(savedPrefs.sidebarWidth);
   const [graphScope, setGraphScope] = useState<GraphScope>(savedPrefs.graphScope);
   const [createPrompt, setCreatePrompt] = useState<{ kind: NodeKind } | null>(null);
   const [commentSummary, setCommentSummary] = useState<{ unresolved: number; total: number } | null>(
@@ -133,9 +135,10 @@ export default function App() {
     return match?.[1] ?? null;
   }, [browsePath]);
   const currentNode = browsePath ? findNode(tree, browsePath) : null;
+  const isFigure = isFigureFolder(currentNode);
   const isUnit = isUnitFolder(currentNode);
   const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
-  const unitPath = isUnit ? browsePath : null;
+  const unitPath = isUnit || isFigure ? browsePath : null;
   const sectionPath = isPaperSection && !activeFile ? browsePath : null;
   const graphFocusPath = activeFile ? parentPath(activeFile) : currentPath || browsePath;
   const graphFetchRoot = resolveGraphFetchRoot(graphFocusPath);
@@ -155,6 +158,7 @@ export default function App() {
       graphRoot: graphFocusPath,
       graphScope,
       dualPaneSplit,
+      sidebarWidth,
     });
   }, [
     activeFile,
@@ -166,6 +170,7 @@ export default function App() {
     graphScope,
     searchQuery,
     sidebarTab,
+    sidebarWidth,
   ]);
 
   const loadTree = useCallback(async () => {
@@ -240,7 +245,7 @@ export default function App() {
 
   const showSectionViewBack = Boolean(activeFile && isPaperSection && !isUnit);
 
-  const handleSidebarTabChange = useCallback((tab: SidebarTab) => {
+  const handleSidebarTabChange = useCallback((tab: WorkspaceNavTab) => {
     setSidebarTab(tab);
     if (tab === "papers") {
       setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
@@ -410,7 +415,7 @@ export default function App() {
     const onResize = () => refitTerminal();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [refitTerminal, sessionKey, sidebarTab, currentPath, activeFile, agentPanelOpen]);
+  }, [refitTerminal, sessionKey, sidebarTab, currentPath, activeFile, agentPanelOpen, sidebarWidth]);
 
   const sendToTerminal = useCallback((command: string) => {
     const socket = socketRef.current;
@@ -497,8 +502,14 @@ export default function App() {
             <span className="text-sm font-semibold tracking-tight">TreeWriter</span>
           </div>
           <div className="hidden h-4 w-px bg-border sm:block" />
+          <WorkspaceModeTabs activeTab={sidebarTab} onTabChange={handleSidebarTabChange} />
+          <div className="hidden h-4 w-px bg-border sm:block" />
           <div className="hidden min-w-0 sm:block">
-            <Breadcrumbs path={browsePath} onNavigate={navigateTo} />
+            <Breadcrumbs
+              path={browsePath}
+              onNavigate={navigateTo}
+              variant={sidebarTab === "papers" ? "papers" : "default"}
+            />
           </div>
         </div>
 
@@ -557,49 +568,39 @@ export default function App() {
       </header>
 
       <div className="workspace-shell flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="workspace-main grid min-h-0 flex-1">
-        <Sidebar
-          tree={tree}
-          currentPath={browsePath}
-          activeFile={activeFile}
-          activeTab={sidebarTab}
-          searchQuery={searchQuery}
-          onTabChange={handleSidebarTabChange}
-          onSearchChange={setSearchQuery}
-          onNavigate={navigateTo}
-          onOpenFile={openFile}
-          onSearchSelect={handleSearchSelect}
-          papersContent={
-            <PapersPanel
-              embedded
+        <ResizableSidebarLayout
+          width={sidebarWidth}
+          onWidthChange={setSidebarWidth}
+          sidebar={
+            <WorkspaceNav
               tree={tree}
-              currentPath={currentPath}
+              currentPath={browsePath}
+              activeFile={activeFile}
+              activeTab={sidebarTab}
+              searchQuery={searchQuery}
               refreshVersion={refreshVersion}
-              onNavigate={(path) => navigateTo(path)}
-              onModelChanged={reloadModel}
+              onSearchChange={setSearchQuery}
+              onNavigate={navigateTo}
+              onOpenFile={openFile}
+              onSearchSelect={handleSearchSelect}
               onPaperCreated={(path) => {
                 reloadModel();
                 navigateTo(path);
                 setSidebarTab("papers");
               }}
+              onModelChanged={reloadModel}
               onError={setError}
+              graphFetchRoot={graphFetchRoot}
+              graphFocusPath={graphFocusPath}
+              graphScope={graphScope}
+              onGraphScopeChange={setGraphScope}
+              onGraphSelectNode={(id) => {
+                if (id.startsWith("missing:")) return;
+                navigateTo(id);
+              }}
             />
           }
-          graphContent={
-              <GraphPanel
-                embedded
-                fetchRoot={graphFetchRoot}
-                focusPath={graphFocusPath}
-                graphScope={graphScope}
-                onGraphScopeChange={setGraphScope}
-                onSelectNode={(id) => {
-                  if (id.startsWith("missing:")) return;
-                  navigateTo(id);
-                }}
-              />
-          }
-        />
-
+        >
         <section className="relative flex min-h-0 flex-1 flex-col bg-workspace">
           <div className="flex min-h-0 flex-1 flex-col">
             {unitPath || activeFile ? (
@@ -618,6 +619,7 @@ export default function App() {
                 onBeforeDispatch={openAgentPanel}
                 onDispatchComplete={reloadModel}
                 onBackToSectionView={showSectionViewBack ? backToSectionView : undefined}
+                isFigure={isFigure}
               />
             ) : sectionPath ? (
               <SectionWorkspace
@@ -647,7 +649,12 @@ export default function App() {
           <footer className="flex h-9 shrink-0 items-center gap-2 border-t border-border bg-card px-3 text-[11px] text-muted-foreground">
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <div className="min-w-0 shrink sm:hidden">
-                <Breadcrumbs path={currentPath} onNavigate={navigateTo} compact />
+                <Breadcrumbs
+                  path={browsePath}
+                  onNavigate={navigateTo}
+                  compact
+                  variant={sidebarTab === "papers" ? "papers" : "default"}
+                />
               </div>
               <span className="hidden truncate sm:inline">
                 {commentSummary && commentSummary.unresolved > 0
@@ -697,7 +704,7 @@ export default function App() {
             </span>
           </footer>
         </section>
-        </div>
+        </ResizableSidebarLayout>
 
         <BottomPanel
           open={agentPanelOpen}

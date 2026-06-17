@@ -1,6 +1,7 @@
 import { ArrowLeft, Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
@@ -20,6 +21,7 @@ export function EditorWorkspace({
   onBeforeDispatch,
   onDispatchComplete,
   onBackToSectionView,
+  isFigure = false,
 }: {
   unitPath: string | null;
   activeFile: string;
@@ -36,8 +38,9 @@ export function EditorWorkspace({
   onDispatchComplete?: () => void;
   /** Return to composed section outline + draft view. */
   onBackToSectionView?: () => void;
+  isFigure?: boolean;
 }) {
-  const isUnit = Boolean(unitPath);
+  const isLeafEditor = Boolean(unitPath);
   const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
   const draftPath = unitPath ? `${unitPath}/draft.md` : null;
 
@@ -47,12 +50,9 @@ export function EditorWorkspace({
     { id: "preview", icon: Eye, label: "Preview" },
   ];
 
-  if (isUnit && outlinePath && draftPath) {
+  if (isLeafEditor && outlinePath && draftPath) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-10 shrink-0 items-center border-b border-border bg-card px-4">
-          <span className="text-xs font-medium text-muted-foreground">Unit editor</span>
-        </div>
         <ResizableDualPane
           splitPercent={dualPaneSplit}
           onSplitChange={onDualPaneSplitChange}
@@ -66,6 +66,7 @@ export function EditorWorkspace({
               paneLabel="Outline"
               defaultPaneMode="rendered"
               className="min-h-0 flex-1"
+              isFigureUnit={isFigure}
               onError={onError}
               linkContextPath={linkContextPath}
               onNavigate={onNavigate}
@@ -84,6 +85,7 @@ export function EditorWorkspace({
               paneLabel="Draft"
               defaultPaneMode="rendered"
               className="min-h-0 flex-1"
+              isFigureUnit={isFigure}
               onError={onError}
               linkContextPath={linkContextPath}
               onNavigate={onNavigate}
@@ -93,6 +95,13 @@ export function EditorWorkspace({
             />
           }
         />
+        {isFigure && unitPath ? (
+          <FigurePreviewPanel
+            unitPath={unitPath}
+            refreshVersion={refreshVersion}
+            onNavigate={onNavigate}
+          />
+        ) : null}
       </div>
     );
   }
@@ -100,24 +109,20 @@ export function EditorWorkspace({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          {onBackToSectionView ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-              onClick={onBackToSectionView}
-            >
-              <ArrowLeft className="h-3 w-3" aria-hidden="true" />
-              Section view
-            </Button>
-          ) : null}
-          <span className="truncate rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">
-            {activeFile.split("/").pop() ?? activeFile}
-          </span>
-        </div>
-
+        {onBackToSectionView ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+            onClick={onBackToSectionView}
+          >
+            <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+            Section view
+          </Button>
+        ) : (
+          <span />
+        )}
         <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
           {layoutButtons.map(({ id, icon: Icon, label }) => (
             <Button

@@ -144,9 +144,34 @@ export const PAPERS_ROOT = "papers";
 export function isUnitFolder(node: ModelNode | null): boolean {
   if (!node?.children) return false;
   if (node.children.some((c) => c.type === "directory")) return false;
-  return node.children.some(
+  const hasOutlineDraft = node.children.some(
     (c) => c.type === "file" && (c.name === OUTLINE_DOC || c.name === DRAFT_DOC),
   );
+  if (!hasOutlineDraft) return false;
+  const hasFigureAsset = node.children.some(
+    (c) =>
+      c.type === "file" &&
+      /\.(png|jpe?g|svg|mmd|gif|webp)$/i.test(c.name),
+  );
+  return !hasFigureAsset;
+}
+
+/** Figure leaf folder: outline + draft + image/mermaid asset. */
+export function isFigureFolder(node: ModelNode | null): boolean {
+  if (!node?.children) return false;
+  if (node.children.some((c) => c.type === "directory")) return false;
+  const hasOutline = node.children.some((c) => c.type === "file" && c.name === OUTLINE_DOC);
+  const hasDraft = node.children.some((c) => c.type === "file" && c.name === DRAFT_DOC);
+  const hasAsset = node.children.some(
+    (c) =>
+      c.type === "file" &&
+      /\.(png|jpe?g|svg|mmd|gif|webp)$/i.test(c.name),
+  );
+  return hasOutline && hasDraft && hasAsset;
+}
+
+export function isLeafEditorFolder(node: ModelNode | null): boolean {
+  return isUnitFolder(node) || isFigureFolder(node);
 }
 
 /** Section container: has child folders (paper, section, subsection). */
@@ -172,15 +197,51 @@ export function resolveNavigateTarget(folderPath: string, href: string): Navigat
   return { type: "folder", path: folder };
 }
 
-/** Convert wikilinks to markdown links for ReactMarkdown rendering. */
-export function preprocessMarkdownLinks(markdown: string): string {
-  return markdown.replace(
-    /!?\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g,
+export const FIGURE_LINK_PREFIX = "figure://";
+export const ASSET_LINK_PREFIX = "asset://";
+export const FIGURE_BLOCK_LANG = "treewriter-figure";
+
+/** Preprocess figure embeds and wikilinks before markdown parse. */
+export function preprocessFigureEmbeds(markdown: string): string {
+  let result = markdown;
+
+  result = result.replace(/::figure\[([^\]]+)\]/g, (_match, target: string) => {
+    return `\n\n\`\`\`${FIGURE_BLOCK_LANG}\n${target.trim()}\n\`\`\`\n\n`;
+  });
+
+  result = result.replace(
+    /!\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g,
     (_match, target: string, alias?: string) => {
-      const label = alias?.trim() || target.split("/").pop() || target;
-      return `[${label}](${target.trim()})`;
+      const alt = alias?.trim() || target.split("/").pop() || "figure";
+      return `\n\n![${alt}](${ASSET_LINK_PREFIX}${target.trim()})\n\n`;
     },
   );
+
+  result = result.replace(
+    /(?<!!)\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g,
+    (_match, target: string, alias?: string) => {
+      const label = alias?.trim() || target.split("/").pop() || target;
+      const trimmed = target.trim().replace(/\/INDEX\.md$/i, "");
+      const isAsset = /\.(png|jpe?g|svg|mmd|gif|webp)$/i.test(trimmed);
+      if (isAsset) {
+        return `\n\n![${label}](${ASSET_LINK_PREFIX}${trimmed})\n\n`;
+      }
+      const isFigureCandidate =
+        !trimmed.endsWith(".md") || trimmed.includes("/notes/data/");
+      if (isFigureCandidate) {
+        const figurePath = trimmed.replace(/\.md$/, "");
+        return `[${label}](${FIGURE_LINK_PREFIX}${figurePath})`;
+      }
+      return `[${label}](${trimmed})`;
+    },
+  );
+
+  return result;
+}
+
+/** Convert remaining wikilinks to markdown links for ReactMarkdown rendering. */
+export function preprocessMarkdownLinks(markdown: string): string {
+  return preprocessFigureEmbeds(markdown);
 }
 
 export function childrenOf(tree: ModelNode[], folderPath: string): ModelNode[] {
@@ -259,6 +320,19 @@ export function breadcrumbSegments(path: string): { label: string; path: string 
   ];
 }
 
+/** Breadcrumbs scoped to a paper — omits model/papers prefixes. */
+export function papersBreadcrumbSegments(path: string): { label: string; path: string }[] {
+  if (!path || path === PAPERS_ROOT || !path.startsWith(`${PAPERS_ROOT}/`)) {
+    return [];
+  }
+  const relative = path.slice(`${PAPERS_ROOT}/`.length);
+  const parts = relative.split("/").filter(Boolean);
+  return parts.map((part, index) => ({
+    label: part,
+    path: `${PAPERS_ROOT}/${parts.slice(0, index + 1).join("/")}`,
+  }));
+}
+
 export function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
@@ -282,6 +356,7 @@ export type IndexOutlineLink = {
   label: string;
   href: string;
   targetPath: string | null;
+  isFigure?: boolean;
 };
 
 function parseFrontmatterBlock(markdown: string): Record<string, string> | null {
@@ -440,7 +515,12 @@ export function parseIndexOutline(markdown: string, folderPath: string): IndexOu
     const key = `${label}:${href}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    links.push({ label, href, targetPath: resolveOutlineTarget(folderPath, href) });
+    links.push({
+      label,
+      href,
+      targetPath: resolveOutlineTarget(folderPath, href),
+      isFigure: /notes\/data\//i.test(href) || /\bfig[-_]/i.test(href),
+    });
   }
 
   const wikiLink = /\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]/g;
@@ -454,6 +534,7 @@ export function parseIndexOutline(markdown: string, folderPath: string): IndexOu
       label: target.split("/").pop() ?? target,
       href,
       targetPath: resolveOutlineTarget(folderPath, target),
+      isFigure: /notes\/data\//i.test(target) || /\bfig[-_]/i.test(target),
     });
   }
 
@@ -540,6 +621,20 @@ export function orderedChildFolders(
   childOrder: string[],
 ): PaperSectionItem[] {
   return orderedDirectoryChildren(tree, folderPath, childOrder);
+}
+
+/** All folder paths under a paper (paper root + nested section/unit dirs). */
+export function collectPaperFolderPaths(tree: ModelNode[], paperPath: string): string[] {
+  const paths: string[] = [paperPath];
+  const walk = (folderPath: string) => {
+    for (const child of childrenOf(tree, folderPath)) {
+      if (child.type !== "directory") continue;
+      paths.push(child.path);
+      walk(child.path);
+    }
+  };
+  walk(paperPath);
+  return paths;
 }
 
 /** Ordered top-level sections for a paper folder. */

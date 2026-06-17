@@ -1,4 +1,4 @@
-export type GraphNodeType = "paper" | "section" | "unit" | "note" | "missing" | "doc";
+export type GraphNodeType = "paper" | "section" | "unit" | "figure" | "note" | "missing" | "doc";
 
 export interface GraphNode {
   id: string;
