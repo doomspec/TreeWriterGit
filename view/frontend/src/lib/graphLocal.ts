@@ -15,6 +15,24 @@ export interface GraphEdge {
 
 export type GraphScope = "local" | "global";
 
+/** API scope for graph data — paper-level (not leaf unit) so parent contains edges exist. */
+export function resolveGraphFetchRoot(navPath: string): string {
+  if (!navPath) return "";
+  const paper = navPath.match(/^papers\/([^/]+)/);
+  if (paper) return `papers/${paper[1]}`;
+  return "";
+}
+
+/** All path prefixes for ancestor chain (e.g. a/b/c → [a, a/b, a/b/c]). */
+export function pathPrefixIds(path: string): string[] {
+  const parts = path.split("/").filter(Boolean);
+  const out: string[] = [];
+  for (let i = 1; i <= parts.length; i += 1) {
+    out.push(parts.slice(0, i).join("/"));
+  }
+  return out;
+}
+
 /** Map current navigation path to a graph node id (walks up to nearest folder node). */
 export function resolveFocusId(nodes: GraphNode[], path: string): string | null {
   if (!path) return null;
@@ -84,6 +102,10 @@ export function filterLocalGraph(
   }
 
   const keep = bfsReachable(resolvedFocus, adj, Math.max(1, depth));
+  const nodeIdSet = new Set(nodes.map((n) => n.id));
+  for (const prefix of pathPrefixIds(resolvedFocus)) {
+    if (nodeIdSet.has(prefix)) keep.add(prefix);
+  }
   const filteredNodes = nodes.filter((n) => keep.has(n.id));
   const filteredEdges = edges.filter((e) => keep.has(e.source) && keep.has(e.target));
 

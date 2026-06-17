@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, GripVertical, Inbox, Plus, Upload } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown, GripVertical, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,10 +14,6 @@ import {
   type PaperSectionItem,
 } from "@/lib/modelTree";
 import {
-  exportPaper,
-  exportPaperBatch,
-  importOverleafFeedback,
-  pushToOverleaf,
   fetchPaperDetail,
   fetchPapers,
   reorderChildren,
@@ -42,6 +39,145 @@ function CountsLine({ counts }: { counts: UnitStatusCounts }) {
 
 function paperSlugFromPath(path: string): string | null {
   return /^papers\/([^/]+)/.exec(path)?.[1] ?? null;
+}
+
+function PaperSelect({
+  papers,
+  selectedSlug,
+  loading,
+  onChange,
+}: {
+  papers: PaperSummary[];
+  selectedSlug: string | null;
+  loading: boolean;
+  onChange: (slug: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  );
+  const selected = papers.find((p) => p.slug === selectedSlug);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const button = buttonRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
+
+  const label = selected
+    ? `${selected.title}${selected.journal ? ` · ${selected.journal}` : ""}`
+    : papers.length === 0
+      ? "No papers yet"
+      : "Select a paper…";
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        ref={buttonRef}
+        type="button"
+        id="paper-select"
+        disabled={loading && papers.length === 0}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={cn(
+          "flex h-9 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 text-left text-xs outline-none ring-primary focus-visible:ring-1",
+          loading ? "opacity-60" : undefined,
+        )}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+          aria-hidden="true"
+        />
+      </button>
+      {open && menuPosition
+        ? createPortal(
+            <ul
+              ref={menuRef}
+              role="listbox"
+              aria-labelledby="paper-select"
+              style={{
+                top: menuPosition.top,
+                left: menuPosition.left,
+                width: menuPosition.width,
+              }}
+              className="fixed z-overlay max-h-48 overflow-auto rounded-md border border-border bg-card py-1 text-card-foreground shadow-xl"
+            >
+              {papers.length === 0 ? (
+                <li className="bg-card px-2.5 py-2 text-xs text-muted-foreground">No papers yet</li>
+              ) : (
+                papers.map((paper) => {
+                  const active = paper.slug === selectedSlug;
+                  return (
+                    <li key={paper.slug} role="option" aria-selected={active} className="bg-card">
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex w-full flex-col items-start bg-card px-2.5 py-1.5 text-left text-xs hover:bg-accent",
+                          active && "bg-accent font-medium",
+                        )}
+                        onClick={() => {
+                          onChange(paper.slug);
+                          setOpen(false);
+                        }}
+                      >
+                        <span className="line-clamp-2">{paper.title}</span>
+                        {paper.journal ? (
+                          <span className="text-[10px] text-muted-foreground">{paper.journal}</span>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })
+              )}
+            </ul>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
 }
 
 function SubsectionOrderList({
@@ -287,6 +423,7 @@ function SectionOrderList({
 export function PapersPanel({
   tree,
   currentPath,
+  refreshVersion,
   onNavigate,
   onPaperCreated,
   onModelChanged,
@@ -295,6 +432,7 @@ export function PapersPanel({
 }: {
   tree: ModelNode[];
   currentPath: string;
+  refreshVersion?: number;
   onNavigate: (path: string) => void;
   onPaperCreated: (path: string) => void;
   onModelChanged?: () => void;
@@ -308,11 +446,6 @@ export function PapersPanel({
   const [loading, setLoading] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [showNewPaper, setShowNewPaper] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportNotice, setExportNotice] = useState<string | null>(null);
-  const [pushingOverleaf, setPushingOverleaf] = useState(false);
-  const [importingOverleaf, setImportingOverleaf] = useState(false);
-  const [includeDrafts, setIncludeDrafts] = useState(false);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
@@ -382,7 +515,14 @@ export function PapersPanel({
 
   useEffect(() => {
     void reload();
-  }, [reload, currentPath]);
+  }, [reload, currentPath, refreshVersion]);
+
+  useEffect(() => {
+    if (loading || selectedSlug || papers.length === 0) return;
+    if (currentPath === "papers" || currentPath === "") {
+      onNavigate(`papers/${papers[0].slug}`);
+    }
+  }, [currentPath, loading, onNavigate, papers, selectedSlug]);
 
   const sections = useMemo((): SectionRow[] => {
     if (!paperPath) return [];
@@ -429,98 +569,6 @@ export function PapersPanel({
     };
   }, [childOrders, foldersNeedingChildOrder, loadChildOrder]);
 
-  const handleExport = async (format: "latex" | "pdf") => {
-    if (!selectedSlug) return;
-    setExporting(true);
-    setExportNotice(null);
-    try {
-      const result = await exportPaper({
-        paperSlug: selectedSlug,
-        format,
-        includeDrafts,
-      });
-      window.open(`${apiBaseUrl}${result.downloadUrl}`, "_blank");
-      const notices: string[] = [];
-      if (result.notice) notices.push(result.notice);
-      if (result.missingCitations?.length) {
-        notices.push(`Missing citations: ${result.missingCitations.join(", ")}`);
-      }
-      setExportNotice(notices.length ? notices.join(" · ") : null);
-      await reload();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleExportBatch = async () => {
-    if (!selectedSlug) return;
-    setExporting(true);
-    setExportNotice(null);
-    try {
-      const { results } = await exportPaperBatch({
-        paperSlug: selectedSlug,
-        formats: ["latex", "pdf"],
-        includeDrafts,
-      });
-      for (const result of results) {
-        window.open(`${apiBaseUrl}${result.downloadUrl}`, "_blank");
-      }
-      const notices: string[] = [];
-      for (const result of results) {
-        if (result.notice) notices.push(result.notice);
-        if (result.cslPath) notices.push(`CSL: ${result.cslPath}`);
-      }
-      const missing = [...new Set(results.flatMap((r) => r.missingCitations ?? []))];
-      if (missing.length) notices.push(`Missing citations: ${missing.join(", ")}`);
-      setExportNotice(notices.length ? notices.join(" · ") : "Exported .tex and PDF");
-      await reload();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleOverleafPush = async () => {
-    if (!selectedSlug) return;
-    setPushingOverleaf(true);
-    setExportNotice(null);
-    try {
-      const result = await pushToOverleaf({ paperSlug: selectedSlug, includeDrafts });
-      const notices = [result.message];
-      if (result.missingCitations?.length) {
-        notices.push(`Missing citations: ${result.missingCitations.join(", ")}`);
-      }
-      setExportNotice(notices.join(" · "));
-      await reload();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPushingOverleaf(false);
-    }
-  };
-
-  const handleOverleafImport = async () => {
-    if (!selectedSlug) return;
-    setImportingOverleaf(true);
-    setExportNotice(null);
-    try {
-      const result = await importOverleafFeedback(selectedSlug);
-      setExportNotice(
-        result.imported > 0
-          ? `Imported ${result.imported} Overleaf feedback note${result.imported === 1 ? "" : "s"}`
-          : "No \\todo comments found in main.tex",
-      );
-      if (result.imported > 0) onModelChanged?.();
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setImportingOverleaf(false);
-    }
-  };
-
   const handlePaperChange = (slug: string) => {
     if (!slug) {
       onNavigate("papers");
@@ -558,121 +606,45 @@ export function PapersPanel({
   };
 
   return (
-    <div className={cn("space-y-2", embedded ? "p-3" : "border-b border-border px-4 py-3")}>
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor="paper-select" className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Paper
-        </label>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-7 gap-1 px-2 text-xs"
-          onClick={() => setShowNewPaper(true)}
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-          New
-        </Button>
+    <div className={cn("space-y-3", embedded ? "p-3" : "border-b border-border px-4 py-3")}>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor="paper-select" className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Paper
+          </label>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-7 gap-1 px-2 text-xs"
+            onClick={() => setShowNewPaper(true)}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            New
+          </Button>
+        </div>
+
+        <PaperSelect
+          papers={papers}
+          selectedSlug={selectedSlug}
+          loading={loading}
+          onChange={handlePaperChange}
+        />
+
+        {detail ? (
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            {detail.journal ? `${detail.journal} · ` : null}
+            {detail.status}
+            {" · "}
+            <CountsLine counts={detail.counts} />
+          </p>
+        ) : null}
       </div>
 
-      <select
-        id="paper-select"
-        value={selectedSlug ?? ""}
-        disabled={loading && papers.length === 0}
-        className={cn(
-          "h-9 w-full rounded-md border border-border bg-background px-2.5 text-xs outline-none ring-primary focus:ring-1",
-          loading ? "opacity-60" : undefined,
-        )}
-        onChange={(e) => handlePaperChange(e.target.value)}
-      >
-        <option value="">{papers.length === 0 ? "No papers yet" : "Select a paper…"}</option>
-        {papers.map((paper) => (
-          <option key={paper.slug} value={paper.slug}>
-            {paper.title}
-            {paper.journal ? ` · ${paper.journal}` : ""}
-          </option>
-        ))}
-      </select>
-
       {selectedSlug && paperPath ? (
-        <div className="space-y-2 pt-1">
-          {detail ? (
-            <div className="rounded-md border border-border/80 bg-background px-2.5 py-2 text-xs">
-              <div className="text-muted-foreground">
-                {detail.journal} · {detail.status}
-              </div>
-              <CountsLine counts={detail.counts} />
-            </div>
-          ) : null}
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={includeDrafts}
-              onChange={(e) => setIncludeDrafts(e.target.checked)}
-            />
-            Include non-approved drafts
-          </label>
-          <div className="flex flex-wrap gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting || pushingOverleaf || importingOverleaf}
-              onClick={() => void handleExport("latex")}
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              Export .tex
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting || pushingOverleaf || importingOverleaf}
-              title="Requires a LaTeX engine (brew install tectonic). Falls back to .tex if missing."
-              onClick={() => void handleExport("pdf")}
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              Export PDF
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting || pushingOverleaf || importingOverleaf}
-              title="Export .tex and PDF in one step"
-              onClick={() => void handleExportBatch()}
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              Export both
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting || pushingOverleaf || importingOverleaf}
-              title="Requires overleaf_repo_path in paper INDEX.md"
-              onClick={() => void handleOverleafPush()}
-            >
-              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-              Push Overleaf
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={exporting || pushingOverleaf || importingOverleaf}
-              title="Parse \\todo comments from Overleaf main.tex into notes/feedback/"
-              onClick={() => void handleOverleafImport()}
-            >
-              <Inbox className="h-3.5 w-3.5" aria-hidden="true" />
-              Import feedback
-            </Button>
-          </div>
-          {exportNotice ? (
-            <p className="text-xs text-muted-foreground">{exportNotice}</p>
-          ) : null}
+        <div className="space-y-3">
           <div className="space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Sections · drag to reorder
+              Sections
             </p>
             {sections.length === 0 ? (
               <p className="text-xs text-muted-foreground">No sections in this paper.</p>
@@ -688,6 +660,9 @@ export function PapersPanel({
                 onChildReorder={handleChildReorder}
               />
             )}
+            {sections.length > 0 ? (
+              <p className="text-[10px] text-muted-foreground">Drag to reorder</p>
+            ) : null}
           </div>
         </div>
       ) : papers.length === 0 && !loading ? (

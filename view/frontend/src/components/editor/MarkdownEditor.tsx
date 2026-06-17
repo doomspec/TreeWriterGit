@@ -1,15 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, FileCode2, MessageSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Eye, FileCode2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { CommentsPanel } from "@/components/editor/CommentsPanel";
+import { MarkdownToolbar } from "@/components/editor/MarkdownToolbar";
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
+import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
+import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
+import { Button } from "@/components/ui/button";
+import { applyMarkdownFormat, type MarkdownFormatAction } from "@/lib/markdownFormat";
+import {
+  dispatchActionForUnitPane,
+  dispatchActionLabel,
+  isDispatchRunShortcut,
+  runAgentDispatch,
+  unitPathFromUnitFile,
+} from "@/lib/agentDispatchClient";
 import { cn } from "@/lib/utils";
 import { getUserName } from "@/lib/userIdentity";
 import { parseFrontmatterStatus, parentPath, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
 import {
   ApiError,
   claimPresence,
+  fetchComments,
   fetchPresence,
   heartbeatPresence,
   releasePresence,
@@ -47,6 +59,22 @@ function mergePreviewEdit(frontmatter: string, body: string): string {
   return frontmatter ? `${frontmatter}${body}` : body;
 }
 
+function handleFormatShortcut(event: React.KeyboardEvent, onFormat: (action: MarkdownFormatAction) => void): boolean {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return false;
+  const key = event.key.toLowerCase();
+  if (key === "b") {
+    event.preventDefault();
+    onFormat("bold");
+    return true;
+  }
+  if (key === "i") {
+    event.preventDefault();
+    onFormat("italic");
+    return true;
+  }
+  return false;
+}
+
 export function MarkdownEditor({
   filePath,
   refreshVersion,
@@ -59,6 +87,10 @@ export function MarkdownEditor({
   className,
   linkContextPath = "",
   onNavigate,
+  onSendToTerminal,
+  onBeforeDispatch,
+  splitPercent = 50,
+  onSplitChange,
 }: {
   filePath: string;
   refreshVersion: number;
@@ -71,6 +103,10 @@ export function MarkdownEditor({
   className?: string;
   linkContextPath?: string;
   onNavigate?: (target: NavigateTarget) => void;
+  onSendToTerminal?: (command: string) => void;
+  onBeforeDispatch?: () => void;
+  splitPercent?: number;
+  onSplitChange?: (percent: number) => void;
 }) {
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
@@ -79,30 +115,70 @@ export function MarkdownEditor({
   const [paneMode, setPaneMode] = useState<PaneEditMode>(defaultPaneMode);
   const [previewRawEdit, setPreviewRawEdit] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [unresolvedComments, setUnresolvedComments] = useState(0);
   const [selectedLine, setSelectedLine] = useState(1);
   const [otherEditor, setOtherEditor] = useState<string | null>(null);
+  const [dispatching, setDispatching] = useState(false);
   const authorName = useMemo(() => getUserName(), []);
   const sourceRef = useRef<HTMLTextAreaElement | null>(null);
   const previewRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirty = content !== loadedContent;
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
   const previewParts = useMemo(() => splitForPreviewEdit(content), [content]);
   const previewMeta = useMemo(() => parsePreviewBody(content), [content]);
-  /** Body for preview panes — H1 is shown separately, so omit it from markdown render/edit. */
   const previewBody = previewMeta.title ? previewMeta.body : previewParts.body;
   const unitStatus = useMemo(() => parseFrontmatterStatus(content), [content]);
+  const unitPath = useMemo(() => unitPathFromUnitFile(filePath), [filePath]);
+  const dispatchAction = useMemo(
+    () => dispatchActionForUnitPane(paneLabel, Boolean(previewBody.trim() || content.trim())),
+    [content, paneLabel, previewBody],
+  );
+  const canDispatch = Boolean(compact && unitPath && dispatchAction && onSendToTerminal);
+
+  const handleDispatch = useCallback(async () => {
+    if (!canDispatch || !unitPath || !dispatchAction || !onSendToTerminal) return;
+    setDispatching(true);
+    onBeforeDispatch?.();
+    try {
+      await runAgentDispatch({
+        unitPath,
+        action: dispatchAction,
+        onSendToTerminal,
+      });
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDispatching(false);
+    }
+  }, [canDispatch, dispatchAction, onBeforeDispatch, onError, onSendToTerminal, unitPath]);
 
   useEffect(() => {
     setPreviewRawEdit(false);
     setPaneMode(defaultPaneMode);
-  }, [defaultPaneMode, filePath, refreshVersion]);
+  }, [defaultPaneMode, filePath]);
 
   useEffect(() => {
     onSaveStateChange?.(saveState);
   }, [onSaveStateChange, saveState]);
 
   useEffect(() => {
+    let cancelled = false;
+    fetchComments(filePath)
+      .then(({ comments }) => {
+        if (!cancelled) {
+          setUnresolvedComments(comments.filter((c) => !c.resolved).length);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, refreshVersion]);
+
+  useEffect(() => {
     const controller = new AbortController();
-    if (content !== loadedContent) {
+    if (isDirtyRef.current) {
       return () => controller.abort();
     }
 
@@ -137,7 +213,7 @@ export function MarkdownEditor({
       });
 
     return () => controller.abort();
-  }, [content, filePath, loadedContent, onError, refreshVersion]);
+  }, [filePath, onError, refreshVersion]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -225,10 +301,67 @@ export function MarkdownEditor({
   const showPreview = effectiveLayout === "preview" || effectiveLayout === "split";
   const renderedEditable = compact ? paneMode === "rendered" : previewRawEdit;
 
-  const handlePreviewBodyChange = (body: string) => {
-    const withHeading = previewMeta.title ? `# ${previewMeta.title}\n\n${body.replace(/^\s+/, "")}` : body;
-    setContent(mergePreviewEdit(previewParts.frontmatter, withHeading));
-  };
+  const handlePreviewBodyChange = useCallback(
+    (body: string) => {
+      const withHeading = previewMeta.title
+        ? `# ${previewMeta.title}\n\n${body.replace(/^\s+/, "")}`
+        : body;
+      setContent(mergePreviewEdit(previewParts.frontmatter, withHeading));
+    },
+    [previewMeta.title, previewParts.frontmatter],
+  );
+
+  const applyFormat = useCallback(
+    (action: MarkdownFormatAction, targetPane?: "preview" | "source") => {
+      const previewEl = previewRef.current;
+      const sourceEl = sourceRef.current;
+
+      let usePreview: boolean;
+      if (targetPane === "preview") {
+        usePreview = true;
+      } else if (targetPane === "source") {
+        usePreview = false;
+      } else {
+        usePreview = Boolean(
+          previewEl &&
+            renderedEditable &&
+            (document.activeElement === previewEl || (showPreview && !showSource)),
+        );
+      }
+
+      const target = usePreview && previewEl ? previewEl : sourceEl;
+      if (!target) return;
+
+      const currentValue = usePreview ? previewBody : content;
+      const setValue = usePreview ? handlePreviewBodyChange : setContent;
+
+      const result = applyMarkdownFormat(
+        currentValue,
+        target.selectionStart,
+        target.selectionEnd,
+        action,
+      );
+      setValue(result.value);
+      requestAnimationFrame(() => {
+        target.focus();
+        target.setSelectionRange(result.selectionStart, result.selectionEnd);
+        updateSelectedLine();
+      });
+    },
+    [content, handlePreviewBodyChange, previewBody, renderedEditable, showPreview, showSource],
+  );
+
+  const onTextareaKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (canDispatch && isDispatchRunShortcut(event)) {
+        event.preventDefault();
+        void handleDispatch();
+        return;
+      }
+      handleFormatShortcut(event, (action) => applyFormat(action));
+    },
+    [applyFormat, canDispatch, handleDispatch],
+  );
 
   const modeToggle = compact ? (
     <div
@@ -280,174 +413,199 @@ export function MarkdownEditor({
     </Button>
   );
 
-  return (
-    <div className={cn("flex min-h-0 flex-1", className)}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {otherEditor ? (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-900 dark:text-amber-100">
-          Being edited by {otherEditor}
-        </div>
-      ) : null}
-      {loadError ? (
-        <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
-          {loadError}
-        </div>
-      ) : null}
+  const compactTargetPane: "preview" | "source" = renderedEditable ? "preview" : "source";
 
-      {compact ? (
-        <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-[hsl(var(--reading-bg))] px-3">
-          <span className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {paneLabel ?? "Document"}
-          </span>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="font-mono text-[10px] text-muted-foreground">
-              {isDirty ? "unsaved" : saveState}
-              {unitStatus ? ` · ${unitStatus}` : ""}
-            </span>
-            <Button
-              type="button"
-              variant={commentsOpen ? "default" : "ghost"}
-              size="icon"
-              className="h-6 w-6"
-              title="Comments"
-              aria-label="Toggle comments"
-              aria-pressed={commentsOpen}
-              onClick={() => setCommentsOpen((open) => !open)}
-            >
-              <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
-            </Button>
-            {modeToggle}
+  const toolbarProps = {
+    renderedMode: renderedEditable && !showSource,
+    commentsOpen,
+    unresolvedComments,
+    onFormat: (action: MarkdownFormatAction) => applyFormat(action, compactTargetPane),
+    onToggleComments: () => setCommentsOpen((open) => !open),
+  };
+
+  const compactToolbar = compact ? <MarkdownToolbar {...toolbarProps} /> : null;
+
+  const sourcePane = (
+    <div className="flex min-h-0 flex-col bg-editor">
+      {!compact ? (
+        <>
+          <div className="ui-pane-header h-8">
+            <span className="ui-label">Source</span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-ui-2xs text-muted-foreground">
+                {isDirty ? "unsaved" : saveState}
+                {unitStatus ? ` · ${unitStatus}` : ""}
+              </span>
+            </div>
           </div>
-        </div>
+          <MarkdownToolbar
+            {...toolbarProps}
+            renderedMode={false}
+            onFormat={(action) => applyFormat(action, "source")}
+          />
+        </>
       ) : null}
+      <textarea
+        ref={sourceRef}
+        className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-transparent p-4 font-mono text-[13px] leading-6 outline-none focus:ring-0"
+        value={content}
+        spellCheck={false}
+        aria-label={`Edit source ${filePath}`}
+        onChange={(e) => setContent(e.target.value)}
+        onSelect={updateSelectedLine}
+        onKeyUp={updateSelectedLine}
+        onClick={updateSelectedLine}
+        onKeyDown={onTextareaKeyDown}
+      />
+    </div>
+  );
 
+  const previewPane = (
+    <div className="flex min-h-0 flex-col bg-reading">
+      {!compact ? (
+        <>
+          <div className="ui-pane-header h-8">
+            <span className="ui-label truncate">Preview</span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <span className="hidden text-ui-2xs text-muted-foreground sm:inline">
+                {isDirty ? "unsaved" : saveState}
+              </span>
+              {modeToggle}
+            </div>
+          </div>
+          {renderedEditable ? (
+            <MarkdownToolbar
+              {...toolbarProps}
+              renderedMode={true}
+              onFormat={(action) => applyFormat(action, "preview")}
+            />
+          ) : null}
+        </>
+      ) : null}
+      <div
+        className={cn(
+          "markdown-preview-edit min-h-0 flex-1 overflow-auto px-6 py-5",
+          compact && "markdown-pane",
+        )}
+      >
+        {renderedEditable ? (
+          <div className="flex min-h-full flex-col gap-4">
+            {previewMeta.title ? (
+              <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">
+                {previewMeta.title}
+              </h1>
+            ) : null}
+            <RenderedMarkdownField
+              inputRef={previewRef}
+              value={previewBody}
+              ariaLabel={`Edit ${paneLabel ?? "document"} ${filePath}`}
+              placeholder="Write here…"
+              linkContextPath={linkContextPath || parentPath(filePath)}
+              linksClickable={Boolean(onNavigate)}
+              onNavigate={onNavigate}
+              onChange={handlePreviewBodyChange}
+              onSelect={updateSelectedLine}
+              onKeyDown={onTextareaKeyDown}
+            />
+          </div>
+        ) : (
+          <>
+            {previewMeta.title ? (
+              <h1 className="mb-4 font-serif text-2xl font-semibold tracking-tight text-foreground">
+                {previewMeta.title}
+              </h1>
+            ) : null}
+            {previewBody.trim() ? (
+              <MarkdownViewer
+                markdown={previewBody}
+                linkContextPath={linkContextPath || parentPath(filePath)}
+                linksClickable={Boolean(onNavigate)}
+                onNavigate={onNavigate}
+              />
+            ) : (
+              <p className="text-sm italic text-muted-foreground">Empty document.</p>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  const editorPanes =
+    effectiveLayout === "split" && !compact && onSplitChange ? (
+      <ResizableDualPane
+        splitPercent={splitPercent}
+        onSplitChange={onSplitChange}
+        className="min-h-0 flex-1"
+        left={sourcePane}
+        right={previewPane}
+      />
+    ) : (
       <div
         className={cn(
           "editor-panes grid min-h-0 flex-1",
           effectiveLayout === "split" ? "editor-panes-split" : "grid-cols-1",
         )}
       >
-        {showSource ? (
-          <div className="flex min-h-0 flex-col bg-[hsl(var(--editor-bg))]">
-            {!compact ? (
-              <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/60 px-3">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Source
-                </span>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono text-[10px] text-muted-foreground">
-                    {isDirty ? "unsaved" : saveState}
-                    {unitStatus ? ` · ${unitStatus}` : ""}
-                  </span>
-                  <Button
-                    type="button"
-                    variant={commentsOpen ? "default" : "ghost"}
-                    size="icon"
-                    className="h-6 w-6"
-                    title="Comments"
-                    aria-label="Toggle comments"
-                    aria-pressed={commentsOpen}
-                    onClick={() => setCommentsOpen((open) => !open)}
-                  >
-                    <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            <textarea
-              ref={sourceRef}
-              className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-transparent p-4 font-mono text-[13px] leading-6 outline-none focus:ring-0"
-              value={content}
-              spellCheck={false}
-              aria-label={`Edit source ${filePath}`}
-              onChange={(e) => setContent(e.target.value)}
-              onSelect={updateSelectedLine}
-              onKeyUp={updateSelectedLine}
-              onClick={updateSelectedLine}
-            />
+        {showSource ? sourcePane : null}
+        {showPreview ? previewPane : null}
+      </div>
+    );
+
+  return (
+    <div className={cn("flex min-h-0 flex-1", className)}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {otherEditor ? (
+          <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-900 dark:text-amber-100">
+            Being edited by {otherEditor}
+          </div>
+        ) : null}
+        {loadError ? (
+          <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
+            {loadError}
           </div>
         ) : null}
 
-        {showPreview ? (
-          <div className="flex min-h-0 flex-col bg-[hsl(var(--reading-bg))]">
-            {!compact ? (
-              <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3">
-                <span className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Preview
-                </span>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <span className="hidden text-[10px] text-muted-foreground sm:inline">
-                    {isDirty ? "unsaved" : saveState}
-                  </span>
-                  <Button
-                    type="button"
-                    variant={commentsOpen ? "default" : "ghost"}
-                    size="icon"
-                    className="h-6 w-6"
-                    title="Comments"
-                    aria-label="Toggle comments"
-                    aria-pressed={commentsOpen}
-                    onClick={() => setCommentsOpen((open) => !open)}
-                  >
-                    <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
-                  </Button>
-                  {modeToggle}
-                </div>
-              </div>
-            ) : null}
-            <div className={cn("markdown-preview-edit min-h-0 flex-1 overflow-auto px-6 py-5", compact && "markdown-pane")}>
-              {renderedEditable ? (
-                <div className="space-y-4">
-                  {previewMeta.title ? (
-                    <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">
-                      {previewMeta.title}
-                    </h1>
-                  ) : null}
-                  {previewBody.trim() ? (
-                    <MarkdownViewer markdown={previewBody} className="pointer-events-none select-none opacity-95" />
-                  ) : null}
-                  <textarea
-                    ref={previewRef}
-                    className="markdown-reading markdown-reading-edit w-full min-h-[10rem] resize-none border-0 border-t border-border/40 bg-transparent p-0 pt-4 outline-none focus:ring-0"
-                    value={previewBody}
-                    spellCheck={true}
-                    aria-label={`Edit ${paneLabel ?? "document"} ${filePath}`}
-                    placeholder="Write here…"
-                    onChange={(e) => handlePreviewBodyChange(e.target.value)}
-                  />
-                </div>
-              ) : (
-                <>
-                  {previewMeta.title ? (
-                    <h1 className="mb-4 font-serif text-2xl font-semibold tracking-tight text-foreground">
-                      {previewMeta.title}
-                    </h1>
-                  ) : null}
-                  {previewBody.trim() ? (
-                    <MarkdownViewer
-                      markdown={previewBody}
-                      linkContextPath={linkContextPath || parentPath(filePath)}
-                      linksClickable={Boolean(onNavigate)}
-                      onNavigate={onNavigate}
-                    />
-                  ) : (
-                    <p className="text-sm italic text-muted-foreground">Empty document.</p>
-                  )}
-                </>
-              )}
+        {compact ? (
+          <div className="ui-pane-header">
+            <span className="ui-label truncate">{paneLabel ?? "Document"}</span>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="font-mono text-ui-2xs text-muted-foreground">
+                {isDirty ? "unsaved" : saveState}
+                {unitStatus ? ` · ${unitStatus}` : ""}
+              </span>
+              {canDispatch && dispatchAction ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-[10px]"
+                  title={`${dispatchActionLabel(dispatchAction)} (⌘⇧R)`}
+                  disabled={dispatching}
+                  onClick={() => void handleDispatch()}
+                >
+                  <Bot className="h-3 w-3" aria-hidden="true" />
+                  AI
+                </Button>
+              ) : null}
+              {modeToggle}
             </div>
           </div>
         ) : null}
-      </div>
+
+        {compactToolbar}
+
+        {editorPanes}
       </div>
       {commentsOpen ? (
         <CommentsPanel
           filePath={filePath}
-          authorName={authorName}
+          paneLabel={paneLabel}
           refreshVersion={refreshVersion}
           selectedLine={selectedLine}
           onError={onError}
           onClose={() => setCommentsOpen(false)}
+          onUnresolvedChange={setUnresolvedComments}
         />
       ) : null}
     </div>

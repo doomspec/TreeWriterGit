@@ -13,8 +13,8 @@ export type WorkspacePreferences = {
 const STORAGE_KEY = "treewriter.workspace.v1";
 
 const DEFAULTS: WorkspacePreferences = {
-  sidebarTab: "explorer",
-  currentPath: "",
+  sidebarTab: "papers",
+  currentPath: "papers",
   activeFile: null,
   editorLayout: "split",
   agentPanelOpen: false,

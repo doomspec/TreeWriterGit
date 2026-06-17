@@ -123,6 +123,31 @@ describe("buildCombinedMarkdown", () => {
     expect(claimHeadingCount).toBe(0);
     expect(markdown).toContain("[@smith2024]");
   });
+
+  it("falls back to outline.md when draft is empty and includeDrafts is true", async () => {
+    await seedPaper();
+    await writeFile(path.join(root, "papers/demo/introduction/claim/draft.md"), "", "utf8");
+    await writeFile(
+      path.join(root, "papers/demo/introduction/claim/outline.md"),
+      "# Claim\n\nOutline prose for export.\n",
+      "utf8",
+    );
+    const { markdown, unitCount } = await buildCombinedMarkdown(root, "papers/demo", true);
+    expect(unitCount).toBe(1);
+    expect(markdown).toContain("Outline prose for export.");
+  });
+
+  it("does not fall back to outline when includeDrafts is false", async () => {
+    await seedPaper();
+    await writeFile(path.join(root, "papers/demo/introduction/claim/draft.md"), "", "utf8");
+    await writeFile(
+      path.join(root, "papers/demo/introduction/claim/INDEX.md"),
+      matter.stringify("", { kind: "unit", title: "Claim", status: "approved" }),
+      "utf8",
+    );
+    const { unitCount } = await buildCombinedMarkdown(root, "papers/demo", false);
+    expect(unitCount).toBe(0);
+  });
 });
 
 describe("findMissingCitations", () => {

@@ -2,7 +2,6 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import cors from "cors";
@@ -48,6 +47,10 @@ import {
   heartbeatPresence,
   releasePresence,
 } from "./presence.js";
+import {
+  createTerminalSessionManager,
+  parseTerminalConnectParams,
+} from "./terminalSessions.js";
 
 type ClientMessage =
   | {
@@ -75,6 +78,7 @@ type GitSyncState = {
   lastError: string | null;
   lastOutput: string | null;
   conflictDetected: boolean;
+  pendingStashRestore: boolean;
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -105,7 +109,8 @@ const gitSyncState: GitSyncState = {
   lastSuccessAt: null,
   lastError: null,
   lastOutput: null,
-  conflictDetected: false
+  conflictDetected: false,
+  pendingStashRestore: false
 };
 
 const app = express();
@@ -180,6 +185,9 @@ async function runGitSync(reason = "interval") {
   gitSyncState.running = true;
   gitSyncState.lastRunAt = new Date().toISOString();
   gitSyncState.lastError = null;
+  gitSyncState.pendingStashRestore = false;
+
+  let stashCreated = false;
 
   try {
     const output: string[] = [`sync reason: ${reason}`];
@@ -190,6 +198,13 @@ async function runGitSync(reason = "interval") {
     if (modelStatus) {
       output.push(await git(["add", "model"]));
       output.push(await git(["commit", "-m", "Automated sync"]));
+    }
+
+    const outsideStatus = await git(["status", "--porcelain"]);
+    if (outsideStatus) {
+      // Stash tracked changes only — keep untracked new files (e.g. view/ components) on disk.
+      output.push(await git(["stash", "push", "-m", "treewriter-sync-wip"]));
+      stashCreated = true;
     }
 
     let remoteBranchExists = false;
@@ -206,9 +221,16 @@ async function runGitSync(reason = "interval") {
         gitSyncState.conflictDetected = false;
       } catch (rebaseError) {
         await git(["rebase", "--abort"]).catch(() => {});
-        gitSyncState.conflictDetected = true;
+        const rebaseMessage =
+          rebaseError instanceof Error ? rebaseError.message : String(rebaseError);
+        const blockedByLocalChanges = /unstaged changes|uncommitted/i.test(rebaseMessage);
+        if (!blockedByLocalChanges) {
+          gitSyncState.conflictDetected = true;
+        }
         throw new Error(
-          "Rebase conflict — aborted; resolve manually in the terminal, then run sync again."
+          blockedByLocalChanges
+            ? "Sync paused — uncommitted changes blocked rebase after autostash; resolve in the terminal, then sync again."
+            : "Rebase conflict — aborted; resolve manually in the terminal, then run sync again.",
         );
       }
     } else {
@@ -217,10 +239,34 @@ async function runGitSync(reason = "interval") {
 
     output.push(await git(["push", "origin", `HEAD:${branch}`]));
 
+    if (stashCreated) {
+      try {
+        output.push(await git(["stash", "pop"]));
+        stashCreated = false;
+      } catch (popError) {
+        const message = popError instanceof Error ? popError.message : String(popError);
+        output.push(`stash pop failed: ${message}`);
+        gitSyncState.pendingStashRestore = true;
+        gitSyncState.lastError =
+          "Model synced, but local view/ edits were left in git stash. In the repo root run: git stash pop";
+      }
+    }
+
     gitSyncState.lastSuccessAt = new Date().toISOString();
     gitSyncState.lastOutput = output.filter(Boolean).join("\n");
   } catch (error) {
-    gitSyncState.lastError = error instanceof Error ? error.message : String(error);
+    if (stashCreated) {
+      try {
+        await git(["stash", "pop"]);
+      } catch {
+        gitSyncState.pendingStashRestore = true;
+        gitSyncState.lastError =
+          "Sync failed and local view/ edits may still be in git stash. In the repo root run: git stash pop";
+      }
+    }
+    if (!gitSyncState.lastError) {
+      gitSyncState.lastError = error instanceof Error ? error.message : String(error);
+    }
   } finally {
     gitSyncState.running = false;
   }
@@ -917,6 +963,18 @@ const server = app.listen(port, () => {
 
 const terminalServer = new WebSocketServer({ noServer: true });
 
+const terminalSessions = createTerminalSessionManager({
+  command: terminalCommand,
+  args: terminalArgs,
+  cwd: modelRoot,
+  env: {
+    TERM: "xterm-256color",
+    COLORTERM: "truecolor",
+    HISTFILE: "/dev/null",
+    BASH_SILENCE_DEPRECATION_WARNING: "1",
+  },
+});
+
 const modelEventsServer = new WebSocketServer({ noServer: true });
 
 const modelEventClients = new Set<WebSocket>();
@@ -977,53 +1035,10 @@ if (gitSyncEnabled) {
   }, gitSyncIntervalMs);
 }
 
-terminalServer.on("connection", (socket) => {
-  const term = spawn(terminalCommand, terminalArgs, {
-    cwd: modelRoot,
-    env: {
-      ...process.env,
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-      HISTFILE: "/dev/null",
-      BASH_SILENCE_DEPRECATION_WARNING: "1"
-    },
-    stdio: ["pipe", "pipe", "pipe", "pipe"]
-  });
-
-  const controlFd = term.stdio[3] as NodeJS.WritableStream | null;
-
-  term.stdout.on("data", (data: Buffer) => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(data.toString());
-    }
-  });
-
-  term.stderr.on("data", (data: Buffer) => {
-    const text = data
-      .toString()
-      .replace("bash: no job control in this shell\n", "")
-      .replace(/\r?\nThe default interactive shell is now zsh\.[\s\S]*?HT208050\.\r?\n/, "");
-    if (!text) {
-      return;
-    }
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(text);
-    }
-  });
-
-  term.on("exit", (exitCode) => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(`\r\n[process exited with code ${exitCode ?? "unknown"}]\r\n`);
-      socket.close();
-    }
-  });
-
-  term.on("error", (error) => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(`\r\n[failed to start shell: ${error.message}]\r\n`);
-      socket.close();
-    }
-  });
+terminalServer.on("connection", (socket, request) => {
+  const { sessionId, forceNew } = parseTerminalConnectParams(request.url ?? "/terminal");
+  const session = terminalSessions.resolveSession(sessionId, forceNew);
+  terminalSessions.attach(socket, session);
 
   socket.on("message", (rawMessage) => {
     const text = rawMessage.toString();
@@ -1036,19 +1051,16 @@ terminalServer.on("connection", (socket) => {
     }
 
     if (message.type === "input") {
-      term.stdin.write(message.data);
+      terminalSessions.handleInput(session, message.data);
       return;
     }
 
     if (message.type === "resize") {
-      const { cols, rows } = message;
-      if (controlFd && Number.isFinite(cols) && Number.isFinite(rows)) {
-        controlFd.write(`${JSON.stringify({ t: "resize", cols, rows })}\n`);
-      }
+      terminalSessions.handleResize(session, message.cols, message.rows);
     }
   });
 
   socket.on("close", () => {
-    term.kill();
+    terminalSessions.detach(session);
   });
 });

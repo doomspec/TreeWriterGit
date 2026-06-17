@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
-import { Pencil } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Bot, Pencil } from "lucide-react";
 
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
+import {
+  dispatchActionLabel,
+  isDispatchRunShortcut,
+  runFanOutDispatch,
+  type AgentDispatchAction,
+} from "@/lib/agentDispatchClient";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
@@ -31,6 +37,8 @@ export function SectionWorkspace({
   onError,
   dualPaneSplit,
   onDualPaneSplitChange,
+  onSendToTerminal,
+  onBeforeDispatch,
 }: {
   sectionPath: string;
   refreshVersion: number;
@@ -39,9 +47,14 @@ export function SectionWorkspace({
   onError: (message: string) => void;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
+  onSendToTerminal?: (command: string) => void;
+  onBeforeDispatch?: () => void;
 }) {
   const [compose, setCompose] = useState<SectionCompose | null>(null);
   const [loading, setLoading] = useState(true);
+  const [focusedPane, setFocusedPane] = useState<"outline" | "draft">("outline");
+  const [dispatching, setDispatching] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,8 +93,44 @@ export function SectionWorkspace({
     [onNavigate, onOpenFile],
   );
 
+  const handleFanOut = useCallback(
+    async (action: AgentDispatchAction) => {
+      if (!onSendToTerminal) return;
+      setDispatching(true);
+      onBeforeDispatch?.();
+      try {
+        const count = await runFanOutDispatch({
+          sectionPath,
+          action,
+          onSendToTerminal,
+        });
+        if (count === 0) onError("No units found under this section");
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setDispatching(false);
+      }
+    },
+    [onBeforeDispatch, onError, onSendToTerminal, sectionPath],
+  );
+
+  useEffect(() => {
+    if (!onSendToTerminal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isDispatchRunShortcut(event)) return;
+      if (!containerRef.current?.contains(document.activeElement)) return;
+      event.preventDefault();
+      void handleFanOut(focusedPane === "outline" ? "draft" : "revise");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [focusedPane, handleFanOut, onSendToTerminal]);
+
   const outlinePath = outlinePathFor(sectionPath);
   const draftPath = `${sectionPath}/draft.md`;
+  const canDispatch = Boolean(onSendToTerminal);
+  const outlineAction: AgentDispatchAction = "draft";
+  const draftAction: AgentDispatchAction = compose?.draftMarkdown.trim() ? "revise" : "draft";
 
   if (loading) {
     return (
@@ -100,7 +149,7 @@ export function SectionWorkspace({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-border bg-card px-4">
         <span className="text-xs font-medium text-muted-foreground">
           Section · {compose.title}
@@ -134,11 +183,28 @@ export function SectionWorkspace({
         splitPercent={dualPaneSplit}
         onSplitChange={onDualPaneSplitChange}
         left={
-          <>
-            <div className="flex h-9 shrink-0 items-center border-b border-border/60 bg-[hsl(var(--reading-bg))] px-3">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Outline
-              </span>
+          <div
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            tabIndex={-1}
+            onFocusCapture={() => setFocusedPane("outline")}
+            onMouseDown={() => setFocusedPane("outline")}
+          >
+            <div className="ui-pane-header">
+              <span className="ui-label">Outline</span>
+              {canDispatch ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-[10px]"
+                  title={`Fan-out: ${dispatchActionLabel(outlineAction)} (⌘⇧R)`}
+                  disabled={dispatching}
+                  onClick={() => void handleFanOut(outlineAction)}
+                >
+                  <Bot className="h-3 w-3" aria-hidden="true" />
+                  AI
+                </Button>
+              ) : null}
             </div>
             <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
               <MarkdownViewer
@@ -148,14 +214,31 @@ export function SectionWorkspace({
                 onNavigate={handleLinkNavigate}
               />
             </div>
-          </>
+          </div>
         }
         right={
-          <>
-            <div className="flex h-9 shrink-0 items-center border-b border-border/60 bg-[hsl(var(--reading-bg))] px-3">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Draft
-              </span>
+          <div
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            tabIndex={-1}
+            onFocusCapture={() => setFocusedPane("draft")}
+            onMouseDown={() => setFocusedPane("draft")}
+          >
+            <div className="ui-pane-header">
+              <span className="ui-label">Draft</span>
+              {canDispatch ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-[10px]"
+                  title={`Fan-out: ${dispatchActionLabel(draftAction)} (⌘⇧R)`}
+                  disabled={dispatching}
+                  onClick={() => void handleFanOut(draftAction)}
+                >
+                  <Bot className="h-3 w-3" aria-hidden="true" />
+                  AI
+                </Button>
+              ) : null}
             </div>
             <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
               {compose.draftMarkdown.trim() ? (
@@ -171,7 +254,7 @@ export function SectionWorkspace({
                 </p>
               )}
             </div>
-          </>
+          </div>
         }
       />
     </div>

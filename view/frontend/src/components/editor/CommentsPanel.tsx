@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, MessageSquare, Trash2, X } from "lucide-react";
 
+import { authorColorClass, authorInitials } from "@/components/editor/MarkdownToolbar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getUserName, setUserName } from "@/lib/userIdentity";
 import {
   createComment,
   deleteComment,
@@ -11,32 +13,45 @@ import {
   type CommentRecord,
 } from "@/modelApi";
 
+function sortComments(items: CommentRecord[]): CommentRecord[] {
+  return [...items].sort((a, b) => {
+    if (a.line !== b.line) return a.line - b.line;
+    return a.created_at.localeCompare(b.created_at);
+  });
+}
+
 export function CommentsPanel({
   filePath,
-  authorName,
+  paneLabel,
   refreshVersion,
   selectedLine = 1,
   onError,
   onClose,
+  onUnresolvedChange,
 }: {
   filePath: string;
-  authorName: string;
+  paneLabel?: string;
   refreshVersion: number;
   selectedLine?: number;
   onError?: (message: string) => void;
   onClose?: () => void;
+  onUnresolvedChange?: (count: number) => void;
 }) {
   const [comments, setComments] = useState<CommentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [line, setLine] = useState(selectedLine);
   const [submitting, setSubmitting] = useState(false);
+  const [authorName, setAuthorNameState] = useState(() => getUserName());
+  const [nameDraft, setNameDraft] = useState(() => getUserName());
+
+  const needsName = authorName === "Anonymous" || !authorName.trim();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const { comments: next } = await fetchComments(filePath);
-      setComments(next);
+      setComments(sortComments(next));
     } catch (err) {
       onError?.(err instanceof Error ? err.message : String(err));
     } finally {
@@ -52,13 +67,26 @@ export function CommentsPanel({
     setLine(selectedLine);
   }, [selectedLine]);
 
-  const unresolved = comments.filter((c) => !c.resolved).length;
+  const unresolved = useMemo(() => comments.filter((c) => !c.resolved).length, [comments]);
+
+  useEffect(() => {
+    onUnresolvedChange?.(unresolved);
+  }, [onUnresolvedChange, unresolved]);
+
+  const saveAuthorName = () => {
+    const next = nameDraft.trim() || "Anonymous";
+    setUserName(next);
+    setAuthorNameState(next);
+  };
 
   const handleSubmit = async () => {
     if (!draft.trim()) return;
+    if (needsName && !nameDraft.trim()) return;
+    if (needsName) saveAuthorName();
     setSubmitting(true);
     try {
-      await createComment({ path: filePath, line, author: authorName, text: draft.trim() });
+      const author = needsName ? nameDraft.trim() : authorName;
+      await createComment({ path: filePath, line, author, text: draft.trim() });
       setDraft("");
       await load();
     } catch (err) {
@@ -89,12 +117,14 @@ export function CommentsPanel({
     }
   };
 
+  const panelTitle = paneLabel ? `${paneLabel} comments` : "Comments";
+
   return (
     <aside className="flex w-72 shrink-0 flex-col border-l border-border bg-card">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
-        <div className="flex items-center gap-1.5 text-xs font-medium">
-          <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
-          Comments
+        <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+          <MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate capitalize">{panelTitle}</span>
           {unresolved > 0 ? (
             <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
               {unresolved}
@@ -123,8 +153,19 @@ export function CommentsPanel({
               )}
             >
               <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="font-medium">{comment.author}</span>
-                <span className="text-[10px] text-muted-foreground">L{comment.line}</span>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold",
+                      authorColorClass(comment.author),
+                    )}
+                    title={comment.author}
+                  >
+                    {authorInitials(comment.author)}
+                  </span>
+                  <span className="truncate font-medium">{comment.author}</span>
+                </div>
+                <span className="shrink-0 text-[10px] text-muted-foreground">L{comment.line}</span>
               </div>
               <p className="whitespace-pre-wrap text-foreground/90">{comment.text}</p>
               <div className="mt-2 flex gap-1">
@@ -155,6 +196,32 @@ export function CommentsPanel({
       </div>
 
       <div className="shrink-0 space-y-2 border-t border-border p-3">
+        {needsName ? (
+          <div className="space-y-1.5">
+            <label className="block text-[10px] font-medium text-muted-foreground">
+              Your name (shown to collaborators)
+            </label>
+            <div className="flex gap-1">
+              <input
+                type="text"
+                className="h-7 min-w-0 flex-1 rounded border border-border bg-background px-2 text-xs outline-none ring-primary focus:ring-1"
+                placeholder="Your name"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 px-2 text-[10px]"
+                disabled={!nameDraft.trim()}
+                onClick={saveAuthorName}
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <label className="flex items-center gap-2 text-[10px] text-muted-foreground">
           Line
           <input
@@ -174,7 +241,7 @@ export function CommentsPanel({
         <Button
           type="button"
           className="h-7 w-full text-xs"
-          disabled={submitting || !draft.trim()}
+          disabled={submitting || !draft.trim() || (needsName && !nameDraft.trim())}
           onClick={() => void handleSubmit()}
         >
           Add comment

@@ -152,6 +152,72 @@ export function findMissingCitations(combinedMarkdown: string, bibliography: str
   return wanted.filter((key) => !inBib.has(key));
 }
 
+async function readUnitExportBody(
+  modelRoot: string,
+  dirRel: string,
+  includeDrafts: boolean,
+  unitTitle: string,
+): Promise<string | null> {
+  const draftAbs = path.join(modelRoot, dirRel, "draft.md");
+  if (existsSync(draftAbs)) {
+    const draftRaw = (await readFile(draftAbs, "utf8")).trim();
+    if (draftRaw) {
+      const draft = stripDuplicateLeadingH1(draftRaw, unitTitle);
+      if (draft) return draft;
+    }
+  }
+
+  if (!includeDrafts) return null;
+
+  const outlineAbs = path.join(modelRoot, dirRel, "outline.md");
+  if (!existsSync(outlineAbs)) return null;
+  const outlineRaw = (await readFile(outlineAbs, "utf8")).trim();
+  if (!outlineRaw) return null;
+  return stripDuplicateLeadingH1(outlineRaw, unitTitle);
+}
+
+async function countUnitSources(
+  modelRoot: string,
+  paperRel: string,
+  includeDrafts: boolean,
+): Promise<{ units: number; withDraft: number; withOutlineOnly: number }> {
+  let units = 0;
+  let withDraft = 0;
+  let withOutlineOnly = 0;
+
+  async function walk(dirRel: string): Promise<void> {
+    if (dirRel.includes("/notes/") || dirRel.endsWith("/notes")) return;
+
+    if (await isUnitDir(modelRoot, dirRel)) {
+      units += 1;
+      const data = await readIndexData(modelRoot, dirRel);
+      const status = String(data.status ?? "outline");
+      if (!shouldIncludeUnit(status, includeDrafts)) return;
+
+      const draftAbs = path.join(modelRoot, dirRel, "draft.md");
+      const hasDraft = existsSync(draftAbs) && (await readFile(draftAbs, "utf8")).trim().length > 0;
+      if (hasDraft) {
+        withDraft += 1;
+        return;
+      }
+
+      const outlineAbs = path.join(modelRoot, dirRel, "outline.md");
+      const hasOutline =
+        includeDrafts && existsSync(outlineAbs) && (await readFile(outlineAbs, "utf8")).trim().length > 0;
+      if (hasOutline) withOutlineOnly += 1;
+      return;
+    }
+
+    for (const child of await orderedChildren(modelRoot, dirRel)) {
+      const childRel = resolveChildPath(modelRoot, dirRel, child);
+      if (childRel) await walk(childRel);
+    }
+  }
+
+  await walk(paperRel);
+  return { units, withDraft, withOutlineOnly };
+}
+
 async function walkPaper(
   modelRoot: string,
   dirRel: string,
@@ -166,14 +232,10 @@ async function walkPaper(
     const status = String(data.status ?? "outline");
     if (!shouldIncludeUnit(status, includeDrafts)) return 0;
 
-    const draftAbs = path.join(modelRoot, dirRel, "draft.md");
-    if (!existsSync(draftAbs)) return 0;
-    const draftRaw = (await readFile(draftAbs, "utf8")).trim();
-    if (!draftRaw) return 0;
     const unitTitle = String(data.title ?? path.posix.basename(dirRel));
-    const draft = stripDuplicateLeadingH1(draftRaw, unitTitle);
-    if (!draft) return 0;
-    parts.push(`${draft}\n\n`);
+    const body = await readUnitExportBody(modelRoot, dirRel, includeDrafts, unitTitle);
+    if (!body) return 0;
+    parts.push(`${body}\n\n`);
     return 1;
   }
 
@@ -295,12 +357,17 @@ export async function exportPaper(
     includeDrafts,
   );
   if (unitCount === 0) {
-    throw new ModelFsError(
-      includeDrafts
-        ? "Nothing to export — no unit draft.md files with content."
-        : "Nothing to export — no units with status: approved. Try includeDrafts: true.",
-      400,
-    );
+    const stats = await countUnitSources(modelRoot, paperRel, includeDrafts);
+    const message = includeDrafts
+      ? stats.units === 0
+        ? "Nothing to export — no units found in this paper."
+        : stats.withDraft === 0 && stats.withOutlineOnly === 0
+          ? `Nothing to export — ${stats.units} unit${stats.units === 1 ? "" : "s"} found but no draft.md or outline.md content.`
+          : "Nothing to export — no unit draft.md files with content."
+      : stats.withDraft > 0
+        ? `Nothing to export — ${stats.withDraft} draft${stats.withDraft === 1 ? "" : "s"} exist but none are approved. Enable "Include non-approved drafts".`
+        : "Nothing to export — no units with status: approved. Enable \"Include non-approved drafts\" to export outlines.";
+    throw new ModelFsError(message, 400);
   }
 
   const exportDir = path.join(repoRoot, ".treewriter-exports");

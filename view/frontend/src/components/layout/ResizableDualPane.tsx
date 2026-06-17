@@ -76,6 +76,7 @@ export function ResizableDualPane({
         )}
         onPointerDown={(event) => {
           event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
           setDragging(true);
         }}
         onKeyDown={(event) => {

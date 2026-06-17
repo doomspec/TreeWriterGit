@@ -117,8 +117,8 @@ describe("buildPreview", () => {
 
   it("command for writesFiles=false provider appends redirect", async () => {
     const stdoutProvider = {
-      name: "Codex",
-      command: "codex",
+      name: "Echo",
+      command: "echo",
       args: ["{prompt}"],
       writesFiles: false,
     };
@@ -131,6 +131,25 @@ describe("buildPreview", () => {
       stdoutProvider,
     );
     expect(result.command).toContain("> 'intro/problem/draft.md'");
+  });
+
+  it("codex never gets stdout redirect (requires a TTY)", async () => {
+    const codexProvider = {
+      name: "Codex",
+      command: "codex",
+      args: ["{prompt}"],
+      writesFiles: false,
+    };
+    await makeUnit("intro/problem", "Idea.");
+    const result = await buildPreview(
+      modelRoot,
+      repoRoot,
+      "intro/problem",
+      "draft",
+      codexProvider,
+    );
+    expect(result.command).toContain("codex");
+    expect(result.command).not.toContain(">");
   });
 
   it("writes per-session prompt file under .treewriter-prompts/", async () => {

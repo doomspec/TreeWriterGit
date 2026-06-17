@@ -12,6 +12,7 @@ import {
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, NamePromptDialog } from "@/components/ui/NamePromptDialog";
+import { getDefaultAgentProvider, rememberAgentProvider } from "@/lib/agentDispatchClient";
 import { cn } from "@/lib/utils";
 import { ApiError, deleteNode, moveNode, reorderChildren } from "@/modelApi";
 import {
@@ -86,7 +87,7 @@ export function FolderBrowse({
   const indexBodyMarkdown = useMemo(() => {
     if (bodySummary) return "";
     const withoutFm = stripFrontmatter(outlineContent || indexContent);
-    return withoutFm.replace(/^\s*#(?!#)\s+.+?\r?\n?/, "").trim();
+    return withoutFm.replace(/^\s*#(?!#)\s+[^\n\r]+\r?\n?/, "").trim();
   }, [bodySummary, indexContent, outlineContent]);
 
   useEffect(() => {
@@ -243,18 +244,14 @@ export function FolderBrowse({
   const handleRefreshIndex = async () => {
     if (!onSendToTerminal) return;
     try {
-      const providersRes = await fetch(`${apiBaseUrl}/api/agent/providers`);
-      if (!providersRes.ok) throw new Error("Failed to load providers");
-      const providersData = (await providersRes.json()) as {
-        defaultProvider: string;
-      };
+      const provider = await getDefaultAgentProvider();
       const res = await fetch(`${apiBaseUrl}/api/agent/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           unitPath: currentPath,
           action: "refresh-index",
-          provider: providersData.defaultProvider,
+          provider,
         }),
       });
       if (!res.ok) {
@@ -262,6 +259,7 @@ export function FolderBrowse({
         throw new Error(body.error ?? `Refresh preview failed (${res.status})`);
       }
       const data = (await res.json()) as { command: string };
+      rememberAgentProvider(provider);
       onSendToTerminal(`${data.command}\n`);
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -269,7 +267,7 @@ export function FolderBrowse({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-[hsl(var(--workspace-bg))]">
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-workspace">
       <article className="border-b border-border bg-card p-5 shadow-sm">
         <div className="mb-2 flex items-start gap-2">
           <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
@@ -279,14 +277,10 @@ export function FolderBrowse({
                 {meta.title ?? currentPath.split("/").pop() ?? "model"}
               </h2>
               {stale ? (
-                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium uppercase text-amber-700">
-                  Outline may be stale
-                </span>
+                <span className="ui-badge-warning">Outline may be stale</span>
               ) : null}
               {meta.kind ? (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
-                  {meta.kind}
-                </span>
+                <span className="ui-badge-neutral">{meta.kind}</span>
               ) : null}
             </div>
           </div>
@@ -334,7 +328,7 @@ export function FolderBrowse({
         ) : null}
         {outlineLinks.length > 0 ? (
           <div className="mt-4">
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Outline</h3>
+            <h3 className="ui-label mb-2">Outline</h3>
             <ul className="flex flex-wrap gap-2">
               {outlineLinks.map((link) => (
                 <li key={`${link.label}:${link.href}`}>

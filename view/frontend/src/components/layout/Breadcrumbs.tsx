@@ -6,14 +6,19 @@ import { breadcrumbSegments } from "@/lib/modelTree";
 export function Breadcrumbs({
   path,
   onNavigate,
+  compact = false,
 }: {
   path: string;
   onNavigate: (path: string) => void;
+  compact?: boolean;
 }) {
   const segments = breadcrumbSegments(path);
 
   return (
-    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-0.5 text-sm">
+    <nav
+      aria-label="Breadcrumb"
+      className={cn("flex min-w-0 items-center gap-0.5", compact ? "text-xs" : "text-sm")}
+    >
       {segments.map((segment, index) => {
         const isLast = index === segments.length - 1;
         return (

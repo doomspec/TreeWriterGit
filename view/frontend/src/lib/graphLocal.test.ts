@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterLocalGraph, resolveFocusId, type GraphEdge, type GraphNode } from "./graphLocal";
+import { filterLocalGraph, resolveFocusId, resolveGraphFetchRoot, type GraphEdge, type GraphNode } from "./graphLocal";
 
 const nodes: GraphNode[] = [
   { id: "papers/a", label: "Paper A", type: "paper", links: 2 },
@@ -23,15 +23,37 @@ describe("resolveFocusId", () => {
   });
 });
 
+describe("resolveGraphFetchRoot", () => {
+  it("uses paper root for paths under a paper", () => {
+    expect(resolveGraphFetchRoot("papers/roboculture/introduction/background")).toBe("papers/roboculture");
+    expect(resolveGraphFetchRoot("papers/roboculture")).toBe("papers/roboculture");
+  });
+
+  it("uses model root for non-paper paths", () => {
+    expect(resolveGraphFetchRoot("notes/lit/ref")).toBe("");
+    expect(resolveGraphFetchRoot("")).toBe("");
+  });
+});
+
 describe("filterLocalGraph", () => {
   it("returns full graph in global mode", () => {
     const result = filterLocalGraph(nodes, edges, "papers/a/intro/claim", 2, "global");
     expect(result.nodes.length).toBe(5);
   });
 
-  it("keeps focus and neighbors within depth", () => {
+  it("keeps focus, neighbors within depth, and ancestor chain", () => {
     const result = filterLocalGraph(nodes, edges, "papers/a/intro/claim", 1, "local");
-    expect(result.nodes.map((n) => n.id).sort()).toEqual(["papers/a/intro", "papers/a/intro/claim"].sort());
+    expect(result.nodes.map((n) => n.id).sort()).toEqual(
+      ["papers/a", "papers/a/intro", "papers/a/intro/claim"].sort(),
+    );
+    expect(result.edges).toContainEqual({
+      source: "papers/a/intro",
+      target: "papers/a/intro/claim",
+    });
+    expect(result.edges).toContainEqual({
+      source: "papers/a",
+      target: "papers/a/intro",
+    });
 
     const wide = filterLocalGraph(nodes, edges, "papers/a/intro/claim", 2, "local");
     expect(wide.nodes.map((n) => n.id).sort()).toEqual(

@@ -16,6 +16,8 @@ export function EditorWorkspace({
   onNavigate,
   dualPaneSplit,
   onDualPaneSplitChange,
+  onSendToTerminal,
+  onBeforeDispatch,
 }: {
   unitPath: string | null;
   activeFile: string;
@@ -27,6 +29,8 @@ export function EditorWorkspace({
   onNavigate?: (target: NavigateTarget) => void;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
+  onSendToTerminal?: (command: string) => void;
+  onBeforeDispatch?: () => void;
 }) {
   const isUnit = Boolean(unitPath);
   const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
@@ -60,6 +64,8 @@ export function EditorWorkspace({
               onError={onError}
               linkContextPath={linkContextPath}
               onNavigate={onNavigate}
+              onSendToTerminal={onSendToTerminal}
+              onBeforeDispatch={onBeforeDispatch}
             />
           }
           right={
@@ -75,6 +81,8 @@ export function EditorWorkspace({
               onError={onError}
               linkContextPath={linkContextPath}
               onNavigate={onNavigate}
+              onSendToTerminal={onSendToTerminal}
+              onBeforeDispatch={onBeforeDispatch}
             />
           }
         />
@@ -120,6 +128,8 @@ export function EditorWorkspace({
         onError={onError}
         linkContextPath={linkContextPath}
         onNavigate={onNavigate}
+        splitPercent={dualPaneSplit}
+        onSplitChange={onDualPaneSplitChange}
       />
     </div>
   );

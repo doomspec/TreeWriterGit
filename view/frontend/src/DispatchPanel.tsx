@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { fetchContextFiles, fanOutDispatch } from "@/modelApi";
+import { saveLastAgentProvider, resolveAgentProvider } from "@/lib/lastAgentProvider";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -51,8 +52,8 @@ interface SessionFile {
 }
 
 const STATUS_COLOR: Record<SessionFile["status"], string> = {
-  dispatched: "text-yellow-500",
-  complete: "text-green-500",
+  dispatched: "text-warning",
+  complete: "text-success",
   skipped: "text-muted-foreground",
 };
 
@@ -121,7 +122,12 @@ export function DispatchPanel({
       if (!res.ok) throw new Error(`Providers load failed (${res.status})`);
       const data = (await res.json()) as { aiProviders: AiProvider[]; defaultProvider: string };
       setProviders(data.aiProviders);
-      setSelectedProvider(data.defaultProvider);
+      setSelectedProvider(
+        resolveAgentProvider(
+          data.defaultProvider,
+          data.aiProviders.map((p) => p.name),
+        ),
+      );
       setProvidersLoaded(true);
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -231,6 +237,7 @@ export function DispatchPanel({
       setPreview(data);
       setEditedCommand(data.command);
       if (runAfter) {
+        saveLastAgentProvider(selectedProvider);
         onSendToTerminal(data.command + "\n");
         await recordSession(data.command);
       }
@@ -267,6 +274,7 @@ export function DispatchPanel({
 
   const handleRun = () => {
     if (editedCommand && preview) {
+      saveLastAgentProvider(selectedProvider);
       onSendToTerminal(editedCommand + "\n");
       void recordSession(editedCommand);
     } else {
@@ -288,6 +296,7 @@ export function DispatchPanel({
         onError("No units found under this section");
         return;
       }
+      saveLastAgentProvider(selectedProvider);
       for (const unit of units) {
         onSendToTerminal(unit.command + "\n");
         await new Promise((resolve) => window.setTimeout(resolve, 400));
@@ -341,7 +350,7 @@ export function DispatchPanel({
   }, [embedded, open]);
 
   return (
-    <div className="bg-[hsl(var(--sidebar-bg))]">
+    <div className="bg-sidebar">
       {!embedded ? (
         <button
           type="button"
@@ -373,7 +382,12 @@ export function DispatchPanel({
             <select
               className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-2 text-xs"
               value={selectedProvider}
-              onChange={(e) => { setSelectedProvider(e.target.value); setPreview(null); setEditedCommand(""); }}
+              onChange={(e) => {
+                setSelectedProvider(e.target.value);
+                saveLastAgentProvider(e.target.value);
+                setPreview(null);
+                setEditedCommand("");
+              }}
             >
               {providers.map((p) => (
                 <option key={p.name} value={p.name}>{p.name}</option>
@@ -535,7 +549,7 @@ export function DispatchPanel({
                               className="rounded-sm p-0.5 hover:bg-accent"
                               onClick={() => void handleMarkStatus(s, "complete")}
                             >
-                              <Check className="h-3 w-3 text-green-500" />
+                              <Check className="h-3 w-3 text-success" />
                             </button>
                             <button
                               type="button"
@@ -549,7 +563,7 @@ export function DispatchPanel({
                         )}
                       </div>
                       {s.status === "dispatched" && (
-                        <p className="mt-0.5 text-[10px] text-yellow-600">
+                        <p className="mt-0.5 text-ui-2xs text-warning">
                           ⚠ Not yet marked complete — was this session finished?
                         </p>
                       )}

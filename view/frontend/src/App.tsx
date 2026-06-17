@@ -5,16 +5,16 @@ import {
   ArrowUp,
   FilePlus,
   FolderPlus,
-  GitBranch,
-  PanelRightClose,
-  PanelRightOpen,
+  PanelBottomClose,
+  PanelBottomOpen,
   RefreshCw,
   TerminalSquare,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { RightPanel } from "@/components/layout/RightPanel";
+import { BottomPanel } from "@/components/layout/BottomPanel";
 import { Sidebar, type SidebarTab } from "@/components/layout/Sidebar";
 import { EditorWorkspace } from "@/components/editor/EditorWorkspace";
 import { SectionWorkspace } from "@/components/editor/SectionWorkspace";
@@ -34,6 +34,7 @@ import {
 import { createNode, fetchCommentSummary, type NodeKind } from "@/modelApi";
 import { GraphPanel } from "@/GraphPanel";
 import { PapersPanel } from "@/PapersPanel";
+import { PaperExportMenu } from "@/components/paper/PaperExportMenu";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import {
   loadWorkspacePreferences,
@@ -41,6 +42,14 @@ import {
   saveWorkspacePreferences,
 } from "@/lib/workspacePreferences";
 import type { GraphScope } from "@/lib/graphLocal";
+import { resolveGraphFetchRoot } from "@/lib/graphLocal";
+import {
+  buildTerminalWebSocketUrl,
+  clearTerminalSessionId,
+  loadTerminalSessionId,
+  parseTerminalSessionMessage,
+  saveTerminalSessionId,
+} from "@/lib/terminalSession";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 const terminalUrl = import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://localhost:4000/terminal";
@@ -58,8 +67,27 @@ type GitSyncState = {
   lastRunAt: string | null;
   lastSuccessAt: string | null;
   lastError: string | null;
+  lastOutput?: string | null;
   conflictDetected?: boolean;
 };
+
+function formatGitSyncError(state: GitSyncState): string {
+  const parts: string[] = [];
+  if (state.conflictDetected) {
+    parts.push("Git sync conflict detected.");
+  }
+  if (state.lastError?.trim()) {
+    parts.push(state.lastError.trim());
+  }
+  if (state.lastOutput?.trim()) {
+    parts.push(`---\n${state.lastOutput.trim()}`);
+  }
+  return parts.join("\n\n") || "Git sync failed.";
+}
+
+function gitSyncHasError(state: GitSyncState | null): boolean {
+  return Boolean(state && (state.lastError || state.conflictDetected));
+}
 
 export default function App() {
   const savedPrefs = useMemo(() => mergeWorkspaceDefaults(loadWorkspacePreferences()), []);
@@ -67,6 +95,10 @@ export default function App() {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const terminalConnectRef = useRef<{ sessionId: string | null; forceNew: boolean }>({
+    sessionId: loadTerminalSessionId(),
+    forceNew: false,
+  });
 
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [sessionKey, setSessionKey] = useState(0);
@@ -103,7 +135,12 @@ export default function App() {
   const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
   const unitPath = isUnit ? browsePath : null;
   const sectionPath = isPaperSection && !activeFile ? browsePath : null;
-  const graphRoot = sidebarTab === "papers" ? browsePath : currentPath;
+  const graphFocusPath = activeFile ? parentPath(activeFile) : currentPath || browsePath;
+  const graphFetchRoot = resolveGraphFetchRoot(graphFocusPath);
+  const exportPaperSlug = useMemo(
+    () => /^papers\/([^/]+)/.exec(browsePath)?.[1] ?? null,
+    [browsePath],
+  );
 
   useEffect(() => {
     saveWorkspacePreferences({
@@ -113,7 +150,7 @@ export default function App() {
       editorLayout,
       agentPanelOpen,
       searchQuery,
-      graphRoot,
+      graphRoot: graphFocusPath,
       graphScope,
       dualPaneSplit,
     });
@@ -123,7 +160,7 @@ export default function App() {
     currentPath,
     dualPaneSplit,
     editorLayout,
-    graphRoot,
+    graphFocusPath,
     graphScope,
     searchQuery,
     sidebarTab,
@@ -264,8 +301,8 @@ export default function App() {
       cursorBlink: true,
       convertEol: true,
       fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
-      lineHeight: 1.35,
+      fontSize: 11,
+      lineHeight: 1.3,
       theme: {
         background: "#0f1113",
         foreground: "#e8eaed",
@@ -274,7 +311,9 @@ export default function App() {
       },
     });
     const fitAddon = new FitAddon();
-    const socket = new WebSocket(terminalUrl);
+    const { sessionId, forceNew } = terminalConnectRef.current;
+    const socket = new WebSocket(buildTerminalWebSocketUrl(terminalUrl, { sessionId, forceNew }));
+    terminalConnectRef.current = { sessionId: loadTerminalSessionId(), forceNew: false };
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -305,7 +344,13 @@ export default function App() {
       sendResize();
     });
     socket.addEventListener("message", (event) => {
-      if (typeof event.data === "string") terminal.write(event.data);
+      if (typeof event.data !== "string") return;
+      const sessionIdFromServer = parseTerminalSessionMessage(event.data);
+      if (sessionIdFromServer) {
+        saveTerminalSessionId(sessionIdFromServer);
+        return;
+      }
+      terminal.write(event.data);
     });
     socket.addEventListener("close", () => {
       setConnectionState("closed");
@@ -352,10 +397,31 @@ export default function App() {
     }
   }, []);
 
-  const runGitSync = async () => {
+  const openAgentPanel = useCallback(() => {
+    setAgentPanelOpen(true);
+    refitTerminal();
+  }, [refitTerminal]);
+
+  const runGitSync = useCallback(async () => {
     const response = await fetch(`${apiBaseUrl}/api/git-sync/run`, { method: "POST" });
-    if (response.ok) setGitSync((await response.json()) as GitSyncState);
-  };
+    if (!response.ok) {
+      setError(`Git sync request failed (${response.status})`);
+      return;
+    }
+    const state = (await response.json()) as GitSyncState;
+    setGitSync(state);
+    if (gitSyncHasError(state)) {
+      setError(formatGitSyncError(state));
+    }
+  }, []);
+
+  const handleGitBadgeClick = useCallback(() => {
+    if (gitSync && gitSyncHasError(gitSync)) {
+      setError(formatGitSyncError(gitSync));
+      return;
+    }
+    void runGitSync();
+  }, [gitSync, runGitSync]);
 
   const containerKind: NodeKind =
     browsePath === "" || /(^|\/)sections$/.test(browsePath) ? "section" : "subsection";
@@ -402,7 +468,7 @@ export default function App() {
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-11 shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-4 shadow-sm">
+      <header className="relative z-20 flex h-11 shrink-0 items-center justify-between gap-4 overflow-visible border-b border-border bg-card px-4 shadow-sm">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex items-center gap-2">
             <TerminalSquare className="h-4 w-4 text-primary" aria-hidden="true" />
@@ -415,43 +481,61 @@ export default function App() {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <span
-            className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+          <button
+            type="button"
+            className={cn(
               gitSync?.conflictDetected
-                ? "bg-destructive/10 text-destructive"
-                : "bg-muted text-muted-foreground"
-            }`}
+                ? "ui-badge-destructive"
+                : gitSync?.lastError
+                  ? "ui-badge-warning"
+                  : gitSync?.running
+                    ? "ui-badge-warning"
+                    : gitSync?.enabled
+                      ? "ui-badge-success"
+                      : "ui-badge-neutral",
+              "cursor-pointer transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50",
+            )}
+            title={
+              gitSync && gitSyncHasError(gitSync)
+                ? formatGitSyncError(gitSync)
+                : gitSync?.enabled
+                  ? "Git sync (auto every 2 min) — click to sync now"
+                  : "Git sync disabled"
+            }
+            disabled={!gitSync?.enabled || gitSync?.running}
+            onClick={handleGitBadgeClick}
           >
             git {gitStatusLabel}
-          </span>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            terminal {connectionState}
-          </span>
+          </button>
+          <span className="ui-badge-neutral">terminal {connectionState}</span>
           <Button
             type="button"
             variant={agentPanelOpen ? "default" : "outline"}
             size="icon"
-            title={agentPanelOpen ? "Hide AI dispatch & terminal" : "Show AI dispatch & terminal"}
-            aria-label={agentPanelOpen ? "Hide agent panel" : "Show agent panel"}
+            title={agentPanelOpen ? "Hide bottom panel" : "Show terminal & AI dispatch"}
+            aria-label={agentPanelOpen ? "Hide bottom panel" : "Show bottom panel"}
             aria-pressed={agentPanelOpen}
             onClick={() => setAgentPanelOpen((open) => !open)}
           >
             {agentPanelOpen ? (
-              <PanelRightClose className="h-4 w-4" aria-hidden="true" />
+              <PanelBottomClose className="h-4 w-4" aria-hidden="true" />
             ) : (
-              <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
+              <PanelBottomOpen className="h-4 w-4" aria-hidden="true" />
             )}
           </Button>
-          <Button type="button" variant="outline" size="icon" title="Git sync" onClick={() => void runGitSync()}>
-            <GitBranch className="h-4 w-4" aria-hidden="true" />
-          </Button>
-          <Button type="button" variant="outline" size="icon" title="Refresh" onClick={() => reloadModel()}>
+          <Button type="button" variant="outline" size="icon" title="Refresh model" onClick={() => reloadModel()}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
           </Button>
+          <PaperExportMenu
+            paperSlug={exportPaperSlug}
+            onError={setError}
+            onComplete={() => reloadModel()}
+          />
         </div>
       </header>
 
-      <section className={agentPanelOpen ? "workspace-grid grid min-h-0 min-w-0 flex-1" : "workspace-grid workspace-grid--agent-collapsed grid min-h-0 min-w-0 flex-1"}>
+      <div className="workspace-shell flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="workspace-main grid min-h-0 flex-1">
         <Sidebar
           tree={tree}
           currentPath={browsePath}
@@ -468,6 +552,7 @@ export default function App() {
               embedded
               tree={tree}
               currentPath={currentPath}
+              refreshVersion={refreshVersion}
               onNavigate={(path) => navigateTo(path)}
               onModelChanged={reloadModel}
               onPaperCreated={(path) => {
@@ -479,54 +564,22 @@ export default function App() {
             />
           }
           graphContent={
-            <div className="graph-tab-host flex min-h-[280px] flex-1 flex-col overflow-hidden">
               <GraphPanel
                 embedded
-                root={graphRoot}
+                fetchRoot={graphFetchRoot}
+                focusPath={graphFocusPath}
                 graphScope={graphScope}
                 onGraphScopeChange={setGraphScope}
                 onSelectNode={(id) => {
                   if (!id.startsWith("missing:")) {
                     navigateTo(id);
-                    setSidebarTab("explorer");
                   }
                 }}
               />
-            </div>
           }
         />
 
-        <section className="relative grid min-h-0 grid-rows-[auto_1fr_auto] bg-[hsl(var(--workspace-bg))]">
-          <div className="flex h-11 items-center justify-between gap-3 border-b border-border bg-card px-4">
-            <div className="flex min-w-0 items-center gap-2 sm:hidden">
-              <Breadcrumbs path={currentPath} onNavigate={navigateTo} />
-            </div>
-            <div className="ml-auto flex items-center gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                title={`New ${containerKind}`}
-                onClick={() => createChild(containerKind)}
-              >
-                <FolderPlus className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button type="button" variant="outline" size="icon" title="New unit" onClick={() => createChild("unit")}>
-                <FilePlus className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                title="Up one level"
-                disabled={!canGoUp}
-                onClick={() => navigateTo(parentPath(browsePath))}
-              >
-                <ArrowUp className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-
+        <section className="relative flex min-h-0 flex-1 flex-col bg-workspace">
           <div className="flex min-h-0 flex-1 flex-col">
             {unitPath || activeFile ? (
               <EditorWorkspace
@@ -540,6 +593,8 @@ export default function App() {
                 onNavigate={handleMarkdownNavigate}
                 dualPaneSplit={dualPaneSplit}
                 onDualPaneSplitChange={setDualPaneSplit}
+                onSendToTerminal={sendToTerminal}
+                onBeforeDispatch={openAgentPanel}
               />
             ) : sectionPath ? (
               <SectionWorkspace
@@ -550,6 +605,8 @@ export default function App() {
                 onError={setError}
                 dualPaneSplit={dualPaneSplit}
                 onDualPaneSplitChange={setDualPaneSplit}
+                onSendToTerminal={sendToTerminal}
+                onBeforeDispatch={openAgentPanel}
               />
             ) : (
               <FolderBrowse
@@ -565,23 +622,62 @@ export default function App() {
             )}
           </div>
 
-          <footer className="flex h-8 items-center justify-between border-t border-border bg-card px-4 text-[11px] text-muted-foreground">
-            <span>
-              {commentSummary && commentSummary.unresolved > 0
-                ? `${commentSummary.unresolved} unresolved comment${commentSummary.unresolved === 1 ? "" : "s"}`
-                : `${files.length} files · autosave on`}
-            </span>
-            <span>
-              {gitSync?.conflictDetected
-                ? "Resolve git conflict in terminal"
+          <footer className="flex h-9 shrink-0 items-center gap-2 border-t border-border bg-card px-3 text-[11px] text-muted-foreground">
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+              <div className="min-w-0 shrink sm:hidden">
+                <Breadcrumbs path={currentPath} onNavigate={navigateTo} compact />
+              </div>
+              <span className="hidden truncate sm:inline">
+                {commentSummary && commentSummary.unresolved > 0
+                  ? `${commentSummary.unresolved} unresolved comment${commentSummary.unresolved === 1 ? "" : "s"}`
+                  : `${files.length} files · autosave on`}
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title={`New ${containerKind}`}
+                onClick={() => createChild(containerKind)}
+              >
+                <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title="New unit"
+                onClick={() => createChild("unit")}
+              >
+                <FilePlus className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title="Up one level"
+                disabled={!canGoUp}
+                onClick={() => navigateTo(parentPath(browsePath))}
+              >
+                <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </div>
+            <span className="hidden max-w-xs truncate shrink-0 sm:inline" title={gitSync?.lastError ?? undefined}>
+              {gitSync && gitSyncHasError(gitSync)
+                ? gitSync.lastError ?? "Git sync conflict — click badge for details"
                 : gitSync?.lastSuccessAt
                   ? `Synced ${new Date(gitSync.lastSuccessAt).toLocaleTimeString()}`
                   : "Awaiting sync"}
             </span>
           </footer>
         </section>
+        </div>
 
-        <RightPanel
+        <BottomPanel
           open={agentPanelOpen}
           onOpenChange={setAgentPanelOpen}
           currentPath={browsePath}
@@ -590,11 +686,19 @@ export default function App() {
           canFanOut={isPaperSection && !isUnit}
           onSendToTerminal={sendToTerminal}
           onError={setError}
-          onReconnect={() => setSessionKey((k) => k + 1)}
+          onReconnect={() => {
+            const previousSessionId = loadTerminalSessionId();
+            clearTerminalSessionId();
+            terminalConnectRef.current = {
+              sessionId: previousSessionId,
+              forceNew: true,
+            };
+            setSessionKey((k) => k + 1);
+          }}
           onLayoutChange={refitTerminal}
           terminalHostRef={terminalElementRef}
         />
-      </section>
+      </div>
 
       <NamePromptDialog
         open={createPrompt !== null}
@@ -606,11 +710,18 @@ export default function App() {
       />
 
       {error ? (
-        <div className="fixed bottom-3 right-3 flex max-w-md items-center gap-2 rounded-lg border border-destructive/40 bg-background px-3 py-2 text-xs text-destructive shadow-lg">
-          <span className="min-w-0 flex-1">{error}</span>
-          <button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
-            dismiss
-          </button>
+        <div className="fixed bottom-3 right-3 flex max-w-lg items-start gap-2 rounded-lg border border-destructive/40 bg-background px-3 py-2 text-xs text-destructive shadow-lg">
+          <span className="min-w-0 flex-1 whitespace-pre-wrap">{error}</span>
+          <div className="flex shrink-0 flex-col gap-1">
+            {gitSyncHasError(gitSync) ? (
+              <button type="button" className="underline" onClick={() => void runGitSync()}>
+                retry sync
+              </button>
+            ) : null}
+            <button type="button" className="underline" onClick={() => setError(null)}>
+              dismiss
+            </button>
+          </div>
         </div>
       ) : null}
     </main>

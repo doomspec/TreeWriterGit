@@ -21,6 +21,7 @@ import {
   type GraphNodeType,
   type GraphScope,
 } from "@/lib/graphLocal";
+import { applyFitTransform } from "@/lib/graphFit";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -39,33 +40,44 @@ interface RawEdge {
 type SimNode = RawNode & SimulationNodeDatum & { isFocus?: boolean };
 type SimEdge = SimulationLinkDatum<SimNode> & { kind?: "outline" | "contains" };
 
-const TYPE_COLOR: Record<GraphNodeType, string> = {
-  paper: "#7c3aed",
-  section: "#2563eb",
-  unit: "#059669",
-  note: "#d97706",
-  doc: "#64748b",
-  missing: "#dc2626",
+const GRAPH_COLOR_VAR: Record<GraphNodeType, string> = {
+  paper: "--graph-paper",
+  section: "--graph-section",
+  unit: "--graph-unit",
+  note: "--graph-note",
+  doc: "--graph-doc",
+  missing: "--graph-missing",
 };
+
+function graphColor(type: GraphNodeType): string {
+  return `hsl(var(${GRAPH_COLOR_VAR[type]}))`;
+}
 
 function endpointId(value: string | number | SimNode): string {
   return typeof value === "object" ? value.id : String(value);
 }
 
 export function GraphPanel({
-  root,
+  fetchRoot,
+  focusPath,
   onSelectNode,
   onClose,
   embedded = false,
   graphScope: graphScopeProp,
   onGraphScopeChange,
+  active = true,
 }: {
-  root: string;
+  /** Directory passed to GET /api/model/graph?root= (paper root, not leaf unit). */
+  fetchRoot: string;
+  /** Current navigation path used to pick the focused node. */
+  focusPath: string;
   onSelectNode: (id: string) => void;
   onClose?: () => void;
   embedded?: boolean;
   graphScope?: GraphScope;
   onGraphScopeChange?: (scope: GraphScope) => void;
+  /** When false, skip layout measurement (panel hidden). */
+  active?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -91,20 +103,38 @@ export function GraphPanel({
   };
 
   useEffect(() => {
+    if (!active) return;
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const { width, height } = entries[0]?.contentRect ?? { width: 480, height: 360 };
-      if (width > 0 && height > 0) setSize({ w: width, h: height });
-    });
+
+    const updateSize = () => {
+      const { width, height } = el.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        setSize({ w: Math.round(width), h: Math.round(height) });
+      }
+    };
+
+    updateSize();
+    const raf = window.requestAnimationFrame(updateSize);
+    const ro = new ResizeObserver(() => updateSize());
     ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [active]);
 
   useEffect(() => {
+    if (!fetchRoot) {
+      setRawNodes([]);
+      setRawEdges([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
-    fetch(`${apiBaseUrl}/api/model/graph?root=${encodeURIComponent(root)}`)
+    fetch(`${apiBaseUrl}/api/model/graph?root=${encodeURIComponent(fetchRoot)}`)
       .then(async (response) => {
         if (!response.ok) throw new Error(`Graph load failed (${response.status})`);
         return (await response.json()) as { nodes: RawNode[]; edges: RawEdge[] };
@@ -125,9 +155,9 @@ export function GraphPanel({
     return () => {
       cancelled = true;
     };
-  }, [root]);
+  }, [fetchRoot]);
 
-  const focusId = useMemo(() => resolveFocusId(rawNodes, root), [rawNodes, root]);
+  const focusId = useMemo(() => resolveFocusId(rawNodes, focusPath), [rawNodes, focusPath]);
 
   const filtered = useMemo(
     () => filterLocalGraph(rawNodes, rawEdges, focusId, depth, scope),
@@ -202,10 +232,14 @@ export function GraphPanel({
       });
 
     const selection = select(svg).call(behavior);
+    requestAnimationFrame(() => {
+      applyFitTransform(svg, behavior, layer, size.w, size.h);
+    });
+
     return () => {
       selection.on(".zoom", null);
     };
-  }, [simNodes.length, size.h, size.w]);
+  }, [filtered.focusId, filtered.nodes.length, scope, depth, simNodes.length, size.h, size.w]);
 
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -219,6 +253,16 @@ export function GraphPanel({
   }, [simEdges]);
 
   const focusNeighbors = filtered.focusId ? (neighbors.get(filtered.focusId) ?? new Set<string>()) : new Set<string>();
+
+  if (!fetchRoot) {
+    return (
+      <div className={cn("flex flex-col bg-background", embedded ? "min-h-0 h-full" : "absolute inset-0 z-10")}>
+        <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-muted-foreground">
+          Open a paper to view its link graph.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex flex-col bg-background", embedded ? "min-h-0 h-full" : "absolute inset-0 z-10")}>
@@ -274,94 +318,107 @@ export function GraphPanel({
       </div>
       {error ? (
         <div className="p-4 text-xs text-destructive">{error}</div>
-      ) : loading ? (
-        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">Loading graph…</div>
-      ) : simNodes.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">No nodes in view</div>
       ) : (
         <div ref={containerRef} className="graph-canvas-host min-h-0 flex-1">
-          <svg
-            ref={svgRef}
-            width={size.w}
-            height={size.h}
-            className="block h-full w-full touch-none"
-            role="img"
-            aria-label="Semantic link graph"
-          >
-            <g ref={zoomLayerRef}>
-            {simEdges.map((edge, index) => {
-              const s = edge.source as SimNode;
-              const t = edge.target as SimNode;
-              if (typeof s !== "object" || typeof t !== "object") return null;
-              const highlight =
-                !hovered ||
-                hovered === s.id ||
-                hovered === t.id ||
-                (neighbors.get(hovered)?.has(s.id) && neighbors.get(hovered)?.has(t.id));
-              return (
-                <line
-                  key={index}
-                  x1={s.x}
-                  y1={s.y}
-                  x2={t.x}
-                  y2={t.y}
-                  stroke="currentColor"
-                  className={edge.kind === "contains" ? "text-muted-foreground" : "text-primary"}
-                  strokeOpacity={highlight ? 0.55 : 0.2}
-                  strokeWidth={edge.kind === "contains" ? 1 : highlight ? 1.75 : 1}
-                  strokeDasharray={edge.kind === "contains" ? "4 3" : undefined}
-                />
-              );
-            })}
-            {simNodes.map((node) => {
-              const radius = (node.isFocus ? 10 : 7) + Math.min(node.links, 4);
-              const showLabel = shouldShowLabel(node.id, filtered.focusId, focusNeighbors, hovered);
-              const dimmed = hovered !== null && hovered !== node.id && !neighbors.get(hovered)?.has(node.id);
-              return (
-                <g
-                  key={node.id}
-                  transform={`translate(${node.x ?? 0},${node.y ?? 0})`}
-                  style={{ cursor: "pointer", opacity: dimmed ? 0.35 : 1 }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${node.label}, ${node.type}`}
-                  onMouseEnter={() => setHovered(node.id)}
-                  onMouseLeave={() => setHovered(null)}
-                  onClick={() => onSelectNode(node.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onSelectNode(node.id);
-                    }
-                  }}
-                >
-                  {node.isFocus ? (
-                    <circle r={radius + 4} fill="none" stroke={TYPE_COLOR[node.type]} strokeOpacity={0.25} strokeWidth={3} />
-                  ) : null}
-                  <circle
-                    r={radius}
-                    fill={TYPE_COLOR[node.type]}
-                    stroke="white"
-                    strokeWidth={node.type === "missing" ? 0 : 1.5}
-                    strokeDasharray={node.type === "missing" ? "2 2" : undefined}
-                  />
-                  {showLabel ? (
-                    <text
-                      x={radius + 4}
-                      y={4}
-                      fontSize={11}
-                      fontWeight={node.isFocus ? 600 : 400}
-                      className="fill-foreground"
-                      style={{ pointerEvents: "none" }}
+          {loading ? (
+            <div className="flex h-full min-h-[200px] items-center justify-center text-xs text-muted-foreground">
+              Loading graph…
+            </div>
+          ) : simNodes.length === 0 ? (
+            <div className="flex h-full min-h-[200px] items-center justify-center text-xs text-muted-foreground">
+              No nodes in view
+            </div>
+          ) : (
+            <svg
+              ref={svgRef}
+              width={size.w}
+              height={size.h}
+              viewBox={`0 0 ${size.w} ${size.h}`}
+              className="block h-full w-full touch-none"
+              role="img"
+              aria-label="Semantic link graph"
+            >
+              <g ref={zoomLayerRef}>
+                {simEdges.map((edge, index) => {
+                  const s = edge.source as SimNode;
+                  const t = edge.target as SimNode;
+                  if (typeof s !== "object" || typeof t !== "object") return null;
+                  const highlight =
+                    !hovered ||
+                    hovered === s.id ||
+                    hovered === t.id ||
+                    (neighbors.get(hovered)?.has(s.id) && neighbors.get(hovered)?.has(t.id));
+                  return (
+                    <line
+                      key={index}
+                      x1={s.x}
+                      y1={s.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="currentColor"
+                      className={edge.kind === "contains" ? "text-muted-foreground" : "text-primary"}
+                      strokeOpacity={highlight ? 0.55 : 0.2}
+                      strokeWidth={edge.kind === "contains" ? 1 : highlight ? 1.75 : 1}
+                      strokeDasharray={edge.kind === "contains" ? "4 3" : undefined}
+                    />
+                  );
+                })}
+                {simNodes.map((node) => {
+                  const radius = (node.isFocus ? 10 : 7) + Math.min(node.links, 4);
+                  const showLabel = shouldShowLabel(node.id, filtered.focusId, focusNeighbors, hovered);
+                  const dimmed = hovered !== null && hovered !== node.id && !neighbors.get(hovered)?.has(node.id);
+                  return (
+                    <g
+                      key={node.id}
+                      transform={`translate(${node.x ?? 0},${node.y ?? 0})`}
+                      style={{ cursor: "pointer", opacity: dimmed ? 0.35 : 1 }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${node.label}, ${node.type}`}
+                      onMouseEnter={() => setHovered(node.id)}
+                      onMouseLeave={() => setHovered(null)}
+                      onClick={() => onSelectNode(node.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onSelectNode(node.id);
+                        }
+                      }}
                     >
-                      {node.label}
-                    </text>
-                  ) : null}
-                </g>
-              );
-            })}
-            </g>
-          </svg>
+                      {node.isFocus ? (
+                        <circle
+                          r={radius + 4}
+                          fill="none"
+                          stroke={graphColor(node.type)}
+                          strokeOpacity={0.25}
+                          strokeWidth={3}
+                        />
+                      ) : null}
+                      <circle
+                        r={radius}
+                        fill={graphColor(node.type)}
+                        stroke="white"
+                        strokeWidth={node.type === "missing" ? 0 : 1.5}
+                        strokeDasharray={node.type === "missing" ? "2 2" : undefined}
+                      />
+                      {showLabel ? (
+                        <text
+                          x={radius + 4}
+                          y={4}
+                          fontSize={11}
+                          fontWeight={node.isFocus ? 600 : 400}
+                          className="fill-foreground"
+                          style={{ pointerEvents: "none" }}
+                        >
+                          {node.label}
+                        </text>
+                      ) : null}
+                    </g>
+                  );
+                })}
+              </g>
+            </svg>
+          )}
         </div>
       )}
     </div>

@@ -53,6 +53,14 @@ describe("parseOutlineSummary", () => {
     const md = `# Title\n\n## Summary\n\nHello summary.\n\n## Outline\n`;
     expect(parseOutlineSummary(md)).toBe("Hello summary.");
   });
+
+  it("reads first paragraph after H1 when ## Summary is absent", () => {
+    const md =
+      "# Background\n\nMotivate lab automation: cell culture is tedious.\n";
+    expect(parseOutlineSummary(md)).toBe(
+      "Motivate lab automation: cell culture is tedious.",
+    );
+  });
 });
 
 describe("composeSectionView", () => {
@@ -78,12 +86,11 @@ describe("composeSectionView", () => {
     const view = await composeSectionView(root, "introduction");
     expect(view.title).toBe("Introduction");
     expect(view.children).toHaveLength(2);
-    expect(view.outlineMarkdown).toContain("### Background");
-    expect(view.outlineMarkdown).toContain("[Open Background →](background/INDEX.md)");
-    expect(view.outlineMarkdown).not.toContain("### [Background]");
+    expect(view.outlineMarkdown).toContain("### [Background](background/INDEX.md)");
+    expect(view.outlineMarkdown).not.toContain("[Open Background →]");
     expect(view.outlineMarkdown).toContain("Prior work summary.");
-    expect(view.draftMarkdown).toContain("## Background");
-    expect(view.draftMarkdown).toContain("[Open Background →](background/INDEX.md)");
+    expect(view.draftMarkdown).toContain("## [Background](background/INDEX.md)");
+    expect(view.draftMarkdown).not.toContain("[Open Background →]");
     expect(view.draftMarkdown).toContain("Prior work draft prose.");
     expect(view.draftMarkdown).toContain("Claims draft prose.");
   });
@@ -93,7 +100,7 @@ describe("composeSectionView", () => {
     await writeSection("section/background", { kind: "unit", title: "background" });
 
     const view = await composeSectionView(root, "section");
-    expect(view.outlineMarkdown).toContain("### Background");
+    expect(view.outlineMarkdown).toContain("### [Background](background/INDEX.md)");
     expect(view.children[0]?.title).toBe("Background");
   });
 });

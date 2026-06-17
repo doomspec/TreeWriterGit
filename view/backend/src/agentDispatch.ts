@@ -22,6 +22,9 @@ const DEFAULT_PROVIDERS: AiProvider[] = [
   { name: "Aider", command: "aider", args: ["--message", "{prompt}", "{files}"], writesFiles: true },
 ];
 
+/** CLIs that refuse to run when stdout is redirected (e.g. codex interactive mode). */
+const TTY_STDOUT_COMMANDS = new Set(["codex"]);
+
 export async function loadProviders(repoRoot: string): Promise<ProviderConfig> {
   const configPath = path.join(repoRoot, ".treewriter.json");
   try {
@@ -350,7 +353,7 @@ export async function buildPreview(
     .join(" ");
 
   let command = `${provider.command} ${argStr}`;
-  if (!provider.writesFiles) {
+  if (!provider.writesFiles && !TTY_STDOUT_COMMANDS.has(provider.command)) {
     command += ` > ${quotedOutput}`;
   }
 

@@ -38,29 +38,40 @@ export function displayChildTitle(indexTitle: unknown, folderName: string): stri
   return fromIndex;
 }
 
+function linkedHeadingBlock(
+  depth: number,
+  childTitle: string,
+  linkHref: string,
+  body = "",
+): string {
+  const heading = "#".repeat(Math.min(depth + 1, 4));
+  const block = `${heading} [${childTitle}](${linkHref})\n\n`;
+  return body ? `${block}${body}\n\n` : block;
+}
+
 function draftHeadingBlock(
   depth: number,
   childTitle: string,
   linkHref: string,
   body: string,
 ): string {
-  const heading = "#".repeat(Math.min(depth + 1, 4));
-  return `${heading} ${childTitle}\n\n[Open ${childTitle} →](${linkHref})\n\n${body}\n\n`;
+  return linkedHeadingBlock(depth, childTitle, linkHref, body);
 }
 
 function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
 }
 
+/** Strip a single ATX H1 line (`# Title`), not just the first character of the title. */
 function stripLeadingH1(markdown: string): string {
-  return stripFrontmatter(markdown).replace(/^\s*#(?!#)\s+.+?\r?\n?/, "").trim();
+  return stripFrontmatter(markdown).replace(/^\s*#(?!#)\s+[^\n\r]+\r?\n?/, "").trim();
 }
 
 export function parseOutlineSummary(markdown: string): string | null {
   const body = stripFrontmatter(markdown);
   const summarySection = body.match(/##\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\n#[^#]|$)/i);
   if (summarySection?.[1]?.trim()) return summarySection[1].trim();
-  const afterH1 = body.replace(/^\s*#(?!#)\s+.+?\r?\n?/, "").trim();
+  const afterH1 = body.replace(/^\s*#(?!#)\s+[^\n\r]+\r?\n?/, "").trim();
   const firstBlock = afterH1.split(/\n\n+/)[0]?.trim();
   return firstBlock || null;
 }
@@ -86,7 +97,6 @@ async function composeDraftBlock(
   depth: number,
 ): Promise<string> {
   const unit = await isUnitDir(modelRoot, childRel);
-  const heading = "#".repeat(Math.min(depth + 1, 4));
 
   if (unit) {
     const draft = await readDraftContent(modelRoot, childRel);
@@ -113,7 +123,7 @@ async function composeDraftBlock(
   }
 
   if (inner.length === 0) return "";
-  return `${heading} ${childTitle}\n\n[Open ${childTitle} →](${linkHref})\n\n${inner.join("")}`;
+  return linkedHeadingBlock(depth, childTitle, linkHref, inner.join(""));
 }
 
 /** Build composed section outline (subsection summaries) and draft (stitched child drafts). */
@@ -158,7 +168,7 @@ export async function composeSectionView(
       kind: unit ? "unit" : "section",
     });
 
-    outlineParts.push(`### ${childTitle}\n\n[Open ${childTitle} →](${linkHref})\n\n`);
+    outlineParts.push(linkedHeadingBlock(3, childTitle, linkHref));
     outlineParts.push(childSummary ? `${childSummary}\n\n` : `*No summary yet — open to write.*\n\n`);
 
     const draftBlock = await composeDraftBlock(modelRoot, dirRel, childRel, childTitle, linkHref, 1);

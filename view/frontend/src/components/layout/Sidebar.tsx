@@ -52,8 +52,8 @@ function FileTreeNode({
           type="button"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           className={cn(
-            "flex h-7 w-full items-center gap-2 pr-2 text-left text-xs hover:bg-accent/60",
-            isActive ? "bg-accent/80 font-medium text-accent-foreground" : "text-muted-foreground",
+            "ui-nav-row pr-2",
+            isActive ? "ui-nav-row-active" : "ui-nav-row-inactive",
             isOutline && "text-primary/90",
           )}
           onClick={() => {
@@ -94,8 +94,8 @@ function FileTreeNode({
         <button
           type="button"
           className={cn(
-            "flex h-7 min-w-0 flex-1 items-center gap-2 pr-2 text-left text-xs hover:bg-accent/60",
-            isActive ? "bg-accent font-medium text-accent-foreground" : "text-muted-foreground",
+            "ui-nav-row min-w-0 flex-1 pr-2",
+            isActive ? "ui-nav-row-active" : "ui-nav-row-inactive",
           )}
           onClick={() => onNavigate(node.path)}
         >
@@ -214,7 +214,7 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex min-h-0 flex-col border-r border-border bg-[hsl(var(--sidebar-bg))]">
+    <aside className="flex min-h-0 flex-col border-r border-border bg-sidebar">
       <div className="border-b border-border p-3">
         <div className="relative">
           <Search
@@ -225,7 +225,7 @@ export function Sidebar({
             type="search"
             placeholder={activeTab === "papers" ? "Search papers…" : "Search model…"}
             value={searchQuery}
-            className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-2 text-xs outline-none ring-primary focus:ring-1"
+            className="ui-input pl-8"
             onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
@@ -238,16 +238,14 @@ export function Sidebar({
         ) : null}
       </div>
 
-      <div className="flex border-b border-border">
+      <div className="flex gap-1 border-b border-border px-1 py-1">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             className={cn(
-              "flex-1 border-b-2 px-2 py-2 text-[11px] font-semibold uppercase tracking-wide transition-colors",
-              activeTab === tab.id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground",
+              "ui-tab",
+              activeTab === tab.id ? "ui-tab-active" : "ui-tab-inactive",
             )}
             onClick={() => onTabChange(tab.id)}
           >
@@ -256,14 +254,19 @@ export function Sidebar({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        className={cn(
+          "min-h-0 flex-1",
+          activeTab === "graph" ? "flex flex-col overflow-hidden" : "overflow-auto",
+        )}
+      >
         {activeTab === "explorer" ? (
           <div className="p-2">
             <button
               type="button"
               className={cn(
-                "mb-1 flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium hover:bg-accent/60",
-                currentPath === "" ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                "ui-nav-row mb-1",
+                currentPath === "" ? "ui-nav-row-active" : "ui-nav-row-inactive",
               )}
               onClick={() => onNavigate("")}
             >
@@ -282,11 +285,14 @@ export function Sidebar({
           <div className="flex min-h-0 flex-col">
             <div className="shrink-0 border-b border-border">{papersContent}</div>
             <div className="p-2">
+              <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Browse files
+              </p>
               <button
                 type="button"
                 className={cn(
-                  "mb-1 flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium hover:bg-accent/60",
-                  currentPath === PAPERS_ROOT ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                  "ui-nav-row mb-1",
+                  currentPath === PAPERS_ROOT ? "ui-nav-row-active" : "ui-nav-row-inactive",
                 )}
                 onClick={() => onNavigate(PAPERS_ROOT)}
               >
@@ -309,7 +315,7 @@ export function Sidebar({
         ) : null}
 
         {activeTab === "graph" ? (
-          <div className="graph-tab-host flex min-h-[280px] flex-1 flex-col overflow-hidden">
+          <div className="graph-tab-host flex min-h-0 flex-1 flex-col overflow-hidden">
             {graphContent}
           </div>
         ) : null}
