@@ -19,6 +19,7 @@ thesis: >-
   trees, and optical-density monitoring enables fully autonomous, flexible cell
   culture at lower cost than industrial automation.
 section_order:
+  - abstract
   - introduction
   - results
   - discussion
