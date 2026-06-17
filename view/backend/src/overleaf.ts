@@ -29,6 +29,8 @@ const TODO_PATTERNS: RegExp[] = [
   /%+\s*TODO:?\s*(.+)$/gim,
 ];
 
+const INLINE_NOTE_PATTERN = /\\([a-zA-Z]{1,12})\{([^}]*)\}/g;
+
 async function readOverleafRepoPath(
   modelRoot: string,
   paperSlug: string,
@@ -58,6 +60,15 @@ function extractTodoComments(tex: string): string[] {
     while ((match = pattern.exec(tex)) !== null) {
       const text = match[1]?.trim();
       if (text) found.add(text);
+    }
+  }
+  INLINE_NOTE_PATTERN.lastIndex = 0;
+  let noteMatch: RegExpExecArray | null;
+  while ((noteMatch = INLINE_NOTE_PATTERN.exec(tex)) !== null) {
+    const author = noteMatch[1]?.trim();
+    const text = noteMatch[2]?.trim();
+    if (author && text && author.toLowerCase() !== "todo") {
+      found.add(`[${author}] ${text}`);
     }
   }
   return [...found];

@@ -10,13 +10,14 @@ import {
   MessageSquarePlus,
   Pilcrow,
   Quote,
+  StickyNote,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { MarkdownFormatAction } from "@/lib/markdownFormat";
 
 type ToolbarItem = {
-  action: MarkdownFormatAction | "comment";
+  action: MarkdownFormatAction | "comment" | "inlineNote";
   label: string;
   title: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -29,6 +30,12 @@ const TOOLBAR_ITEMS: ToolbarItem[] = [
     label: "Comment",
     title: "Add or view comments (like Overleaf)",
     icon: MessageSquarePlus,
+  },
+  {
+    action: "inlineNote",
+    label: "Note",
+    title: "Wrap selection in inline note, e.g. \\iy{suggestion}",
+    icon: StickyNote,
   },
   {
     action: "link",
@@ -90,6 +97,7 @@ export function MarkdownToolbar({
   disabled = false,
   onFormat,
   onToggleComments,
+  onInsertInlineNote,
 }: {
   renderedMode?: boolean;
   commentsOpen?: boolean;
@@ -97,6 +105,7 @@ export function MarkdownToolbar({
   disabled?: boolean;
   onFormat: (action: MarkdownFormatAction) => void;
   onToggleComments: () => void;
+  onInsertInlineNote?: () => void;
 }) {
   return (
     <div className="ui-toolbar markdown-toolbar px-2 py-1" role="toolbar" aria-label="Formatting">
@@ -124,6 +133,25 @@ export function MarkdownToolbar({
                       {unresolvedComments > 99 ? "99+" : unresolvedComments}
                     </span>
                   ) : null}
+                </Button>
+              );
+            }
+
+            if (item.action === "inlineNote") {
+              return (
+                <Button
+                  key={item.action}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+                  title={item.title}
+                  aria-label={item.label}
+                  disabled={disabled || !onInsertInlineNote}
+                  onClick={() => onInsertInlineNote?.()}
+                >
+                  <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="hidden md:inline">{item.label}</span>
                 </Button>
               );
             }

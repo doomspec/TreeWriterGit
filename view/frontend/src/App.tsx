@@ -103,6 +103,7 @@ export default function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [sessionKey, setSessionKey] = useState(0);
   const [tree, setTree] = useState<ModelNode[]>([]);
+  const [treeLoaded, setTreeLoaded] = useState(false);
   const [currentPath, setCurrentPath] = useState(savedPrefs.currentPath);
   const [activeFile, setActiveFile] = useState<string | null>(savedPrefs.activeFile);
   const [editorLayout, setEditorLayout] = useState<EditorLayout>(savedPrefs.editorLayout);
@@ -171,6 +172,7 @@ export default function App() {
     if (!response.ok) throw new Error(`Failed to load model tree: ${response.status}`);
     const data = (await response.json()) as { tree: ModelNode[] };
     setTree(data.tree);
+    setTreeLoaded(true);
   }, []);
 
   const loadGitSyncStatus = useCallback(async () => {
@@ -236,6 +238,7 @@ export default function App() {
   }, [loadGitSyncStatus, loadTree]);
 
   useEffect(() => {
+    if (!treeLoaded) return;
     if (browsePath && (!currentNode || currentNode.type !== "directory")) {
       if (sidebarTab === "papers") {
         setCurrentPath(PAPERS_ROOT);
@@ -244,21 +247,24 @@ export default function App() {
       }
       setActiveFile(null);
     }
-  }, [browsePath, currentNode, sidebarTab]);
+  }, [browsePath, currentNode, sidebarTab, treeLoaded]);
 
   useEffect(() => {
+    if (!treeLoaded) return;
     if (sidebarTab === "papers" && !isUnderPapers(currentPath)) {
       setCurrentPath(PAPERS_ROOT);
       setActiveFile(null);
     }
-  }, [currentPath, sidebarTab]);
+  }, [currentPath, sidebarTab, treeLoaded]);
 
   useEffect(() => {
-    if (isUnit) {
-      setActiveFile(outlinePathFor(browsePath));
-      setEditorLayout("split");
-    }
-  }, [browsePath, isUnit]);
+    if (!treeLoaded || !isUnit) return;
+    setActiveFile((current) => {
+      if (current?.startsWith(`${browsePath}/`)) return current;
+      return outlinePathFor(browsePath);
+    });
+    setEditorLayout("split");
+  }, [browsePath, isUnit, treeLoaded]);
 
   useEffect(() => {
     const socket = new WebSocket(modelEventsUrl);

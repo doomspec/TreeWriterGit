@@ -2,7 +2,9 @@ import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { InlineNoteBadge } from "@/components/editor/InlineNoteBadge";
 import { cn } from "@/lib/utils";
+import { parseInlineNoteCodeSpan, preprocessInlineNotesForMarkdown } from "@/lib/inlineNotes";
 import {
   preprocessMarkdownLinks,
   resolveNavigateTarget,
@@ -22,10 +24,31 @@ export function MarkdownViewer({
   onNavigate?: (target: NavigateTarget) => void;
   linksClickable?: boolean;
 }) {
-  const processed = useMemo(() => preprocessMarkdownLinks(markdown), [markdown]);
+  const processed = useMemo(
+    () => preprocessInlineNotesForMarkdown(preprocessMarkdownLinks(markdown)),
+    [markdown],
+  );
 
   const components = useMemo(
     () => ({
+      code: ({
+        children,
+        className: codeClassName,
+      }: {
+        children?: React.ReactNode;
+        className?: string;
+      }) => {
+        const raw = String(children ?? "").replace(/\n$/, "");
+        const note = !codeClassName ? parseInlineNoteCodeSpan(raw) : null;
+        if (note) {
+          return <InlineNoteBadge author={note.author} text={note.text} />;
+        }
+        return (
+          <code className={codeClassName}>
+            {children}
+          </code>
+        );
+      },
       a: ({
         href,
         children,

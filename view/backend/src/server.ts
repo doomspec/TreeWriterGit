@@ -200,10 +200,32 @@ async function runGitSync(reason = "interval") {
       output.push(await git(["commit", "-m", "Automated sync"]));
     }
 
-    const outsideStatus = await git(["status", "--porcelain"]);
-    if (outsideStatus) {
-      // Stash tracked changes only — keep untracked new files (e.g. view/ components) on disk.
-      output.push(await git(["stash", "push", "-m", "treewriter-sync-wip"]));
+    // Never stash view/ — local UI work must stay on disk. Stash other non-model paths only.
+    const outsideModelView = await git([
+      "status",
+      "--porcelain",
+      "--",
+      ".",
+      ":!model",
+      ":!model/**",
+      ":!view",
+      ":!view/**",
+    ]);
+    if (outsideModelView) {
+      output.push(
+        await git([
+          "stash",
+          "push",
+          "-m",
+          "treewriter-sync-wip",
+          "--",
+          ".",
+          ":!model",
+          ":!model/**",
+          ":!view",
+          ":!view/**",
+        ]),
+      );
       stashCreated = true;
     }
 
@@ -229,7 +251,7 @@ async function runGitSync(reason = "interval") {
         }
         throw new Error(
           blockedByLocalChanges
-            ? "Sync paused — uncommitted changes blocked rebase after autostash; resolve in the terminal, then sync again."
+            ? "Sync paused — local view/ changes prevented rebase; model/ was committed. Commit view/ or sync manually."
             : "Rebase conflict — aborted; resolve manually in the terminal, then run sync again.",
         );
       }

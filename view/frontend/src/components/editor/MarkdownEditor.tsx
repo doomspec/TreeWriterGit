@@ -15,6 +15,7 @@ import {
   runAgentDispatch,
   unitPathFromUnitFile,
 } from "@/lib/agentDispatchClient";
+import { authorNoteMacro, wrapInlineNote } from "@/lib/inlineNotes";
 import { cn } from "@/lib/utils";
 import { getUserName } from "@/lib/userIdentity";
 import { parseFrontmatterStatus, parentPath, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
@@ -311,6 +312,42 @@ export function MarkdownEditor({
     [previewMeta.title, previewParts.frontmatter],
   );
 
+  const insertInlineNote = useCallback(
+    (targetPane?: "preview" | "source") => {
+      const previewEl = previewRef.current;
+      const sourceEl = sourceRef.current;
+      let usePreview: boolean;
+      if (targetPane === "preview") {
+        usePreview = true;
+      } else if (targetPane === "source") {
+        usePreview = false;
+      } else {
+        usePreview = Boolean(
+          previewEl &&
+            renderedEditable &&
+            (document.activeElement === previewEl || (showPreview && !showSource)),
+        );
+      }
+      const target = usePreview && previewEl ? previewEl : sourceEl;
+      if (!target) return;
+      const currentValue = usePreview ? previewBody : content;
+      const setValue = usePreview ? handlePreviewBodyChange : setContent;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const selected = currentValue.slice(start, end);
+      const note = wrapInlineNote(authorNoteMacro(getUserName()), selected);
+      const nextValue = `${currentValue.slice(0, start)}${note}${currentValue.slice(end)}`;
+      setValue(nextValue);
+      requestAnimationFrame(() => {
+        target.focus();
+        const cursor = start + note.length;
+        target.setSelectionRange(cursor, cursor);
+        updateSelectedLine();
+      });
+    },
+    [content, handlePreviewBodyChange, previewBody, renderedEditable, showPreview, showSource],
+  );
+
   const applyFormat = useCallback(
     (action: MarkdownFormatAction, targetPane?: "preview" | "source") => {
       const previewEl = previewRef.current;
@@ -421,6 +458,7 @@ export function MarkdownEditor({
     unresolvedComments,
     onFormat: (action: MarkdownFormatAction) => applyFormat(action, compactTargetPane),
     onToggleComments: () => setCommentsOpen((open) => !open),
+    onInsertInlineNote: () => insertInlineNote(compactTargetPane),
   };
 
   const compactToolbar = compact ? <MarkdownToolbar {...toolbarProps} /> : null;
@@ -442,6 +480,7 @@ export function MarkdownEditor({
             {...toolbarProps}
             renderedMode={false}
             onFormat={(action) => applyFormat(action, "source")}
+            onInsertInlineNote={() => insertInlineNote("source")}
           />
         </>
       ) : null}
@@ -478,6 +517,7 @@ export function MarkdownEditor({
               {...toolbarProps}
               renderedMode={true}
               onFormat={(action) => applyFormat(action, "preview")}
+              onInsertInlineNote={() => insertInlineNote("preview")}
             />
           ) : null}
         </>

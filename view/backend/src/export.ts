@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import matter from "gray-matter";
 
 import { ModelFsError, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { buildInlineNoteLatexPreamble } from "./inlineNotes.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -301,15 +302,19 @@ async function runPandocExport(
   bibliography: string,
   bibPath: string,
   cslPath: string | null,
+  inlineNotesHeaderPath?: string,
 ): Promise<void> {
   const pandocArgs = [
     combinedPath,
-    "--from=markdown",
+    "--from=markdown+raw_tex",
     `--to=${format === "pdf" ? "pdf" : "latex"}`,
     "--citeproc",
     "--output",
     outPath,
   ];
+  if (inlineNotesHeaderPath) {
+    pandocArgs.push("--include-in-header", inlineNotesHeaderPath);
+  }
   if (bibliography) {
     pandocArgs.push("--bibliography", bibPath);
   }
@@ -388,11 +393,27 @@ export async function exportPaper(
     await writeFile(bibPath, bibliography, "utf8");
   }
 
+  const notesPreamble = buildInlineNoteLatexPreamble(combined);
+  const notesHeaderPath = notesPreamble
+    ? path.join(exportDir, `${baseName}-notes.tex`)
+    : undefined;
+  if (notesPreamble && notesHeaderPath) {
+    await writeFile(notesHeaderPath, notesPreamble, "utf8");
+  }
+
   let effectiveFormat = input.format;
   let notice: string | undefined;
 
   const tryExport = async (format: ExportFormat, outFile: string) => {
-    await runPandocExport(combinedPath, outFile, format, bibliography, bibPath, cslPath);
+    await runPandocExport(
+      combinedPath,
+      outFile,
+      format,
+      bibliography,
+      bibPath,
+      cslPath,
+      notesHeaderPath,
+    );
   };
 
   try {

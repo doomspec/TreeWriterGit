@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { filterLocalGraph, resolveFocusId, resolveGraphFetchRoot, type GraphEdge, type GraphNode } from "./graphLocal";
+import {
+  filterLocalGraph,
+  resolveFocusId,
+  resolveGraphFetchRoot,
+  shouldShowLabel,
+  type GraphEdge,
+  type GraphNode,
+} from "./graphLocal";
 
 const nodes: GraphNode[] = [
   { id: "papers/a", label: "Paper A", type: "paper", links: 2 },
@@ -32,6 +39,14 @@ describe("resolveGraphFetchRoot", () => {
   it("uses model root for non-paper paths", () => {
     expect(resolveGraphFetchRoot("notes/lit/ref")).toBe("");
     expect(resolveGraphFetchRoot("")).toBe("");
+  });
+});
+
+describe("shouldShowLabel", () => {
+  it("shows label only for the hovered node", () => {
+    expect(shouldShowLabel("papers/a", null)).toBe(false);
+    expect(shouldShowLabel("papers/a", "papers/a")).toBe(true);
+    expect(shouldShowLabel("papers/b", "papers/a")).toBe(false);
   });
 });
 

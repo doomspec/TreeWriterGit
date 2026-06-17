@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import matter from "gray-matter";
 
 import { isUnitDir, orderedChildren, resolveChildPath, shellQuote } from "./modelFs.js";
+import { stripInlineNotes } from "./inlineNotes.js";
 
 export interface AiProvider {
   name: string;
@@ -317,7 +318,7 @@ export async function buildPreview(
   const idea = await readOutlineDoc(modelRoot, unitPath);
   const links = await readIndexLinks(modelRoot, unitPath);
   const needsDraft = actionNeedsDraft(action);
-  const draft = needsDraft ? await readDraft(modelRoot, unitPath) : "";
+  const draft = needsDraft ? stripInlineNotes(await readDraft(modelRoot, unitPath)) : "";
   let context: string;
   if (contextPaths && contextPaths.length > 0) {
     context = await gatherContextFromPaths(modelRoot, contextPaths);

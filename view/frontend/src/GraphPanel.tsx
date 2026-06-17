@@ -252,8 +252,6 @@ export function GraphPanel({
     return map;
   }, [simEdges]);
 
-  const focusNeighbors = filtered.focusId ? (neighbors.get(filtered.focusId) ?? new Set<string>()) : new Set<string>();
-
   if (!fetchRoot) {
     return (
       <div className={cn("flex flex-col bg-background", embedded ? "min-h-0 h-full" : "absolute inset-0 z-10")}>
@@ -365,8 +363,10 @@ export function GraphPanel({
                 })}
                 {simNodes.map((node) => {
                   const radius = (node.isFocus ? 10 : 7) + Math.min(node.links, 4);
-                  const showLabel = shouldShowLabel(node.id, filtered.focusId, focusNeighbors, hovered);
+                  const showLabel = shouldShowLabel(node.id, hovered);
                   const dimmed = hovered !== null && hovered !== node.id && !neighbors.get(hovered)?.has(node.id);
+                  const label =
+                    node.label.length > 28 ? `${node.label.slice(0, 26).trimEnd()}…` : node.label;
                   return (
                     <g
                       key={node.id}
@@ -377,6 +377,8 @@ export function GraphPanel({
                       aria-label={`${node.label}, ${node.type}`}
                       onMouseEnter={() => setHovered(node.id)}
                       onMouseLeave={() => setHovered(null)}
+                      onFocus={() => setHovered(node.id)}
+                      onBlur={() => setHovered(null)}
                       onClick={() => onSelectNode(node.id)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
@@ -402,16 +404,27 @@ export function GraphPanel({
                         strokeDasharray={node.type === "missing" ? "2 2" : undefined}
                       />
                       {showLabel ? (
-                        <text
-                          x={radius + 4}
-                          y={4}
-                          fontSize={11}
-                          fontWeight={node.isFocus ? 600 : 400}
-                          className="fill-foreground"
-                          style={{ pointerEvents: "none" }}
-                        >
-                          {node.label}
-                        </text>
+                        <g style={{ pointerEvents: "none" }}>
+                          <rect
+                            x={-(label.length * 3.4 + 8) / 2}
+                            y={-(radius + 24)}
+                            width={label.length * 3.4 + 8}
+                            height={18}
+                            rx={4}
+                            className="fill-card stroke-border"
+                            strokeWidth={1}
+                          />
+                          <text
+                            x={0}
+                            y={-(radius + 11)}
+                            textAnchor="middle"
+                            fontSize={12}
+                            fontWeight={500}
+                            className="fill-foreground"
+                          >
+                            {label}
+                          </text>
+                        </g>
                       ) : null}
                     </g>
                   );

@@ -112,15 +112,7 @@ export function filterLocalGraph(
   return { nodes: filteredNodes, edges: filteredEdges, focusId: resolvedFocus };
 }
 
-export function shouldShowLabel(
-  nodeId: string,
-  focusId: string | null,
-  neighbors: Set<string>,
-  hovered: string | null,
-): boolean {
-  if (nodeId === focusId) return true;
-  if (focusId && neighbors.has(nodeId)) return true;
-  if (hovered === nodeId) return true;
-  if (hovered && neighbors.has(nodeId) && neighbors.has(hovered)) return true;
-  return false;
+/** Show node title only while the pointer is over that node. */
+export function shouldShowLabel(nodeId: string, hovered: string | null): boolean {
+  return hovered === nodeId;
 }
