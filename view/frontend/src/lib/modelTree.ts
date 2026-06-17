@@ -96,6 +96,44 @@ export function findNode(nodes: ModelNode[], pathValue: string): ModelNode | nul
   return null;
 }
 
+export type NavigateTarget =
+  | { type: "folder"; path: string }
+  | { type: "file"; path: string };
+
+/** Map graph ids / wikilink paths to a folder or standalone .md file in the tree. */
+export function resolveModelPathTarget(
+  tree: ModelNode[],
+  pathValue: string,
+): NavigateTarget | null {
+  if (!pathValue) return { type: "folder", path: "" };
+
+  const direct = findNode(tree, pathValue);
+  if (direct?.type === "file") {
+    return { type: "file", path: pathValue };
+  }
+  if (direct?.type === "directory") {
+    return { type: "folder", path: pathValue };
+  }
+
+  const mdCandidate = pathValue.endsWith(".md") ? pathValue : `${pathValue}.md`;
+  const fileNode = findNode(tree, mdCandidate);
+  if (fileNode?.type === "file") {
+    return { type: "file", path: mdCandidate };
+  }
+
+  const base = pathValue.split("/").pop() ?? "";
+  const parent = parentPath(pathValue);
+  const parentNode = findNode(tree, parent);
+  const sibling = parentNode?.children?.find(
+    (c) => c.type === "file" && c.name.replace(/\.md$/i, "") === base,
+  );
+  if (sibling) {
+    return { type: "file", path: sibling.path };
+  }
+
+  return null;
+}
+
 export function flattenFiles(nodes: ModelNode[]): ModelNode[] {
   return nodes.flatMap((node) => (node.type === "file" ? [node] : flattenFiles(node.children ?? [])));
 }
@@ -116,10 +154,6 @@ export function isSectionContainer(node: ModelNode | null): boolean {
   if (!node?.children) return false;
   return node.children.some((c) => c.type === "directory");
 }
-
-export type NavigateTarget =
-  | { type: "folder"; path: string }
-  | { type: "file"; path: string };
 
 /** Resolve href to in-app navigation target. */
 export function resolveNavigateTarget(folderPath: string, href: string): NavigateTarget | null {

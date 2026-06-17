@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc && cp src/pty_bridge.py dist/pty_bridge.py",
+    "build": "tsc && cp src/pty_bridge.py dist/pty_bridge.py && cp src/dispatch_run.py dist/dispatch_run.py",
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest"

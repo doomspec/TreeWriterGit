@@ -5,10 +5,10 @@ import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
 import {
+  dispatchActionForSectionPane,
   dispatchActionLabel,
   isDispatchRunShortcut,
-  runFanOutDispatch,
-  type AgentDispatchAction,
+  runFanOutDispatchSilent,
 } from "@/lib/agentDispatchClient";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
 
@@ -37,8 +37,7 @@ export function SectionWorkspace({
   onError,
   dualPaneSplit,
   onDualPaneSplitChange,
-  onSendToTerminal,
-  onBeforeDispatch,
+  onDispatchComplete,
 }: {
   sectionPath: string;
   refreshVersion: number;
@@ -47,40 +46,42 @@ export function SectionWorkspace({
   onError: (message: string) => void;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
-  onSendToTerminal?: (command: string) => void;
-  onBeforeDispatch?: () => void;
+  onDispatchComplete?: () => void;
 }) {
   const [compose, setCompose] = useState<SectionCompose | null>(null);
   const [loading, setLoading] = useState(true);
   const [focusedPane, setFocusedPane] = useState<"outline" | "draft">("outline");
   const [dispatching, setDispatching] = useState(false);
+  const [dispatchingPane, setDispatchingPane] = useState<"outline" | "draft" | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadCompose = useCallback(() => {
     setLoading(true);
-    fetch(`${apiBaseUrl}/api/model/section-compose?path=${encodeURIComponent(sectionPath)}`)
+    return fetch(`${apiBaseUrl}/api/model/section-compose?path=${encodeURIComponent(sectionPath)}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`Failed to load section view (${res.status})`);
         return (await res.json()) as SectionCompose;
       })
       .then((data) => {
-        if (!cancelled) {
-          setCompose(data);
-          setLoading(false);
-        }
+        setCompose(data);
+        setLoading(false);
       })
       .catch((err) => {
-        if (!cancelled) {
-          setCompose(null);
-          setLoading(false);
-          onError(err instanceof Error ? err.message : String(err));
-        }
+        setCompose(null);
+        setLoading(false);
+        onError(err instanceof Error ? err.message : String(err));
       });
+  }, [onError, sectionPath]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadCompose().then(() => {
+      if (cancelled) return;
+    });
     return () => {
       cancelled = true;
     };
-  }, [onError, refreshVersion, sectionPath]);
+  }, [loadCompose, refreshVersion]);
 
   const handleLinkNavigate = useCallback(
     (target: NavigateTarget) => {
@@ -94,43 +95,45 @@ export function SectionWorkspace({
   );
 
   const handleFanOut = useCallback(
-    async (action: AgentDispatchAction) => {
-      if (!onSendToTerminal) return;
+    async (pane: "outline" | "draft") => {
+      setFocusedPane(pane);
+      setDispatchingPane(pane);
+      const action = dispatchActionForSectionPane(pane);
       setDispatching(true);
-      onBeforeDispatch?.();
       try {
-        const count = await runFanOutDispatch({
+        const count = await runFanOutDispatchSilent({
           sectionPath,
           action,
-          onSendToTerminal,
         });
-        if (count === 0) onError("No units found under this section");
+        if (count === 0) {
+          onError("No units found under this section");
+          return;
+        }
+        await loadCompose();
+        onDispatchComplete?.();
       } catch (err) {
         onError(err instanceof Error ? err.message : String(err));
       } finally {
         setDispatching(false);
+        setDispatchingPane(null);
       }
     },
-    [onBeforeDispatch, onError, onSendToTerminal, sectionPath],
+    [loadCompose, onDispatchComplete, onError, sectionPath],
   );
 
   useEffect(() => {
-    if (!onSendToTerminal) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isDispatchRunShortcut(event)) return;
       if (!containerRef.current?.contains(document.activeElement)) return;
       event.preventDefault();
-      void handleFanOut(focusedPane === "outline" ? "draft" : "revise");
+      void handleFanOut(focusedPane);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [focusedPane, handleFanOut, onSendToTerminal]);
+  }, [focusedPane, handleFanOut]);
 
   const outlinePath = outlinePathFor(sectionPath);
   const draftPath = `${sectionPath}/draft.md`;
-  const canDispatch = Boolean(onSendToTerminal);
-  const outlineAction: AgentDispatchAction = "draft";
-  const draftAction: AgentDispatchAction = compose?.draftMarkdown.trim() ? "revise" : "draft";
 
   if (loading) {
     return (
@@ -147,6 +150,22 @@ export function SectionWorkspace({
       </div>
     );
   }
+
+  const aiButton = (pane: "outline" | "draft") => (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-6 gap-1 px-2 text-[10px]"
+      title={`${dispatchActionLabel(dispatchActionForSectionPane(pane))} (⌘⇧R)`}
+      disabled={dispatching}
+      aria-busy={dispatching && dispatchingPane === pane}
+      onClick={() => void handleFanOut(pane)}
+    >
+      <Bot className="h-3 w-3" aria-hidden="true" />
+      {dispatching && dispatchingPane === pane ? "…" : "AI"}
+    </Button>
+  );
 
   return (
     <div ref={containerRef} className="flex min-h-0 flex-1 flex-col">
@@ -191,20 +210,7 @@ export function SectionWorkspace({
           >
             <div className="ui-pane-header">
               <span className="ui-label">Outline</span>
-              {canDispatch ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-6 gap-1 px-2 text-[10px]"
-                  title={`Fan-out: ${dispatchActionLabel(outlineAction)} (⌘⇧R)`}
-                  disabled={dispatching}
-                  onClick={() => void handleFanOut(outlineAction)}
-                >
-                  <Bot className="h-3 w-3" aria-hidden="true" />
-                  AI
-                </Button>
-              ) : null}
+              {aiButton("outline")}
             </div>
             <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
               <MarkdownViewer
@@ -225,20 +231,7 @@ export function SectionWorkspace({
           >
             <div className="ui-pane-header">
               <span className="ui-label">Draft</span>
-              {canDispatch ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-6 gap-1 px-2 text-[10px]"
-                  title={`Fan-out: ${dispatchActionLabel(draftAction)} (⌘⇧R)`}
-                  disabled={dispatching}
-                  onClick={() => void handleFanOut(draftAction)}
-                >
-                  <Bot className="h-3 w-3" aria-hidden="true" />
-                  AI
-                </Button>
-              ) : null}
+              {aiButton("draft")}
             </div>
             <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
               {compose.draftMarkdown.trim() ? (
@@ -250,7 +243,7 @@ export function SectionWorkspace({
                 />
               ) : (
                 <p className="text-sm italic text-muted-foreground">
-                  No draft content yet — open subsections to write.
+                  No draft content yet — use AI on Outline to draft units, or open subsections to write.
                 </p>
               )}
             </div>

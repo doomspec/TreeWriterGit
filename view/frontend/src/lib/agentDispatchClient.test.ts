@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  dispatchActionForSectionPane,
   dispatchActionForUnitPane,
   dispatchActionLabel,
   unitPathFromUnitFile,
@@ -13,15 +14,21 @@ describe("agentDispatchClient", () => {
     expect(unitPathFromUnitFile("papers/demo/intro/INDEX.md")).toBeNull();
   });
 
+  it("maps section panes to fan-out actions", () => {
+    expect(dispatchActionForSectionPane("outline")).toBe("draft");
+    expect(dispatchActionForSectionPane("draft")).toBe("sync-outline");
+  });
+
   it("maps pane labels to dispatch actions", () => {
     expect(dispatchActionForUnitPane("Outline", false)).toBe("draft");
-    expect(dispatchActionForUnitPane("Draft", false)).toBe("draft");
-    expect(dispatchActionForUnitPane("Draft", true)).toBe("revise");
+    expect(dispatchActionForUnitPane("Draft", false)).toBe("sync-outline");
+    expect(dispatchActionForUnitPane("Draft", true)).toBe("sync-outline");
     expect(dispatchActionForUnitPane(undefined, true)).toBeNull();
   });
 
   it("labels common actions for UI", () => {
     expect(dispatchActionLabel("draft")).toBe("Draft from outline");
     expect(dispatchActionLabel("revise")).toBe("Revise draft");
+    expect(dispatchActionLabel("sync-outline")).toBe("Sync outline from draft");
   });
 });

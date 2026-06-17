@@ -1,4 +1,4 @@
-import { Columns2, Eye, FileCode2 } from "lucide-react";
+import { ArrowLeft, Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
@@ -18,6 +18,8 @@ export function EditorWorkspace({
   onDualPaneSplitChange,
   onSendToTerminal,
   onBeforeDispatch,
+  onDispatchComplete,
+  onBackToSectionView,
 }: {
   unitPath: string | null;
   activeFile: string;
@@ -31,6 +33,9 @@ export function EditorWorkspace({
   onDualPaneSplitChange: (percent: number) => void;
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
+  onDispatchComplete?: () => void;
+  /** Return to composed section outline + draft view. */
+  onBackToSectionView?: () => void;
 }) {
   const isUnit = Boolean(unitPath);
   const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
@@ -66,6 +71,7 @@ export function EditorWorkspace({
               onNavigate={onNavigate}
               onSendToTerminal={onSendToTerminal}
               onBeforeDispatch={onBeforeDispatch}
+              onDispatchComplete={onDispatchComplete}
             />
           }
           right={
@@ -83,6 +89,7 @@ export function EditorWorkspace({
               onNavigate={onNavigate}
               onSendToTerminal={onSendToTerminal}
               onBeforeDispatch={onBeforeDispatch}
+              onDispatchComplete={onDispatchComplete}
             />
           }
         />
@@ -93,13 +100,22 @@ export function EditorWorkspace({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3">
-        <div className="flex min-w-0 items-center gap-1">
-          <button
-            type="button"
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
-          >
+        <div className="flex min-w-0 items-center gap-2">
+          {onBackToSectionView ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+              onClick={onBackToSectionView}
+            >
+              <ArrowLeft className="h-3 w-3" aria-hidden="true" />
+              Section view
+            </Button>
+          ) : null}
+          <span className="truncate rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground">
             {activeFile.split("/").pop() ?? activeFile}
-          </button>
+          </span>
         </div>
 
         <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">

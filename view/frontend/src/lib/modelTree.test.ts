@@ -9,6 +9,7 @@ import {
   parseFrontmatterLinks,
   parseIndexFrontmatter,
   parseIndexOutline,
+  resolveModelPathTarget,
   resolveOutlineTarget,
   sectionsForPaper,
   sortTreeChildren,
@@ -114,6 +115,59 @@ describe("parseIndexOutline", () => {
     expect(links.length).toBeGreaterThanOrEqual(2);
     expect(links[0].label).toBe("Philosophy");
     expect(links[0].targetPath).toBe("Philosophy");
+  });
+});
+
+describe("resolveModelPathTarget", () => {
+  const tree: ModelNode[] = [
+    {
+      name: "roboculture",
+      path: "papers/roboculture",
+      type: "directory",
+      children: [
+        {
+          name: "notes",
+          path: "papers/roboculture/notes",
+          type: "directory",
+          children: [
+            {
+              name: "literature",
+              path: "papers/roboculture/notes/literature",
+              type: "directory",
+              children: [
+                {
+                  name: "tom2024self.md",
+                  path: "papers/roboculture/notes/literature/tom2024self.md",
+                  type: "file",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "introduction",
+          path: "papers/roboculture/introduction",
+          type: "directory",
+          children: [
+            { name: "outline.md", path: "papers/roboculture/introduction/outline.md", type: "file" },
+          ],
+        },
+      ],
+    },
+  ];
+
+  it("opens standalone literature notes when graph id omits .md", () => {
+    expect(resolveModelPathTarget(tree, "papers/roboculture/notes/literature/tom2024self")).toEqual({
+      type: "file",
+      path: "papers/roboculture/notes/literature/tom2024self.md",
+    });
+  });
+
+  it("keeps real directories as folder targets", () => {
+    expect(resolveModelPathTarget(tree, "papers/roboculture/introduction")).toEqual({
+      type: "folder",
+      path: "papers/roboculture/introduction",
+    });
   });
 });
 

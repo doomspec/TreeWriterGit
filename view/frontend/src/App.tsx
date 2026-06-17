@@ -28,6 +28,7 @@ import {
   outlinePathFor,
   parentPath,
   PAPERS_ROOT,
+  resolveModelPathTarget,
   type ModelNode,
   type NavigateTarget,
 } from "@/lib/modelTree";
@@ -185,22 +186,6 @@ export default function App() {
     setRefreshVersion((v) => v + 1);
   }, [loadTree]);
 
-  const navigateTo = useCallback(
-    (path: string) => {
-      const nextPath =
-        sidebarTab === "papers" && path !== "" && !isUnderPapers(path) ? PAPERS_ROOT : path;
-      setCurrentPath(nextPath);
-      const node = nextPath ? findNode(tree, nextPath) : null;
-      if (isUnitFolder(node)) {
-        setActiveFile(outlinePathFor(nextPath));
-        setEditorLayout("split");
-      } else {
-        setActiveFile(null);
-      }
-    },
-    [sidebarTab, tree],
-  );
-
   const openFile = useCallback(
     (path: string) => {
       const folder = parentPath(path);
@@ -213,16 +198,47 @@ export default function App() {
     [sidebarTab],
   );
 
-  const handleMarkdownNavigate = useCallback(
-    (target: NavigateTarget) => {
+  const navigateTo = useCallback(
+    (path: string) => {
+      const normalized =
+        sidebarTab === "papers" && path !== "" && !isUnderPapers(path) ? PAPERS_ROOT : path;
+      const target = resolveModelPathTarget(tree, normalized);
+      if (!target) return;
       if (target.type === "file") {
         openFile(target.path);
         return;
       }
-      navigateTo(target.path);
+      setCurrentPath(target.path);
+      const node = findNode(tree, target.path);
+      if (isUnitFolder(node)) {
+        setActiveFile(outlinePathFor(target.path));
+        setEditorLayout("split");
+      } else {
+        setActiveFile(null);
+      }
     },
-    [navigateTo, openFile],
+    [openFile, sidebarTab, tree],
   );
+
+  const handleMarkdownNavigate = useCallback(
+    (target: NavigateTarget) => {
+      const path = target.type === "file" ? target.path : target.path;
+      const resolved = resolveModelPathTarget(tree, path);
+      if (!resolved) return;
+      if (resolved.type === "file") {
+        openFile(resolved.path);
+        return;
+      }
+      navigateTo(resolved.path);
+    },
+    [navigateTo, openFile, tree],
+  );
+
+  const backToSectionView = useCallback(() => {
+    setActiveFile(null);
+  }, []);
+
+  const showSectionViewBack = Boolean(activeFile && isPaperSection && !isUnit);
 
   const handleSidebarTabChange = useCallback((tab: SidebarTab) => {
     setSidebarTab(tab);
@@ -577,9 +593,8 @@ export default function App() {
                 graphScope={graphScope}
                 onGraphScopeChange={setGraphScope}
                 onSelectNode={(id) => {
-                  if (!id.startsWith("missing:")) {
-                    navigateTo(id);
-                  }
+                  if (id.startsWith("missing:")) return;
+                  navigateTo(id);
                 }}
               />
           }
@@ -601,6 +616,8 @@ export default function App() {
                 onDualPaneSplitChange={setDualPaneSplit}
                 onSendToTerminal={sendToTerminal}
                 onBeforeDispatch={openAgentPanel}
+                onDispatchComplete={reloadModel}
+                onBackToSectionView={showSectionViewBack ? backToSectionView : undefined}
               />
             ) : sectionPath ? (
               <SectionWorkspace
@@ -611,8 +628,7 @@ export default function App() {
                 onError={setError}
                 dualPaneSplit={dualPaneSplit}
                 onDualPaneSplitChange={setDualPaneSplit}
-                onSendToTerminal={sendToTerminal}
-                onBeforeDispatch={openAgentPanel}
+                onDispatchComplete={reloadModel}
               />
             ) : (
               <FolderBrowse

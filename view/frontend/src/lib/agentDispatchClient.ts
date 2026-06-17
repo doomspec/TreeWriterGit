@@ -108,6 +108,35 @@ async function recordAgentSession(options: {
   }
 }
 
+export async function runAgentDispatchSilent(options: {
+  unitPath: string;
+  action: AgentDispatchAction;
+  provider?: string;
+  customPrompt?: string;
+  contextPaths?: string[];
+}): Promise<{ outputPath: string; sessionId: string }> {
+  const provider = options.provider ?? (await getDefaultAgentProvider());
+  const contextPaths =
+    options.contextPaths ?? (await defaultContextPaths(options.unitPath, options.action));
+  const res = await fetch(`${apiBaseUrl}/api/agent/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      unitPath: options.unitPath,
+      action: options.action,
+      provider,
+      customPrompt: options.customPrompt,
+      contextPaths,
+    }),
+  });
+  if (!res.ok) {
+    const body = (await res.json()) as { error?: string };
+    throw new Error(body.error ?? `Agent run failed (${res.status})`);
+  }
+  rememberAgentProvider(provider);
+  return (await res.json()) as { outputPath: string; sessionId: string };
+}
+
 export async function runAgentDispatch(options: {
   unitPath: string;
   action: AgentDispatchAction;
@@ -131,6 +160,36 @@ export async function runAgentDispatch(options: {
     command: preview.command,
   });
   return preview;
+}
+
+export function dispatchActionForSectionPane(focusedPane: "outline" | "draft"): AgentDispatchAction {
+  return focusedPane === "outline" ? "draft" : "sync-outline";
+}
+
+export async function runFanOutDispatchSilent(options: {
+  sectionPath: string;
+  action: AgentDispatchAction;
+  provider?: string;
+  customPrompt?: string;
+}): Promise<number> {
+  const provider = options.provider ?? (await getDefaultAgentProvider());
+  const res = await fetch(`${apiBaseUrl}/api/agent/fan-out/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sectionPath: options.sectionPath,
+      action: options.action,
+      provider,
+      customPrompt: options.customPrompt,
+    }),
+  });
+  if (!res.ok) {
+    const body = (await res.json()) as { error?: string };
+    throw new Error(body.error ?? `Fan-out run failed (${res.status})`);
+  }
+  rememberAgentProvider(provider);
+  const data = (await res.json()) as { count: number };
+  return data.count;
 }
 
 export async function runFanOutDispatch(options: {
@@ -165,10 +224,10 @@ export function unitPathFromUnitFile(filePath: string): string | null {
 
 export function dispatchActionForUnitPane(
   paneLabel: string | undefined,
-  draftHasContent: boolean,
+  _draftHasContent: boolean,
 ): AgentDispatchAction | null {
   if (paneLabel === "Outline") return "draft";
-  if (paneLabel === "Draft") return draftHasContent ? "revise" : "draft";
+  if (paneLabel === "Draft") return "sync-outline";
   return null;
 }
 
@@ -179,7 +238,7 @@ export function dispatchActionLabel(action: AgentDispatchAction): string {
     case "revise":
       return "Revise draft";
     case "sync-outline":
-      return "Sync outline";
+      return "Sync outline from draft";
     default:
       return action;
   }

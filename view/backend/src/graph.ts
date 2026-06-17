@@ -69,6 +69,43 @@ function inferType(kind: unknown, id: string): GraphNodeType {
   return "doc";
 }
 
+/** Strip INDEX.md from outline links — graph nodes are folders, not INDEX files. */
+export function normalizeGraphLinkTarget(target: string, sourceDir: string): string {
+  const raw = target.trim().replace(/\/+$/, "");
+  if (/^INDEX\.md$/i.test(raw)) {
+    return sourceDir || ".";
+  }
+  return raw.replace(/\/INDEX\.md$/i, "");
+}
+
+export function linkTargetCandidates(target: string, sourceDir: string): string[] {
+  const raw = target.trim();
+  const out = new Set<string>();
+  const add = (value: string) => {
+    const normalized = normalize(value);
+    if (!normalized || normalized === ".") return;
+    out.add(normalized);
+    const stripped = stripMd(normalized);
+    if (stripped) out.add(stripped);
+  };
+
+  if (/^INDEX\.md$/i.test(raw)) {
+    add(sourceDir);
+  }
+
+  const withoutIndex = raw.replace(/\/INDEX\.md$/i, "");
+  for (const value of [raw, withoutIndex]) {
+    add(posix.join(sourceDir, value));
+    add(value);
+  }
+  return [...out];
+}
+
+/** True when the href points at INDEX.md (not a navigable graph node). */
+export function isIndexMarkdownLink(target: string): boolean {
+  return /(^|\/)INDEX\.md$/i.test(target.trim());
+}
+
 /** Resolve a wikilink target (relative or basename) to a known node id, or null if missing. */
 export function resolveTarget(
   target: string,
@@ -76,18 +113,12 @@ export function resolveTarget(
   nodeIds: Set<string>,
   byBasename: Map<string, string[]>
 ): string | null {
-  const candidates = [
-    normalize(posix.join(sourceDir, target)),
-    stripMd(normalize(posix.join(sourceDir, target))),
-    normalize(target),
-    stripMd(normalize(target))
-  ];
-  for (const candidate of candidates) {
-    if (candidate && nodeIds.has(candidate)) {
+  for (const candidate of linkTargetCandidates(target, sourceDir)) {
+    if (nodeIds.has(candidate)) {
       return candidate;
     }
   }
-  const base = stripMd(posix.basename(target));
+  const base = stripMd(posix.basename(normalizeGraphLinkTarget(target, sourceDir)));
   const matches = byBasename.get(base);
   if (matches && matches.length === 1) {
     return matches[0];
@@ -215,6 +246,9 @@ export async function buildGraph(modelRoot: string, rootRel = ""): Promise<Graph
       }
       for (const target of targets) {
         const resolved = resolveTarget(target, sourceDir, nodeIds, byBasename);
+        if (!resolved && isIndexMarkdownLink(target)) {
+          continue;
+        }
         const targetId = resolved ?? `missing:${target}`;
         const edgeKey = `${id}->${targetId}:outline`;
         if (seenEdge.has(edgeKey) || targetId === id) continue;

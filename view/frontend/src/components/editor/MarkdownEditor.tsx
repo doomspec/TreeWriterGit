@@ -12,7 +12,7 @@ import {
   dispatchActionForUnitPane,
   dispatchActionLabel,
   isDispatchRunShortcut,
-  runAgentDispatch,
+  runAgentDispatchSilent,
   unitPathFromUnitFile,
 } from "@/lib/agentDispatchClient";
 import { authorNoteMacro, wrapInlineNote } from "@/lib/inlineNotes";
@@ -90,6 +90,7 @@ export function MarkdownEditor({
   onNavigate,
   onSendToTerminal,
   onBeforeDispatch,
+  onDispatchComplete,
   splitPercent = 50,
   onSplitChange,
 }: {
@@ -106,6 +107,7 @@ export function MarkdownEditor({
   onNavigate?: (target: NavigateTarget) => void;
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
+  onDispatchComplete?: () => void;
   splitPercent?: number;
   onSplitChange?: (percent: number) => void;
 }) {
@@ -135,24 +137,54 @@ export function MarkdownEditor({
     () => dispatchActionForUnitPane(paneLabel, Boolean(previewBody.trim() || content.trim())),
     [content, paneLabel, previewBody],
   );
-  const canDispatch = Boolean(compact && unitPath && dispatchAction && onSendToTerminal);
+  const canDispatch = Boolean(compact && unitPath && dispatchAction);
+
+  const flushSave = useCallback(async () => {
+    if (!isDirty) return;
+    setSaveState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/model/file`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: filePath, content }),
+      });
+      if (response.status === 404) {
+        const createRes = await fetch(`${apiBaseUrl}/api/model/file`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: filePath, content }),
+        });
+        if (!createRes.ok) throw new Error(`Failed to save ${filePath}`);
+      } else if (!response.ok) {
+        throw new Error(`Failed to save ${filePath}`);
+      }
+      setLoadedContent(content);
+      setSaveState("saved");
+      setLoadError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSaveState("error");
+      setLoadError(message);
+      throw err;
+    }
+  }, [content, filePath, isDirty]);
 
   const handleDispatch = useCallback(async () => {
-    if (!canDispatch || !unitPath || !dispatchAction || !onSendToTerminal) return;
+    if (!canDispatch || !unitPath || !dispatchAction) return;
     setDispatching(true);
-    onBeforeDispatch?.();
     try {
-      await runAgentDispatch({
+      await flushSave();
+      await runAgentDispatchSilent({
         unitPath,
         action: dispatchAction,
-        onSendToTerminal,
       });
+      onDispatchComplete?.();
     } catch (err) {
       onError?.(err instanceof Error ? err.message : String(err));
     } finally {
       setDispatching(false);
     }
-  }, [canDispatch, dispatchAction, onBeforeDispatch, onError, onSendToTerminal, unitPath]);
+  }, [canDispatch, dispatchAction, flushSave, onDispatchComplete, onError, unitPath]);
 
   useEffect(() => {
     setPreviewRawEdit(false);
@@ -622,10 +654,11 @@ export function MarkdownEditor({
                   className="h-6 gap-1 px-2 text-[10px]"
                   title={`${dispatchActionLabel(dispatchAction)} (⌘⇧R)`}
                   disabled={dispatching}
+                  aria-busy={dispatching}
                   onClick={() => void handleDispatch()}
                 >
                   <Bot className="h-3 w-3" aria-hidden="true" />
-                  AI
+                  {dispatching ? "…" : "AI"}
                 </Button>
               ) : null}
               {modeToggle}

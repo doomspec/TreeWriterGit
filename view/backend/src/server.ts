@@ -24,7 +24,7 @@ import { buildGraph } from "./graph.js";
 import { getCachedGraph, invalidateGraphCache } from "./graphCache.js";
 import { searchModel, validateSearchQuery } from "./search.js";
 import { composeSectionView } from "./compose.js";
-import { loadProviders, buildPreview, buildFanOutPreviews, listContextCandidates, type DispatchAction } from "./agentDispatch.js";
+import { loadProviders, buildPreview, buildFanOutPreviews, listContextCandidates, runDispatch, runFanOutDispatch, type DispatchAction } from "./agentDispatch.js";
 import { listSessions, createSession, updateSessionStatus, advanceUnitStatusOnSessionComplete } from "./sessions.js";
 import {
   scaffoldPaper,
@@ -571,6 +571,100 @@ app.post("/api/agent/fan-out", async (request, response, next) => {
       customPrompt,
     );
     response.json({ units });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/agent/fan-out/run", async (request, response, next) => {
+  try {
+    const { sectionPath, action, provider: providerName, customPrompt } = request.body as {
+      sectionPath?: string;
+      action?: string;
+      provider?: string;
+      customPrompt?: string;
+    };
+    if (!sectionPath) {
+      response.status(400).json({ error: "sectionPath required" });
+      return;
+    }
+    resolveModelPath(modelRoot, sectionPath);
+    const config = await loadProviders(repoRoot);
+    const provider =
+      config.aiProviders.find((p) => p.name === providerName) ?? config.aiProviders[0];
+    const dispatchAction = (action ?? "draft") as DispatchAction;
+    const results = await runFanOutDispatch(
+      modelRoot,
+      repoRoot,
+      sectionPath,
+      dispatchAction,
+      provider,
+      customPrompt,
+    );
+    for (const result of results) {
+      const unitRel = result.outputPath.replace(/\/(?:draft|outline)\.md$/, "");
+      await createSession(modelRoot, unitRel, {
+        at: new Date().toISOString(),
+        provider: result.providerName,
+        action: dispatchAction,
+        command: result.command,
+        status: "complete",
+      });
+      broadcastModelEvent({ type: "model-changed", path: result.outputPath });
+    }
+    response.json({
+      ok: true,
+      count: results.length,
+      units: results.map((r) => ({ outputPath: r.outputPath, sessionId: r.sessionId })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/agent/run", async (request, response, next) => {
+  try {
+    const { unitPath, action, provider: providerName, customPrompt, contextPaths } =
+      request.body as {
+        unitPath?: string;
+        action?: string;
+        provider?: string;
+        customPrompt?: string;
+        contextPaths?: string[];
+      };
+    if (!unitPath) {
+      response.status(400).json({ error: "unitPath required" });
+      return;
+    }
+    resolveModelPath(modelRoot, unitPath);
+    const config = await loadProviders(repoRoot);
+    const provider =
+      config.aiProviders.find((p) => p.name === providerName) ?? config.aiProviders[0];
+    const dispatchAction = (action ?? "draft") as DispatchAction;
+    const result = await runDispatch(
+      modelRoot,
+      repoRoot,
+      unitPath,
+      dispatchAction,
+      provider,
+      customPrompt,
+      contextPaths,
+    );
+    await createSession(modelRoot, unitPath, {
+      at: new Date().toISOString(),
+      provider: result.providerName,
+      action: dispatchAction,
+      command: result.command,
+      status: "complete",
+    });
+    broadcastModelEvent({ type: "model-changed", path: result.outputPath });
+    response.json({
+      ok: true,
+      outputPath: result.outputPath,
+      sessionId: result.sessionId,
+      provider: result.providerName,
+      action: dispatchAction,
+    });
   } catch (error) {
     next(error);
   }

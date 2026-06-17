@@ -141,8 +141,13 @@ export function GraphPanel({
       })
       .then((data) => {
         if (cancelled) return;
-        setRawNodes(data.nodes);
-        setRawEdges(data.edges);
+        const nodes = data.nodes.filter((node) => node.type !== "missing");
+        const nodeIds = new Set(nodes.map((node) => node.id));
+        const edges = data.edges.filter(
+          (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),
+        );
+        setRawNodes(nodes);
+        setRawEdges(edges);
         setError(null);
         setLoading(false);
       })

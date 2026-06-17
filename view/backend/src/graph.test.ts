@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import matter from "gray-matter";
 
-import { buildGraph, parseWikilinks, resolveTarget } from "./graph.js";
+import { buildGraph, isIndexMarkdownLink, parseWikilinks, resolveTarget } from "./graph.js";
 
 let root: string;
 
@@ -51,6 +51,26 @@ describe("resolveTarget", () => {
 
   it("returns null for an unknown target", () => {
     expect(resolveTarget("nope", "a/b/intro", ids, byBase)).toBeNull();
+  });
+
+  it("resolves INDEX.md links to folder nodes", () => {
+    const paperIds = new Set([
+      "papers/demo/procedures",
+      "papers/demo/procedures/resource-availability",
+      "papers/roboculture",
+    ]);
+    const paperByBase = new Map<string, string[]>([
+      ["resource-availability", ["papers/demo/procedures/resource-availability"]],
+      ["roboculture", ["papers/roboculture"]],
+      ["procedures", ["papers/demo/procedures"]],
+    ]);
+    expect(
+      resolveTarget("resource-availability/INDEX.md", "papers/demo/procedures", paperIds, paperByBase),
+    ).toBe("papers/demo/procedures/resource-availability");
+    expect(resolveTarget("roboculture/INDEX.md", "papers", paperIds, paperByBase)).toBe("papers/roboculture");
+    expect(resolveTarget("INDEX.md", "papers/demo/procedures", paperIds, paperByBase)).toBe(
+      "papers/demo/procedures",
+    );
   });
 });
 
@@ -102,6 +122,45 @@ describe("buildGraph", () => {
     const missing = graph.nodes.find((n) => n.type === "missing");
     expect(missing?.id).toBe("missing:ghost-section");
     expect(graph.edges).toContainEqual({ source: "intro", target: "missing:ghost-section", kind: "outline" });
+  });
+
+  it("resolves outline INDEX.md links to folder nodes instead of missing placeholders", async () => {
+    await mkdir(path.join(root, "procedures", "resource-availability"), { recursive: true });
+    await writeFile(
+      path.join(root, "procedures", "INDEX.md"),
+      matter.stringify("", { kind: "section", title: "Procedures", child_order: ["resource-availability"] }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, "procedures", "outline.md"),
+      "## Outline\n\n* [Resource Availability](resource-availability/INDEX.md)\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, "procedures", "resource-availability", "INDEX.md"),
+      matter.stringify("", { kind: "unit", title: "Resource Availability" }),
+      "utf8",
+    );
+    const graph = await buildGraph(root);
+    expect(graph.nodes.some((n) => n.type === "missing")).toBe(false);
+    expect(graph.edges).toContainEqual({
+      source: "procedures",
+      target: "procedures/resource-availability",
+      kind: "outline",
+    });
+  });
+
+  it("drops unresolved INDEX.md links instead of creating missing nodes", async () => {
+    await writeUnit("intro", { kind: "unit" });
+    await writeFile(
+      path.join(root, "intro", "outline.md"),
+      "## Outline\n\n* [Ghost](nowhere/INDEX.md)\n",
+      "utf8",
+    );
+    const graph = await buildGraph(root);
+    expect(graph.nodes.some((n) => n.type === "missing")).toBe(false);
+    expect(graph.edges.some((e) => e.target.startsWith("missing:"))).toBe(false);
+    expect(isIndexMarkdownLink("nowhere/INDEX.md")).toBe(true);
   });
 
   it("treats standalone notes as their own nodes", async () => {

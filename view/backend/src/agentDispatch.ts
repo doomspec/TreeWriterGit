@@ -1,10 +1,19 @@
 import path from "node:path";
+import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile, rm, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import matter from "gray-matter";
 
 import { isUnitDir, orderedChildren, resolveChildPath, shellQuote } from "./modelFs.js";
 import { stripInlineNotes } from "./inlineNotes.js";
+
+const execFileAsync = promisify(execFile);
+const DISPATCH_RUN_SCRIPT = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "dispatch_run.py",
+);
 
 export interface AiProvider {
   name: string;
@@ -396,4 +405,84 @@ export async function buildFanOutPreviews(
     );
   }
   return previews;
+}
+
+const DISPATCH_RUN_TIMEOUT_MS = 20 * 60 * 1000;
+
+export function dispatchExecEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    TERM: "xterm-256color",
+    COLORTERM: "truecolor",
+    CI: process.env.CI ?? "1",
+  };
+}
+
+/** Run a shell command under a PTY so Claude/Codex accept non-terminal-server dispatch. */
+export async function execDispatchCommand(modelRoot: string, command: string): Promise<void> {
+  if (!existsSync(DISPATCH_RUN_SCRIPT)) {
+    throw new Error(`Missing dispatch runner: ${DISPATCH_RUN_SCRIPT}`);
+  }
+  try {
+    await execFileAsync("python3", [DISPATCH_RUN_SCRIPT, modelRoot, command], {
+      env: dispatchExecEnv(),
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: DISPATCH_RUN_TIMEOUT_MS,
+    });
+  } catch (error) {
+    const execError = error as { code?: number; stderr?: string; stdout?: string; message?: string };
+    const detail =
+      execError.stderr?.trim() ||
+      execError.stdout?.trim() ||
+      execError.message ||
+      "Agent run failed";
+    throw new Error(detail);
+  }
+}
+
+/** Run a dispatch command in modelRoot without the terminal PTY. */
+export async function runDispatch(
+  modelRoot: string,
+  repoRoot: string,
+  unitPath: string,
+  action: DispatchAction,
+  provider: AiProvider,
+  customPrompt?: string,
+  contextPaths?: string[],
+): Promise<PreviewResult> {
+  const preview = await buildPreview(
+    modelRoot,
+    repoRoot,
+    unitPath,
+    action,
+    provider,
+    customPrompt,
+    undefined,
+    contextPaths,
+  );
+
+  try {
+    await execDispatchCommand(modelRoot, preview.command);
+    return preview;
+  } catch (error) {
+    if (error instanceof Error) throw error;
+    throw new Error("Agent run failed");
+  }
+}
+
+/** Run dispatch for every unit under a section, sequentially. */
+export async function runFanOutDispatch(
+  modelRoot: string,
+  repoRoot: string,
+  sectionPath: string,
+  action: DispatchAction,
+  provider: AiProvider,
+  customPrompt?: string,
+): Promise<PreviewResult[]> {
+  const unitPaths = await collectUnitPaths(modelRoot, sectionPath);
+  const results: PreviewResult[] = [];
+  for (const unitPath of unitPaths) {
+    results.push(await runDispatch(modelRoot, repoRoot, unitPath, action, provider, customPrompt));
+  }
+  return results;
 }
