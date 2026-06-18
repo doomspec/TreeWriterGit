@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Search } from "lucide-react";
 
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
+import { SearchResults } from "@/components/layout/SearchResults";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
+import type { SearchHit } from "@/modelApi";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -33,6 +35,9 @@ export function PaperWorkspace({
   onDispatchComplete,
   onSendToTerminal,
   onBeforeDispatch,
+  searchQuery,
+  onSearchChange,
+  onSearchSelect,
 }: {
   paperPath: string;
   refreshVersion: number;
@@ -44,6 +49,9 @@ export function PaperWorkspace({
   onDispatchComplete?: () => void;
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
+  onSearchSelect?: (hit: SearchHit) => void;
 }) {
   const [compose, setCompose] = useState<PaperCompose | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,19 +106,35 @@ export function PaperWorkspace({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-10 shrink-0 items-center justify-end border-b border-border bg-card px-4">
-        <div className="flex items-center gap-1">
+      <div className="shrink-0 border-b border-border bg-card">
+        <div className="flex h-10 items-center gap-3 px-4">
+          <div className="relative min-w-0 flex-1 max-w-md">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              placeholder="Search this paper…"
+              value={searchQuery}
+              className="ui-input h-8 pl-8"
+              onChange={(event) => onSearchChange(event.target.value)}
+            />
+          </div>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 gap-1 px-2 text-[10px]"
+            className="h-7 shrink-0 gap-1 px-2 text-[10px]"
             onClick={() => onOpenFile(outlinePath)}
           >
             <Pencil className="h-3 w-3" aria-hidden="true" />
             Edit outline source
           </Button>
         </div>
+        {onSearchSelect ? (
+          <SearchResults query={searchQuery} root={paperPath} onSelect={onSearchSelect} />
+        ) : null}
       </div>
 
       <ResizableDualPane
@@ -145,7 +169,6 @@ export function PaperWorkspace({
             markdown={compose.draftMarkdown.replace(/^#\s+.+\n+/, "")}
             refreshVersion={refreshVersion}
             linkContextPath={paperPath}
-            children={compose.children}
             onNavigate={handleLinkNavigate}
             onError={onError}
             onSynced={onDispatchComplete}

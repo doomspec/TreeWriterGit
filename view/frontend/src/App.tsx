@@ -689,6 +689,9 @@ export default function App() {
                 onDispatchComplete={reloadModel}
                 onSendToTerminal={sendToTerminal}
                 onBeforeDispatch={openAgentPanel}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                onSearchSelect={handleSearchSelect}
               />
             ) : tablePath ? (
               <TableWorkspace

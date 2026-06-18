@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Search } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { PaperAssetsPanel } from "@/components/nav/PaperAssetsPanel";
 import { TrashPanel } from "@/components/nav/TrashPanel";
@@ -8,11 +8,8 @@ import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { PapersPanel } from "@/PapersPanel";
-import { SearchResults } from "@/components/layout/SearchResults";
 import { cn } from "@/lib/utils";
-import { PAPERS_ROOT } from "@/lib/modelTree";
 import type { GraphScope } from "@/lib/graphLocal";
-import type { SearchHit } from "@/modelApi";
 import type { ModelNode } from "@/lib/modelTree";
 
 function SidebarSection({
@@ -53,9 +50,6 @@ export function PapersSidebar({
   currentPath,
   activeFile,
   refreshVersion,
-  searchQuery,
-  onSearchChange,
-  onSearchSelect,
   onNavigate,
   onOpenFile,
   onPaperCreated,
@@ -66,16 +60,12 @@ export function PapersSidebar({
   graphScope,
   onGraphScopeChange,
   onGraphSelectNode,
-  paperSearchRoot,
   embedded = false,
 }: {
   tree: ModelNode[];
   currentPath: string;
   activeFile: string | null;
   refreshVersion: number;
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
-  onSearchSelect?: (hit: SearchHit) => void;
   onNavigate: (path: string) => void;
   onOpenFile: (path: string) => void;
   onPaperCreated: (path: string) => void;
@@ -86,7 +76,6 @@ export function PapersSidebar({
   graphScope: GraphScope;
   onGraphScopeChange: (scope: GraphScope) => void;
   onGraphSelectNode: (id: string) => void;
-  paperSearchRoot?: string;
   embedded?: boolean;
 }) {
   const [sectionsOpen, setSectionsOpen] = useState(true);
@@ -118,26 +107,6 @@ export function PapersSidebar({
             refreshVersion={refreshVersion}
             onError={onError}
           />
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              placeholder="Search papers…"
-              value={searchQuery}
-              className="ui-input pl-8"
-              onChange={(e) => onSearchChange(e.target.value)}
-            />
-          </div>
-          {onSearchSelect ? (
-            <SearchResults
-              query={searchQuery}
-              root={paperSearchRoot ?? PAPERS_ROOT}
-              onSelect={onSearchSelect}
-            />
-          ) : null}
         </div>
 
         <SidebarSection

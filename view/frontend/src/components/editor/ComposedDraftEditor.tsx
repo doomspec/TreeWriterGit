@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Eye, FileCode2 } from "lucide-react";
+import { Eye, FileCode2 } from "lucide-react";
 
 import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
 import { Button } from "@/components/ui/button";
@@ -10,36 +10,12 @@ import { resolveNavigateTarget, type NavigateTarget } from "@/lib/modelTree";
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 type PaneEditMode = "rendered" | "raw";
 
-function parseLinkedHeadings(
-  markdown: string,
-): Array<{ title: string; href: string; depth: number }> {
-  const items: Array<{ title: string; href: string; depth: number }> = [];
-  for (const line of markdown.split("\n")) {
-    const match = line.match(/^(#{2,4})\s+\[([^\]]+)\]\(([^)]+)\)/);
-    if (match) {
-      items.push({
-        depth: match[1].length,
-        title: match[2].trim(),
-        href: match[3].trim(),
-      });
-    }
-  }
-  return items;
-}
-
-export type ComposedDraftChild = {
-  path: string;
-  title: string;
-  kind: "unit" | "section" | "figure" | "table";
-};
-
 export function ComposedDraftEditor({
   containerPath,
   title,
   markdown,
   refreshVersion,
   linkContextPath,
-  children,
   onNavigate,
   onError,
   onSynced,
@@ -53,7 +29,6 @@ export function ComposedDraftEditor({
   markdown: string;
   refreshVersion: number;
   linkContextPath: string;
-  children: ComposedDraftChild[];
   onNavigate: (target: NavigateTarget) => void;
   onError: (message: string) => void;
   onSynced?: () => void;
@@ -66,12 +41,10 @@ export function ComposedDraftEditor({
   const [loadedContent, setLoadedContent] = useState(markdown);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [paneMode, setPaneMode] = useState<PaneEditMode>("rendered");
-  const [navOpen, setNavOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirtyRef = useRef(false);
   const isDirty = content !== loadedContent;
   isDirtyRef.current = isDirty;
-  const linkedHeadings = parseLinkedHeadings(content);
   const lineCount = useMemo(() => Math.max(24, content.split("\n").length + 2), [content]);
 
   useEffect(() => {
@@ -103,13 +76,6 @@ export function ComposedDraftEditor({
     }, 800);
     return () => window.clearTimeout(timeout);
   }, [containerPath, content, isDirty, onError, onSynced, title]);
-
-  const handleChildNavigate = useCallback(
-    (childPath: string) => {
-      onNavigate({ type: "folder", path: childPath });
-    },
-    [onNavigate],
-  );
 
   const handleHeadingNavigate = useCallback(
     (href: string) => {
@@ -143,27 +109,6 @@ export function ComposedDraftEditor({
           : saveState === "error"
             ? "sync error"
             : "autosync";
-
-  const navItems = useMemo(() => {
-    if (linkedHeadings.length > 0) {
-      return linkedHeadings.map((heading, index) => ({
-        key: `${heading.href}-${index}`,
-        title: heading.title,
-        href: heading.href,
-        depth: heading.depth,
-      }));
-    }
-    return children.map((child) => ({
-      key: child.path,
-      title: child.title,
-      href: "",
-      depth: 2,
-      path: child.path,
-    }));
-  }, [children, linkedHeadings]);
-
-  const showNav = navItems.length > 0;
-  const navCollapsed = navItems.length > 6 && !navOpen;
 
   return (
     <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", className)}>
@@ -209,44 +154,6 @@ export function ComposedDraftEditor({
           </div>
         </div>
       </div>
-
-      {showNav ? (
-        <div className="shrink-0 border-b border-border bg-muted/20 px-3 py-2">
-          <button
-            type="button"
-            className="flex w-full items-center gap-1 text-left text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-            onClick={() => setNavOpen((open) => !open)}
-          >
-            {navCollapsed ? (
-              <ChevronRight className="h-3 w-3" aria-hidden="true" />
-            ) : (
-              <ChevronDown className="h-3 w-3" aria-hidden="true" />
-            )}
-            Jump to section ({navItems.length})
-          </button>
-          {!navCollapsed ? (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {navItems.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className="rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-primary hover:bg-accent/50"
-                  style={{
-                    marginLeft: item.depth > 2 ? `${(item.depth - 2) * 0.5}rem` : undefined,
-                  }}
-                  onClick={() =>
-                    "path" in item && typeof item.path === "string"
-                      ? handleChildNavigate(item.path)
-                      : handleHeadingNavigate(item.href)
-                  }
-                >
-                  {item.title}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
         {content.trim() || paneMode === "raw" ? (

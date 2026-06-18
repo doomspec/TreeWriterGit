@@ -27,7 +27,6 @@ export function WorkspaceNav({
   graphScope,
   onGraphScopeChange,
   onGraphSelectNode,
-  paperSearchRoot,
 }: {
   tree: ModelNode[];
   currentPath: string;
@@ -47,7 +46,6 @@ export function WorkspaceNav({
   graphScope: GraphScope;
   onGraphScopeChange: (scope: GraphScope) => void;
   onGraphSelectNode: (id: string) => void;
-  paperSearchRoot?: string;
 }) {
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-sidebar">
@@ -70,9 +68,6 @@ export function WorkspaceNav({
           currentPath={currentPath}
           activeFile={activeFile}
           refreshVersion={refreshVersion}
-          searchQuery={searchQuery}
-          onSearchChange={onSearchChange}
-          onSearchSelect={onSearchSelect}
           onNavigate={onNavigate}
           onOpenFile={onOpenFile}
           onPaperCreated={onPaperCreated}
@@ -83,7 +78,6 @@ export function WorkspaceNav({
           graphScope={graphScope}
           onGraphScopeChange={onGraphScopeChange}
           onGraphSelectNode={onGraphSelectNode}
-          paperSearchRoot={paperSearchRoot}
         />
       )}
     </aside>

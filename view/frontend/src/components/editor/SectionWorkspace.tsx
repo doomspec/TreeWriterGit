@@ -235,7 +235,6 @@ export function SectionWorkspace({
               markdown={compose.draftMarkdown.replace(/^#\s+.+\n+/, "")}
               refreshVersion={refreshVersion}
               linkContextPath={sectionPath}
-              children={compose.children}
               onNavigate={handleLinkNavigate}
               onError={onError}
               onSynced={onDispatchComplete}
