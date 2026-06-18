@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 
+import { cn } from "@/lib/utils";
 import { searchModel, type SearchHit } from "@/modelApi";
 
 export function SearchResults({
   query,
   root,
   onSelect,
+  className,
 }: {
   query: string;
   root?: string;
   onSelect: (hit: SearchHit) => void;
+  className?: string;
 }) {
   const [results, setResults] = useState<SearchHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +55,7 @@ export function SearchResults({
   if (query.trim().length < 2) return null;
 
   return (
-    <div className="border-b border-border bg-background px-3 py-2">
+    <div className={cn("border-t border-border bg-background px-3 py-2", className)}>
       {loading ? (
         <p className="text-[11px] text-muted-foreground">Searching…</p>
       ) : error ? (

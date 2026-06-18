@@ -562,6 +562,68 @@
   overflow-wrap: break-word;
 }
 
+.highlight-line--pending {
+  background: hsl(45 93% 47% / 0.28);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border-radius: 2px;
+}
+
+.dark .highlight-line--pending {
+  background: hsl(45 80% 50% / 0.22);
+}
+
+.highlighting-textarea__input--overlay {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: hsl(var(--foreground));
+}
+
+.highlighting-textarea__input--overlay::selection {
+  color: hsl(var(--foreground));
+  -webkit-text-fill-color: currentColor;
+  background: hsl(var(--primary) / 0.35);
+}
+
+.highlighting-textarea--grow {
+  display: grid;
+}
+
+.highlighting-textarea--grow > .highlighting-textarea__mirror--grow,
+.highlighting-textarea--grow > .highlighting-textarea__input {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.highlighting-textarea__mirror {
+  font: inherit;
+}
+
+.pending-changes-diff__line--insert {
+  background: hsl(45 93% 47% / 0.24);
+  color: hsl(var(--foreground));
+}
+
+.pending-changes-diff__line--delete {
+  background: hsl(0 72% 51% / 0.14);
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: hsl(0 72% 51% / 0.55);
+}
+
+.dark .pending-changes-diff__line--insert {
+  background: hsl(45 80% 50% / 0.18);
+}
+
+.dark .pending-changes-diff__line--delete {
+  background: hsl(0 62% 45% / 0.2);
+}
+
+.highlighting-textarea__input--grow {
+  field-sizing: content;
+  min-height: 8rem;
+}
+
 .rendered-markdown-field__input::selection {
   background: hsl(var(--primary) / 0.28);
 }

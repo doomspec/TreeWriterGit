@@ -32,6 +32,8 @@ export interface PaperSummary {
 
 export interface PaperDetail extends PaperSummary {
   sections: SectionRollup[];
+  /** Unit approval rollups for every folder under the paper (sections, subsections, units). */
+  containerCounts: Record<string, UnitStatusCounts>;
 }
 
 export interface JournalTemplate {
@@ -111,6 +113,52 @@ export async function countUnitsUnder(
 
   await walk(rootRel);
   return counts;
+}
+
+const CONTAINER_SKIP = new Set(["notes", ".sessions", ".trash", "figures", "tables"]);
+
+function normalizeUnitStatus(raw: string): UnitStatus {
+  if (raw === "approved" || raw === "drafted") return raw;
+  return "outline";
+}
+
+function countsForUnitIndex(status: UnitStatus): UnitStatusCounts {
+  const counts = { ...EMPTY_COUNTS, total: 1 };
+  counts[status] = 1;
+  return counts;
+}
+
+/** Roll up unit approval counts for each folder under a paper (including unit leaves). */
+export async function collectContainerCounts(
+  modelRoot: string,
+  paperRel: string,
+): Promise<Record<string, UnitStatusCounts>> {
+  const result: Record<string, UnitStatusCounts> = {};
+
+  async function walk(dirRel: string): Promise<void> {
+    if (dirRel.includes("/notes/") || dirRel.endsWith("/notes")) return;
+    const base = path.posix.basename(dirRel);
+    if (CONTAINER_SKIP.has(base)) return;
+    if (!existsSync(path.join(modelRoot, dirRel))) return;
+
+    if (await isUnitDir(modelRoot, dirRel)) {
+      const data = await readIndexData(modelRoot, dirRel);
+      result[dirRel] = countsForUnitIndex(normalizeUnitStatus(String(data.status ?? "outline")));
+      return;
+    }
+
+    result[dirRel] = await countUnitsUnder(modelRoot, dirRel);
+
+    for (const child of await orderedChildren(modelRoot, dirRel)) {
+      if (CONTAINER_SKIP.has(child)) continue;
+      const childRel = resolveChildPath(modelRoot, dirRel, child);
+      if (!childRel) continue;
+      await walk(childRel);
+    }
+  }
+
+  await walk(paperRel);
+  return result;
 }
 
 async function topLevelSections(modelRoot: string, paperRel: string): Promise<{ path: string; title: string }[]> {
@@ -317,7 +365,9 @@ export async function getPaperDetail(modelRoot: string, slug: string): Promise<P
     });
   }
 
-  return { ...summary, sections };
+  const containerCounts = await collectContainerCounts(modelRoot, paperRel);
+
+  return { ...summary, sections, containerCounts };
 }
 
 /** Exported for agent dispatch context gathering. */

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import matter from "gray-matter";
 
 import {
+  collectContainerCounts,
   countUnitsUnder,
   getPaperDetail,
   listPapers,
@@ -247,6 +248,28 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
     const intro = detail.sections.find((s) => s.path.endsWith("/introduction"));
     expect(intro?.counts.drafted).toBe(1);
     expect(detail.counts.drafted).toBe(1);
+  });
+
+  it("returns containerCounts for sections, subsections, and units", async () => {
+    await scaffoldPaper(modelRoot, { title: "Rollup", journal: "PLOS ONE", authors: [] });
+    await writeIndex("papers/rollup/sections/methods", {
+      kind: "section",
+      child_order: ["prep"],
+    });
+    await writeIndex("papers/rollup/sections/methods/prep", {
+      kind: "subsection",
+      child_order: ["step-a"],
+    });
+    await writeUnit("papers/rollup/sections/methods/prep/step-a", "approved");
+
+    const counts = await collectContainerCounts(modelRoot, "papers/rollup");
+    expect(counts["papers/rollup"].approved).toBe(1);
+    expect(counts["papers/rollup/sections/methods"].approved).toBe(1);
+    expect(counts["papers/rollup/sections/methods/prep"].approved).toBe(1);
+    expect(counts["papers/rollup/sections/methods/prep/step-a"].approved).toBe(1);
+
+    const detail = await getPaperDetail(modelRoot, "rollup");
+    expect(detail.containerCounts["papers/rollup/sections/methods/prep/step-a"].total).toBe(1);
   });
 
   it("throws 404 for an unknown paper slug", async () => {

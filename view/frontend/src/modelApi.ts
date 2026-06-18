@@ -139,6 +139,7 @@ export interface SectionRollup {
 
 export interface PaperDetail extends PaperSummary {
   sections: SectionRollup[];
+  containerCounts: Record<string, UnitStatusCounts>;
 }
 
 export function fetchPapers() {
@@ -340,9 +341,58 @@ export function fanOutDispatch(body: {
   });
 }
 
-export function syncSectionDraft(containerPath: string, draftMarkdown: string) {
+export function syncSectionDraft(
+  containerPath: string,
+  draftMarkdown: string,
+  options?: SaveModelFileOptions,
+) {
   return request<{ updated: string[] }>("/api/model/section-draft-sync", {
     method: "POST",
-    body: JSON.stringify({ path: containerPath, draftMarkdown }),
+    body: JSON.stringify({
+      path: containerPath,
+      draftMarkdown,
+      editedBy: options?.editedBy,
+      aiAssisted: options?.aiAssisted,
+    }),
   });
+}
+
+export function fetchApprovedSectionCompose(containerPath: string) {
+  return request<{ draftMarkdown: string }>(
+    `/api/model/section-compose?path=${encodeURIComponent(containerPath)}&approvedOnly=true`,
+  );
+}
+
+export async function fetchModelFile(path: string): Promise<{ content: string }> {
+  return request<{ content: string }>(`/api/model/file?path=${encodeURIComponent(path)}`);
+}
+
+export type SaveModelFileOptions = {
+  editedBy?: string | null;
+  aiAssisted?: boolean;
+};
+
+export async function saveModelFile(
+  path: string,
+  content: string,
+  options?: SaveModelFileOptions,
+): Promise<void> {
+  const body: Record<string, unknown> = { path, content };
+  if (options?.editedBy !== undefined) body.editedBy = options.editedBy;
+  if (options?.aiAssisted !== undefined) body.aiAssisted = options.aiAssisted;
+  try {
+    await request("/api/model/file", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      await request("/api/model/file", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      return;
+    }
+    throw err;
+  }
 }

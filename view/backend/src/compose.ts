@@ -78,9 +78,17 @@ export function parseOutlineSummary(markdown: string): string | null {
   return firstBlock || null;
 }
 
-async function readDraftContent(modelRoot: string, relPath: string): Promise<string> {
-  const draftPath = path.join(modelRoot, relPath, "draft.md");
-  if (!existsSync(draftPath)) return "";
+async function readDraftContent(
+  modelRoot: string,
+  relPath: string,
+  approvedOnly = false,
+): Promise<string> {
+  const fileName = approvedOnly ? "draft.approved.md" : "draft.md";
+  const draftPath = path.join(modelRoot, relPath, fileName);
+  if (!existsSync(draftPath)) {
+    if (approvedOnly) return "";
+    return "";
+  }
   return (await readFile(draftPath, "utf8")).trim();
 }
 
@@ -129,6 +137,7 @@ async function composeDraftBlock(
   childTitle: string,
   linkHref: string,
   depth: number,
+  approvedOnly = false,
 ): Promise<string> {
   if (await isFigureDir(modelRoot, childRel)) {
     return composeFigureDraftBlock(modelRoot, childRel, childTitle, linkHref, depth);
@@ -141,7 +150,7 @@ async function composeDraftBlock(
   const unit = await isUnitDir(modelRoot, childRel);
 
   if (unit) {
-    const draft = await readDraftContent(modelRoot, childRel);
+    const draft = await readDraftContent(modelRoot, childRel, approvedOnly);
     if (!draft) return "";
     return draftHeadingBlock(depth, childTitle, linkHref, stripLeadingH1(draft));
   }
@@ -160,6 +169,7 @@ async function composeDraftBlock(
       grandTitle,
       grandHref,
       depth + 1,
+      approvedOnly,
     );
     if (block) inner.push(block);
   }
@@ -172,7 +182,9 @@ async function composeDraftBlock(
 export async function composeSectionView(
   modelRoot: string,
   dirRel: string,
+  options?: { approvedOnly?: boolean },
 ): Promise<SectionComposeResult> {
+  const approvedOnly = options?.approvedOnly ?? false;
   const indexData = await readIndexData(modelRoot, dirRel);
   const title = String(indexData.title ?? titleCase(path.posix.basename(dirRel)));
   const kind = typeof indexData.kind === "string" ? indexData.kind : null;
@@ -220,7 +232,15 @@ export async function composeSectionView(
     outlineParts.push(linkedHeadingBlock(3, `${childTitle}${assetBadge}`, linkHref));
     outlineParts.push(childSummary ? `${childSummary}\n\n` : `*No summary yet — open to write.*\n\n`);
 
-    const draftBlock = await composeDraftBlock(modelRoot, dirRel, childRel, childTitle, linkHref, 1);
+    const draftBlock = await composeDraftBlock(
+      modelRoot,
+      dirRel,
+      childRel,
+      childTitle,
+      linkHref,
+      1,
+      approvedOnly,
+    );
     if (draftBlock) draftParts.push(draftBlock);
   }
 

@@ -1,14 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, FileCode2 } from "lucide-react";
 
+import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
+import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
+import { PendingChangesPanel } from "@/components/editor/PendingChangesPanel";
 import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
 import { Button } from "@/components/ui/button";
+import {
+  approveDraftAtPath,
+  discardDraftAtPath,
+  draftSaveMeta,
+  draftStatusLabel,
+  type DraftPendingSource,
+} from "@/lib/draftApproval";
+import { getGitHubHandle } from "@/lib/userIdentity";
+import { useRegisterDraftPending } from "@/lib/draftPendingStore";
 import { cn } from "@/lib/utils";
-import { syncSectionDraft } from "@/modelApi";
+import { fetchApprovedSectionCompose, syncSectionDraft } from "@/modelApi";
 import { resolveNavigateTarget, type NavigateTarget } from "@/lib/modelTree";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 type PaneEditMode = "rendered" | "raw";
+
+function buildDraftMarkdown(title: string, body: string): string {
+  return title.trim() ? `# ${title.trim()}\n\n${body.trimEnd()}\n` : `${body.trimEnd()}\n`;
+}
+
+function stripComposedTitle(title: string, markdown: string): string {
+  return markdown.replace(/^#\s+.+\n+/, "");
+}
 
 export function ComposedDraftEditor({
   containerPath,
@@ -39,13 +59,34 @@ export function ComposedDraftEditor({
 }) {
   const [content, setContent] = useState(markdown);
   const [loadedContent, setLoadedContent] = useState(markdown);
+  const [approvedBaseline, setApprovedBaseline] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [pendingSource, setPendingSource] = useState<DraftPendingSource | null>(null);
   const [paneMode, setPaneMode] = useState<PaneEditMode>("rendered");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirtyRef = useRef(false);
   const isDirty = content !== loadedContent;
+  const isPendingApproval = content !== approvedBaseline;
+  useRegisterDraftPending(containerPath, isPendingApproval);
   isDirtyRef.current = isDirty;
+  const githubHandle = getGitHubHandle();
   const lineCount = useMemo(() => Math.max(24, content.split("\n").length + 2), [content]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchApprovedSectionCompose(containerPath)
+      .then(({ draftMarkdown }) => {
+        if (!cancelled) {
+          setApprovedBaseline(stripComposedTitle(title, draftMarkdown));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setApprovedBaseline("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [containerPath, refreshVersion, title]);
 
   useEffect(() => {
     if (isDirtyRef.current) return;
@@ -55,15 +96,21 @@ export function ComposedDraftEditor({
   }, [markdown, refreshVersion]);
 
   useEffect(() => {
+    if (isPendingApproval) {
+      setPendingSource("human");
+    } else {
+      setPendingSource(null);
+    }
+  }, [isPendingApproval]);
+
+  useEffect(() => {
     if (!isDirty) return;
     setSaveState("dirty");
     const timeout = window.setTimeout(async () => {
       setSaveState("saving");
-      const draftMarkdown = title.trim()
-        ? `# ${title.trim()}\n\n${content.trimEnd()}\n`
-        : `${content.trimEnd()}\n`;
+      const draftMarkdown = buildDraftMarkdown(title, content);
       try {
-        await syncSectionDraft(containerPath, draftMarkdown);
+        await syncSectionDraft(containerPath, draftMarkdown, draftSaveMeta(pendingSource));
         setLoadedContent(content);
         setSaveState("saved");
         onSynced?.();
@@ -75,7 +122,45 @@ export function ComposedDraftEditor({
       }
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [containerPath, content, isDirty, onError, onSynced, title]);
+  }, [containerPath, content, isDirty, onError, onSynced, pendingSource, title]);
+
+  const handleApprove = useCallback(async () => {
+    setSaveState("saving");
+    const draftMarkdown = buildDraftMarkdown(title, content);
+    try {
+      if (isDirty) await syncSectionDraft(containerPath, draftMarkdown, draftSaveMeta(pendingSource));
+      await approveDraftAtPath(containerPath, githubHandle || null);
+      setLoadedContent(content);
+      setApprovedBaseline(content);
+      setPendingSource(null);
+      setSaveState("saved");
+      onSynced?.();
+      window.setTimeout(() => setSaveState("idle"), 900);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSaveState("error");
+      onError(message);
+    }
+  }, [containerPath, content, githubHandle, isDirty, onError, onSynced, pendingSource, title]);
+
+  const handleDiscard = useCallback(async () => {
+    setSaveState("saving");
+    try {
+      await discardDraftAtPath(containerPath);
+      const { draftMarkdown } = await fetchApprovedSectionCompose(containerPath);
+      const restored = stripComposedTitle(title, draftMarkdown);
+      setContent(restored);
+      setLoadedContent(restored);
+      setApprovedBaseline(restored);
+      setPendingSource(null);
+      setSaveState("idle");
+      onSynced?.();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSaveState("error");
+      onError(message);
+    }
+  }, [containerPath, onError, onSynced, title]);
 
   const handleHeadingNavigate = useCallback(
     (href: string) => {
@@ -99,19 +184,28 @@ export function ComposedDraftEditor({
     [handleHeadingNavigate],
   );
 
-  const saveLabel =
-    saveState === "dirty"
-      ? "unsaved"
-      : saveState === "saving"
-        ? "syncing…"
-        : saveState === "saved"
-          ? "synced to sections"
-          : saveState === "error"
-            ? "sync error"
-            : "autosync";
+  const saveLabel = draftStatusLabel({
+    requiresApproval: true,
+    isPendingApproval,
+    isDirty,
+    saveState,
+    defaultLabel: "approved",
+  });
 
   return (
     <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", className)}>
+      <DraftApprovalBar
+        pendingSource={isPendingApproval ? pendingSource : null}
+        editedBy={githubHandle}
+        aiAssisted={pendingSource === "ai"}
+        onApprove={() => void handleApprove()}
+        onDiscard={() => void handleDiscard()}
+        approving={saveState === "saving"}
+        approveLabel="Approve & sync sections"
+      />
+      {isPendingApproval ? (
+        <PendingChangesPanel baseline={approvedBaseline} current={content} />
+      ) : null}
       <div className="ui-pane-header shrink-0">
         <div className="flex min-w-0 flex-col">
           <span className="ui-label">{paneLabel}</span>
@@ -161,18 +255,23 @@ export function ComposedDraftEditor({
             <RenderedMarkdownField
               value={content}
               onChange={setContent}
+              approvedBaseline={approvedBaseline}
+              highlightPending={isPendingApproval}
               linkContextPath={linkContextPath}
               linksClickable
               onNavigate={onNavigate}
               inputRef={textareaRef}
               ariaLabel={`Edit composed ${paneLabel.toLowerCase()}`}
-              placeholder="Full composed draft — edit here; changes sync to section drafts automatically…"
+              placeholder="Full composed draft — edits autosave to section drafts; approve when ready for export…"
             />
           ) : (
-            <textarea
-              ref={textareaRef}
-              className="composed-draft-raw w-full resize-none border-0 bg-transparent font-mono text-[13px] leading-6 outline-none focus:ring-0"
+            <HighlightingTextarea
+              inputRef={textareaRef}
+              className="composed-draft-raw w-full font-mono text-[13px] leading-6"
+              mirrorClassName="font-mono text-[13px] leading-6"
               value={content}
+              baseline={approvedBaseline}
+              highlight={isPendingApproval}
               rows={lineCount}
               spellCheck={false}
               aria-label={`Edit raw composed ${paneLabel.toLowerCase()}`}
@@ -182,8 +281,7 @@ export function ComposedDraftEditor({
           )
         ) : (
           <p className="text-sm italic text-muted-foreground">
-            No draft content yet — start writing here; changes sync to child section drafts
-            automatically.
+            No draft content yet — start writing here; changes autosave to child section drafts.
           </p>
         )}
       </div>

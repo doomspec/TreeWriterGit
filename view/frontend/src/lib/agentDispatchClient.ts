@@ -1,5 +1,7 @@
 import { fanOutDispatch, fetchContextFiles } from "@/modelApi";
 import { resolveAgentProvider, saveLastAgentProvider } from "@/lib/lastAgentProvider";
+import { fetchGitSyncResolveHarness } from "@/lib/settingsApi";
+import { getGitHubHandle } from "@/lib/userIdentity";
 import type { PersistedDispatchJob } from "@/lib/dispatchProgressStore";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
@@ -168,6 +170,7 @@ export async function runAgentDispatchSilent(options: {
       provider,
       customPrompt: options.customPrompt,
       contextPaths,
+      triggeredBy: getGitHubHandle() || undefined,
     }),
   });
   if (!res.ok) {
@@ -201,6 +204,16 @@ export async function runAgentDispatch(options: {
     command: preview.command,
   });
   return preview;
+}
+
+export async function resolveViewSyncWithHarness(options: {
+  provider?: string;
+  onSendToTerminal: (command: string) => void;
+}): Promise<{ providerName: string; sessionId: string }> {
+  const preview = await fetchGitSyncResolveHarness(options.provider);
+  rememberAgentProvider(preview.providerName);
+  options.onSendToTerminal(`${preview.command}\n`);
+  return { providerName: preview.providerName, sessionId: preview.sessionId };
 }
 
 export function dispatchActionForSectionPane(focusedPane: "outline" | "draft"): AgentDispatchAction {
@@ -425,6 +438,7 @@ export async function runFanOutDispatchSilent(options: {
       action: options.action,
       provider,
       customPrompt: options.customPrompt,
+      triggeredBy: getGitHubHandle() || undefined,
     }),
   });
   if (!res.ok) {

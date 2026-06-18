@@ -1,5 +1,12 @@
 export type WorkspaceNavTab = "explorer" | "papers";
 
+export type PapersSidebarPanels = {
+  sectionsOpen: boolean;
+  assetsOpen: boolean;
+  removedOpen: boolean;
+  graphOpen: boolean;
+};
+
 export type WorkspacePreferences = {
   sidebarTab: WorkspaceNavTab;
   currentPath: string;
@@ -11,9 +18,17 @@ export type WorkspacePreferences = {
   graphScope: "local" | "global";
   dualPaneSplit: number;
   sidebarWidth: number;
+  papersSidebar: PapersSidebarPanels;
 };
 
 const STORAGE_KEY = "treewriter.workspace.v1";
+
+const DEFAULT_PAPERS_SIDEBAR: PapersSidebarPanels = {
+  sectionsOpen: true,
+  assetsOpen: true,
+  removedOpen: false,
+  graphOpen: true,
+};
 
 const DEFAULTS: WorkspacePreferences = {
   sidebarTab: "papers",
@@ -26,6 +41,7 @@ const DEFAULTS: WorkspacePreferences = {
   graphScope: "local",
   dualPaneSplit: 50,
   sidebarWidth: 240,
+  papersSidebar: DEFAULT_PAPERS_SIDEBAR,
 };
 
 export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
@@ -42,15 +58,30 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     if (typeof parsed.sidebarWidth === "number") {
       parsed.sidebarWidth = Math.min(520, Math.max(180, Math.round(parsed.sidebarWidth)));
     }
+    if (parsed.papersSidebar && typeof parsed.papersSidebar === "object") {
+      parsed.papersSidebar = {
+        ...DEFAULT_PAPERS_SIDEBAR,
+        ...parsed.papersSidebar,
+      };
+    }
     return parsed;
   } catch {
     return {};
   }
 }
 
-export function saveWorkspacePreferences(prefs: WorkspacePreferences): void {
+export function saveWorkspacePreferences(prefs: Partial<WorkspacePreferences>): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    const merged = mergeWorkspaceDefaults({
+      ...loadWorkspacePreferences(),
+      ...prefs,
+      papersSidebar: {
+        ...DEFAULT_PAPERS_SIDEBAR,
+        ...loadWorkspacePreferences().papersSidebar,
+        ...prefs.papersSidebar,
+      },
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
   } catch {
     // quota or private mode — ignore
   }

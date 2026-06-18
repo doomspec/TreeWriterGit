@@ -51,6 +51,8 @@ import {
 } from "@/lib/workspacePreferences";
 import type { GraphScope } from "@/lib/graphLocal";
 import { resolveGraphFetchRoot } from "@/lib/graphLocal";
+import { isViewSyncPaused } from "@/lib/gitSync";
+import { resolveViewSyncWithHarness } from "@/lib/agentDispatchClient";
 import {
   buildTerminalWebSocketUrl,
   clearTerminalSessionId,
@@ -79,6 +81,7 @@ type GitSyncState = {
   conflictDetected?: boolean;
   autoSync?: boolean;
   intervalMs?: number;
+  viewChangesBlocked?: boolean;
 };
 
 type AppView = "workspace" | "settings";
@@ -459,6 +462,15 @@ export default function App() {
     refitTerminal();
   }, [refitTerminal]);
 
+  const resolveViewSyncHarness = useCallback(async () => {
+    try {
+      openAgentPanel();
+      await resolveViewSyncWithHarness({ onSendToTerminal: sendToTerminal });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [openAgentPanel, sendToTerminal]);
+
   const runGitSync = useCallback(async () => {
     const response = await fetch(`${apiBaseUrl}/api/git-sync/run`, { method: "POST" });
     if (!response.ok) {
@@ -536,6 +548,7 @@ export default function App() {
         : gitSync?.enabled
           ? "ok"
           : "off";
+  const viewSyncPaused = isViewSyncPaused(gitSync);
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -639,6 +652,8 @@ export default function App() {
           onBack={() => setAppView("workspace")}
           onError={setError}
           onGitSyncChange={handleGitSyncSettingsChange}
+          viewSyncPaused={viewSyncPaused}
+          onResolveViewSync={() => void resolveViewSyncHarness()}
         />
       ) : (
       <div className="workspace-shell flex min-h-0 min-w-0 flex-1 flex-col">
@@ -816,6 +831,17 @@ export default function App() {
                   ? `Synced ${new Date(gitSync.lastSuccessAt).toLocaleTimeString()}`
                   : "Awaiting sync"}
             </span>
+            {viewSyncPaused ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+                onClick={() => void resolveViewSyncHarness()}
+              >
+                Resolve with harness
+              </Button>
+            ) : null}
           </footer>
         </section>
         </ResizableSidebarLayout>
@@ -860,6 +886,11 @@ export default function App() {
             {gitSyncHasError(gitSync) ? (
               <button type="button" className="underline" onClick={() => void runGitSync()}>
                 retry sync
+              </button>
+            ) : null}
+            {viewSyncPaused ? (
+              <button type="button" className="underline" onClick={() => void resolveViewSyncHarness()}>
+                resolve with harness
               </button>
             ) : null}
             <button type="button" className="underline" onClick={() => setError(null)}>

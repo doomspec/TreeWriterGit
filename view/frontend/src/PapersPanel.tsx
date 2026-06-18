@@ -5,7 +5,14 @@ import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
 import { TreeRowActions } from "@/components/nav/TreeRowActions";
+import { UnapprovedIndicator } from "@/components/nav/UnapprovedIndicator";
 import { cn } from "@/lib/utils";
+import { useDraftPendingPaths } from "@/lib/draftPendingStore";
+import {
+  sectionNeedsHighlight,
+  unapprovedSectionRowClass,
+  unapprovedSectionTitle,
+} from "@/lib/unapprovedHighlight";
 import { navigateAfterArchive, useArchiveNodeDialog } from "@/lib/useArchiveNodeDialog";
 import {
   indexPathFor,
@@ -34,6 +41,7 @@ function FolderChildrenList({
   currentPath,
   tree,
   childOrders,
+  containerCounts,
   reordering,
   depth = 0,
   onNavigate,
@@ -44,6 +52,7 @@ function FolderChildrenList({
   currentPath: string;
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
+  containerCounts: Record<string, UnitStatusCounts>;
   reordering: boolean;
   depth?: number;
   onNavigate: (path: string) => void;
@@ -75,6 +84,7 @@ function FolderChildrenList({
           currentPath={currentPath}
           tree={tree}
           childOrders={childOrders}
+          containerCounts={containerCounts}
           reordering={reordering}
           depth={depth}
           onNavigate={onNavigate}
@@ -93,6 +103,7 @@ function ChildOrderList({
   currentPath,
   tree,
   childOrders,
+  containerCounts,
   reordering,
   depth,
   onNavigate,
@@ -105,6 +116,7 @@ function ChildOrderList({
   currentPath: string;
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
+  containerCounts: Record<string, UnitStatusCounts>;
   reordering: boolean;
   depth: number;
   onNavigate: (path: string) => void;
@@ -134,12 +146,17 @@ function ChildOrderList({
         const childActive = currentPath === child.path || currentPath.startsWith(`${child.path}/`);
         const textSize = depth === 0 ? "text-[11px]" : "text-[10px]";
         const rowPad = depth === 0 ? "py-1" : "py-0.5";
+        const { highlight, pending, unapproved } = sectionNeedsHighlight(
+          child.path,
+          containerCounts[child.path],
+        );
 
         return (
           <li key={child.path}>
             <div
               className={cn(
                 "group flex items-stretch gap-0.5 rounded-md",
+                unapprovedSectionRowClass({ highlight, pending, active: childActive, compact: true }),
                 dragIndex === index ? "opacity-50" : undefined,
                 overIndex === index && dragIndex !== null && dragIndex !== index
                   ? "ring-1 ring-primary/40"
@@ -178,7 +195,12 @@ function ChildOrderList({
                 )}
                 onClick={() => onNavigate(child.path)}
               >
-                <span className="truncate">{child.title}</span>
+                <span className={cn("flex min-w-0 items-center gap-1.5", highlight && "text-amber-950 dark:text-amber-50")}>
+                  <UnapprovedIndicator pending={pending} unapproved={unapproved} />
+                  <span className={cn("truncate", highlight && "text-amber-950 dark:text-amber-50")}>
+                    {child.title}
+                  </span>
+                </span>
               </button>
               <TreeRowActions
                 onDelete={() => onDelete(child.path, child.title)}
@@ -190,6 +212,7 @@ function ChildOrderList({
               currentPath={currentPath}
               tree={tree}
               childOrders={childOrders}
+              containerCounts={containerCounts}
               reordering={reordering}
               depth={depth + 1}
               onNavigate={onNavigate}
@@ -208,6 +231,7 @@ function SubsectionOrderList({
   currentPath,
   tree,
   childOrders,
+  containerCounts,
   reordering,
   onNavigate,
   onReorder,
@@ -217,6 +241,7 @@ function SubsectionOrderList({
   currentPath: string;
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
+  containerCounts: Record<string, UnitStatusCounts>;
   reordering: boolean;
   onNavigate: (path: string) => void;
   onReorder: (parentPath: string, order: string[]) => Promise<void>;
@@ -228,6 +253,7 @@ function SubsectionOrderList({
       currentPath={currentPath}
       tree={tree}
       childOrders={childOrders}
+      containerCounts={containerCounts}
       reordering={reordering}
       onNavigate={onNavigate}
       onReorder={onReorder}
@@ -241,6 +267,7 @@ function SectionOrderList({
   currentPath,
   tree,
   childOrders,
+  containerCounts,
   reordering,
   onNavigate,
   onReorder,
@@ -251,6 +278,7 @@ function SectionOrderList({
   currentPath: string;
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
+  containerCounts: Record<string, UnitStatusCounts>;
   reordering: boolean;
   onNavigate: (path: string) => void;
   onReorder: (order: string[]) => Promise<void>;
@@ -285,6 +313,7 @@ function SectionOrderList({
         currentPath={currentPath}
         tree={tree}
         childOrders={childOrders}
+        containerCounts={containerCounts}
         reordering={reordering}
         onNavigate={onNavigate}
         onReorder={onChildReorder}
@@ -298,12 +327,17 @@ function SectionOrderList({
       {sections.map((section, index) => {
         const active =
           currentPath === section.path || currentPath.startsWith(`${section.path}/`);
+        const { highlight, pending, unapproved } = sectionNeedsHighlight(
+          section.path,
+          containerCounts[section.path] ?? section.counts,
+        );
         return (
           <li key={section.path}>
             <div
               className={cn(
                 "group flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
-                active ? "border-primary/40 bg-accent/50" : undefined,
+                unapprovedSectionRowClass({ highlight, pending, active }),
+                active && !highlight ? "border-primary/40 bg-accent/50" : undefined,
                 dragIndex === index ? "opacity-50" : undefined,
                 overIndex === index && dragIndex !== null && dragIndex !== index
                   ? "border-primary ring-1 ring-primary/30"
@@ -337,7 +371,12 @@ function SectionOrderList({
                 className="flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent/30"
                 onClick={() => onNavigate(section.path)}
               >
-                <span className="truncate font-medium">{section.title}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <UnapprovedIndicator pending={pending} unapproved={unapproved} />
+                  <span className={unapprovedSectionTitle("truncate font-medium", highlight)}>
+                    {section.title}
+                  </span>
+                </span>
                 {section.counts ? (
                   <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
                     {section.counts.approved}/{section.counts.drafted}/{section.counts.outline}
@@ -380,6 +419,7 @@ export function PapersPanel({
   hidePaperHeader?: boolean;
 }) {
   const { papers, loading: papersLoading } = usePaperList(tree, refreshVersion ?? 0, onError);
+  useDraftPendingPaths();
   const [detail, setDetail] = useState<PaperDetail | null>(null);
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
   const [childOrders, setChildOrders] = useState<Record<string, string[]>>({});
@@ -455,6 +495,8 @@ export function PapersPanel({
       onNavigate(`papers/${papers[0].slug}`);
     }
   }, [currentPath, detailLoading, onNavigate, papers, papersLoading, selectedSlug]);
+
+  const containerCounts = detail?.containerCounts ?? {};
 
   const sections = useMemo((): SectionRow[] => {
     if (!paperPath) return [];
@@ -581,6 +623,7 @@ export function PapersPanel({
                 currentPath={currentPath}
                 tree={tree}
                 childOrders={childOrders}
+                containerCounts={containerCounts}
                 reordering={reordering}
                 onNavigate={onNavigate}
                 onReorder={handleSectionReorder}
@@ -589,7 +632,10 @@ export function PapersPanel({
               />
             )}
             {sections.length > 0 ? (
-              <p className="text-[10px] text-muted-foreground">Drag to reorder · hover to remove</p>
+              <p className="text-[10px] text-muted-foreground">
+                Drag to reorder · hover to remove ·{" "}
+                <span className="text-amber-700 dark:text-amber-300">amber = unapproved text</span>
+              </p>
             ) : null}
           </div>
         </div>

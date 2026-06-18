@@ -9,6 +9,7 @@ export type GitSyncStatus = {
   lastOutput?: string | null;
   conflictDetected?: boolean;
   pendingStashRestore?: boolean;
+  viewChangesBlocked?: boolean;
 };
 
 export type GitSyncSettings = {
@@ -80,6 +81,20 @@ export function updateDefaultProvider(defaultProvider: string): Promise<AgentSet
 
 export function runGitSyncNow(): Promise<GitSyncStatus & { autoSync?: boolean; intervalMs?: number }> {
   return request("/api/git-sync/run", { method: "POST" });
+}
+
+export type GitSyncResolveHarness = {
+  command: string;
+  prompt: string;
+  providerName: string;
+  sessionId: string;
+};
+
+export function fetchGitSyncResolveHarness(provider?: string): Promise<GitSyncResolveHarness> {
+  return request("/api/git-sync/resolve-harness", {
+    method: "POST",
+    body: JSON.stringify(provider ? { provider } : {}),
+  });
 }
 
 export function formatInterval(ms: number): string {

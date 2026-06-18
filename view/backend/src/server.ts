@@ -30,6 +30,17 @@ import { buildGraph } from "./graph.js";
 import { getCachedGraph, invalidateGraphCache } from "./graphCache.js";
 import { searchModel, validateSearchQuery } from "./search.js";
 import { composeSectionView } from "./compose.js";
+import {
+  approveDraftTarget,
+  discardDraftTarget,
+  handleDraftFileSaved,
+  isDraftFilePath,
+  markDraftAiAssisted,
+  normalizeGitHubHandle,
+  readApprovedDraftContent,
+  readDraftEditMeta,
+  unitDirFromDraftFile,
+} from "./draftApproval.js";
 import { syncSectionDraftToChildren } from "./sectionSync.js";
 import {
   assetContentType,
@@ -40,7 +51,7 @@ import {
 } from "./figures.js";
 import { listPaperAssets } from "./paperAssets.js";
 import { importBibtexReferences } from "./bibtexImport.js";
-import { loadProviders, saveDefaultProvider, buildPreview, buildFanOutPreviews, listContextCandidates, runDispatch, runFanOutDispatch, type DispatchAction } from "./agentDispatch.js";
+import { loadProviders, saveDefaultProvider, buildPreview, buildFanOutPreviews, buildGitSyncResolvePreview, listContextCandidates, runDispatch, runFanOutDispatch, type DispatchAction } from "./agentDispatch.js";
 import { loadGitSyncConfig, saveGitSyncPreferences, type GitSyncConfig } from "./gitSyncConfig.js";
 import { listSessions, createSession, updateSessionStatus, advanceUnitStatusOnSessionComplete } from "./sessions.js";
 import {
@@ -96,6 +107,7 @@ type GitSyncState = {
   lastOutput: string | null;
   conflictDetected: boolean;
   pendingStashRestore: boolean;
+  viewChangesBlocked: boolean;
 };
 
 const __filename = fileURLToPath(import.meta.url);
@@ -127,7 +139,8 @@ const gitSyncState: GitSyncState = {
   lastError: null,
   lastOutput: null,
   conflictDetected: false,
-  pendingStashRestore: false
+  pendingStashRestore: false,
+  viewChangesBlocked: false,
 };
 
 let gitSyncConfigCache: GitSyncConfig | null = null;
@@ -242,6 +255,7 @@ async function runGitSync(reason = "interval") {
   gitSyncState.lastRunAt = new Date().toISOString();
   gitSyncState.lastError = null;
   gitSyncState.pendingStashRestore = false;
+  gitSyncState.viewChangesBlocked = false;
 
   let stashCreated = false;
 
@@ -304,6 +318,8 @@ async function runGitSync(reason = "interval") {
         const blockedByLocalChanges = /unstaged changes|uncommitted/i.test(rebaseMessage);
         if (!blockedByLocalChanges) {
           gitSyncState.conflictDetected = true;
+        } else {
+          gitSyncState.viewChangesBlocked = true;
         }
         throw new Error(
           blockedByLocalChanges
@@ -422,6 +438,8 @@ app.put("/api/model/file", async (request, response, next) => {
   try {
     const relativePath = String(request.body?.path ?? "");
     const content = String(request.body?.content ?? "");
+    const editedBy = normalizeGitHubHandle(request.body?.editedBy);
+    const aiAssisted = request.body?.aiAssisted === true;
     const absolutePath = toModelPath(relativePath);
     const fileStat = await stat(absolutePath);
 
@@ -432,6 +450,15 @@ app.put("/api/model/file", async (request, response, next) => {
 
     await writeFile(absolutePath, content, "utf8");
     broadcastModelEvent({ type: "model-changed", path: relativePath });
+
+    if (isDraftFilePath(relativePath)) {
+      for (const sidePath of await handleDraftFileSaved(modelRoot, relativePath, {
+        editedBy,
+        aiAssisted,
+      })) {
+        broadcastModelEvent({ type: "model-changed", path: sidePath });
+      }
+    }
 
     response.json({
       ok: true,
@@ -446,8 +473,18 @@ app.post("/api/model/file", async (request, response, next) => {
   try {
     const relativePath = String(request.body?.path ?? "");
     const content = String(request.body?.content ?? "");
+    const editedBy = normalizeGitHubHandle(request.body?.editedBy);
+    const aiAssisted = request.body?.aiAssisted === true;
     const created = await createFile(modelRoot, relativePath, content);
     broadcastModelEvent({ type: "model-changed", path: created });
+    if (isDraftFilePath(created)) {
+      for (const sidePath of await handleDraftFileSaved(modelRoot, created, {
+        editedBy,
+        aiAssisted,
+      })) {
+        broadcastModelEvent({ type: "model-changed", path: sidePath });
+      }
+    }
     response.status(201).json({ ok: true, path: created });
   } catch (error) {
     next(error);
@@ -584,7 +621,66 @@ app.get("/api/model/section-compose", async (request, response, next) => {
       return;
     }
     resolveModelPath(modelRoot, pathParam);
-    response.json(await composeSectionView(modelRoot, pathParam));
+    const approvedOnly = String(request.query.approvedOnly ?? "") === "true";
+    response.json(await composeSectionView(modelRoot, pathParam, { approvedOnly }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/model/draft-approved", async (request, response, next) => {
+  try {
+    const pathParam = String(request.query.path ?? "");
+    if (!pathParam) {
+      response.status(400).json({ error: "path query parameter is required" });
+      return;
+    }
+    const unitRel = isDraftFilePath(pathParam) ? unitDirFromDraftFile(pathParam) : pathParam.replace(/\/+$/, "");
+    resolveModelPath(modelRoot, unitRel);
+    const [content, meta] = await Promise.all([
+      readApprovedDraftContent(modelRoot, unitRel),
+      readDraftEditMeta(modelRoot, unitRel),
+    ]);
+    response.json({ content, meta });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/draft-approve", async (request, response, next) => {
+  try {
+    const pathParam = String(request.body?.path ?? "");
+    const approvedBy = normalizeGitHubHandle(request.body?.approvedBy);
+    if (!pathParam) {
+      response.status(400).json({ error: "path is required" });
+      return;
+    }
+    resolveModelPath(modelRoot, pathParam.replace(/\/draft\.md$/, "").replace(/\/+$/, ""));
+    const result = await approveDraftTarget(modelRoot, pathParam, approvedBy);
+    for (const rel of result.updated) {
+      broadcastModelEvent({ type: "model-changed", path: rel });
+    }
+    invalidateGraphCache();
+    response.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/draft-discard", async (request, response, next) => {
+  try {
+    const pathParam = String(request.body?.path ?? "");
+    if (!pathParam) {
+      response.status(400).json({ error: "path is required" });
+      return;
+    }
+    resolveModelPath(modelRoot, pathParam.replace(/\/draft\.md$/, "").replace(/\/+$/, ""));
+    const result = await discardDraftTarget(modelRoot, pathParam);
+    for (const rel of result.updated) {
+      broadcastModelEvent({ type: "model-changed", path: rel });
+    }
+    invalidateGraphCache();
+    response.json(result);
   } catch (error) {
     next(error);
   }
@@ -594,6 +690,8 @@ app.post("/api/model/section-draft-sync", async (request, response, next) => {
   try {
     const pathParam = String(request.body?.path ?? "");
     const draftMarkdown = String(request.body?.draftMarkdown ?? "");
+    const editedBy = normalizeGitHubHandle(request.body?.editedBy);
+    const aiAssisted = request.body?.aiAssisted === true;
     if (!pathParam) {
       response.status(400).json({ error: "path is required" });
       return;
@@ -604,8 +702,16 @@ app.post("/api/model/section-draft-sync", async (request, response, next) => {
     }
     resolveModelPath(modelRoot, pathParam);
     const updated = await syncSectionDraftToChildren(modelRoot, pathParam, draftMarkdown);
+    const sideEffects: string[] = [];
+    for (const rel of updated) {
+      if (isDraftFilePath(rel)) {
+        sideEffects.push(
+          ...(await handleDraftFileSaved(modelRoot, rel, { editedBy, aiAssisted })),
+        );
+      }
+    }
     invalidateGraphCache();
-    response.json({ updated });
+    response.json({ updated: [...new Set([...updated, ...sideEffects])] });
   } catch (error) {
     next(error);
   }
@@ -800,11 +906,12 @@ app.post("/api/agent/fan-out", async (request, response, next) => {
 
 app.post("/api/agent/fan-out/run", async (request, response, next) => {
   try {
-    const { sectionPath, action, provider: providerName, customPrompt } = request.body as {
+    const { sectionPath, action, provider: providerName, customPrompt, triggeredBy } = request.body as {
       sectionPath?: string;
       action?: string;
       provider?: string;
       customPrompt?: string;
+      triggeredBy?: string;
     };
     if (!sectionPath) {
       response.status(400).json({ error: "sectionPath required" });
@@ -832,6 +939,15 @@ app.post("/api/agent/fan-out/run", async (request, response, next) => {
         command: result.command,
         status: "complete",
       });
+      if (isDraftFilePath(result.outputPath)) {
+        for (const sidePath of await markDraftAiAssisted(
+          modelRoot,
+          unitRel,
+          normalizeGitHubHandle(triggeredBy),
+        )) {
+          broadcastModelEvent({ type: "model-changed", path: sidePath });
+        }
+      }
       broadcastModelEvent({ type: "model-changed", path: result.outputPath });
     }
     response.json({
@@ -846,13 +962,14 @@ app.post("/api/agent/fan-out/run", async (request, response, next) => {
 
 app.post("/api/agent/run", async (request, response, next) => {
   try {
-    const { unitPath, action, provider: providerName, customPrompt, contextPaths } =
+    const { unitPath, action, provider: providerName, customPrompt, contextPaths, triggeredBy } =
       request.body as {
         unitPath?: string;
         action?: string;
         provider?: string;
         customPrompt?: string;
         contextPaths?: string[];
+        triggeredBy?: string;
       };
     if (!unitPath) {
       response.status(400).json({ error: "unitPath required" });
@@ -879,6 +996,16 @@ app.post("/api/agent/run", async (request, response, next) => {
       command: result.command,
       status: "complete",
     });
+    if (isDraftFilePath(result.outputPath)) {
+      const unitRel = unitDirFromDraftFile(result.outputPath);
+      for (const sidePath of await markDraftAiAssisted(
+        modelRoot,
+        unitRel,
+        normalizeGitHubHandle(triggeredBy),
+      )) {
+        broadcastModelEvent({ type: "model-changed", path: sidePath });
+      }
+    }
     broadcastModelEvent({ type: "model-changed", path: result.outputPath });
     response.json({
       ok: true,
@@ -976,6 +1103,28 @@ app.get("/api/git-sync/status", async (_request, response) => {
 
 app.post("/api/git-sync/run", async (_request, response) => {
   response.json(await runGitSync("manual"));
+});
+
+app.post("/api/git-sync/resolve-harness", async (request, response, next) => {
+  try {
+    const providerName = String(request.body?.provider ?? "").trim();
+    const config = await loadProviders(repoRoot);
+    const provider =
+      config.aiProviders.find((p) => p.name === providerName) ?? config.aiProviders[0];
+    if (!provider) {
+      response.status(400).json({ error: "No AI provider configured" });
+      return;
+    }
+    const result = await buildGitSyncResolvePreview(repoRoot, provider);
+    response.json({
+      command: result.command,
+      prompt: result.prompt,
+      providerName: result.providerName,
+      sessionId: result.sessionId,
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get("/api/settings", async (_request, response, next) => {

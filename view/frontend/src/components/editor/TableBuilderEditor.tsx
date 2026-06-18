@@ -10,8 +10,22 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
+import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
+import { PendingChangesPanel } from "@/components/editor/PendingChangesPanel";
 import { Button } from "@/components/ui/button";
+import {
+  approveDraftAtPath,
+  discardDraftAtPath,
+  draftSaveMeta,
+  draftStatusLabel,
+  loadDraftApprovalState,
+  loadModelFileContent,
+  type DraftPendingSource,
+} from "@/lib/draftApproval";
+import { getGitHubHandle } from "@/lib/userIdentity";
+import { useRegisterDraftPending } from "@/lib/draftPendingStore";
 import { cn } from "@/lib/utils";
 import {
   initTableDraft,
@@ -20,8 +34,7 @@ import {
   type ParsedTableDraft,
   type TableAlign,
 } from "@/lib/tableMarkdown";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import { saveModelFile } from "@/modelApi";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
@@ -87,25 +100,44 @@ export function TableBuilderEditor({
 }) {
   const [data, setData] = useState<ParsedTableDraft>(() => initTableDraft(2, 2, tableTitle));
   const [loaded, setLoaded] = useState("");
+  const [approvedBaseline, setApprovedBaseline] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [pendingSource, setPendingSource] = useState<DraftPendingSource | null>(null);
+  const [editMeta, setEditMeta] = useState({
+    editedBy: null as string | null,
+    aiAssisted: false,
+  });
   const [mode, setMode] = useState<"visual" | "raw">("visual");
   const [rawText, setRawText] = useState("");
   const currentContent = mode === "raw" ? rawText : serializeTableDraft(data);
   const isDirty = currentContent !== loaded;
+  const isPendingApproval = currentContent !== approvedBaseline;
+  useRegisterDraftPending(filePath, isPendingApproval);
+  const githubHandle = getGitHubHandle();
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${apiBaseUrl}/api/model/file?path=${encodeURIComponent(filePath)}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load ${filePath}`);
-        return (await res.json()) as { content: string };
-      })
-      .then((payload) => {
+    void loadDraftApprovalState(filePath).then(({ content: baseline, meta }) => {
+      if (!cancelled) {
+        setApprovedBaseline(baseline);
+        setEditMeta({ editedBy: meta.editedBy, aiAssisted: meta.aiAssisted });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, refreshVersion]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadModelFileContent(filePath)
+      .then((content) => {
         if (cancelled) return;
-        const parsed = parseTableDraft(payload.content, tableTitle);
+        const parsed = parseTableDraft(content, tableTitle);
         setData(parsed);
-        setLoaded(serializeTableDraft(parsed));
-        setRawText(payload.content);
+        const serialized = serializeTableDraft(parsed);
+        setLoaded(serialized);
+        setRawText(content);
         setSaveState("idle");
       })
       .catch((err) => {
@@ -117,18 +149,23 @@ export function TableBuilderEditor({
   }, [filePath, onError, refreshVersion, tableTitle]);
 
   useEffect(() => {
+    if (isPendingApproval) {
+      setSaveState(isDirty ? "dirty" : "saved");
+      setPendingSource("human");
+    } else {
+      setSaveState("idle");
+      setPendingSource(null);
+    }
+  }, [isDirty, isPendingApproval]);
+
+  useEffect(() => {
     if (!isDirty) return;
     setSaveState("dirty");
     const timeout = window.setTimeout(async () => {
       setSaveState("saving");
       const content = currentContent;
       try {
-        const response = await fetch(`${apiBaseUrl}/api/model/file`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: filePath, content }),
-        });
-        if (!response.ok) throw new Error(`Failed to save ${filePath}`);
+        await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
         setLoaded(content);
         if (mode === "raw") {
           setData(parseTableDraft(content, tableTitle));
@@ -144,7 +181,52 @@ export function TableBuilderEditor({
       }
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [currentContent, filePath, isDirty, mode, onError, onModelChanged, rawText, tableTitle]);
+  }, [currentContent, filePath, isDirty, mode, onError, onModelChanged, pendingSource, tableTitle]);
+
+  const applyContent = useCallback(
+    (content: string) => {
+      const parsed = parseTableDraft(content, tableTitle);
+      setData(parsed);
+      const serialized = serializeTableDraft(parsed);
+      setLoaded(serialized);
+      setRawText(content);
+    },
+    [tableTitle],
+  );
+
+  const handleApprove = useCallback(async () => {
+    setSaveState("saving");
+    const content = currentContent;
+    try {
+      if (isDirty) await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
+      await approveDraftAtPath(filePath, githubHandle || null);
+      applyContent(content);
+      setApprovedBaseline(content);
+      setPendingSource(null);
+      setSaveState("saved");
+      onModelChanged?.();
+      window.setTimeout(() => setSaveState("idle"), 900);
+    } catch (err) {
+      setSaveState("error");
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  }, [applyContent, currentContent, filePath, githubHandle, isDirty, onError, onModelChanged, pendingSource]);
+
+  const handleDiscard = useCallback(async () => {
+    setSaveState("saving");
+    try {
+      await discardDraftAtPath(filePath);
+      const restored = await loadModelFileContent(filePath);
+      applyContent(restored);
+      setApprovedBaseline(restored);
+      setPendingSource(null);
+      setSaveState("idle");
+      onModelChanged?.();
+    } catch (err) {
+      setSaveState("error");
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  }, [applyContent, filePath, onError, onModelChanged]);
 
   const colCount = useMemo(
     () => Math.max(data.headers.length, data.aligns.length, ...data.rows.map((r) => r.length), 1),
@@ -218,16 +300,13 @@ export function TableBuilderEditor({
   }, []);
 
   const previewMarkdown = currentContent;
-  const saveLabel =
-    saveState === "dirty"
-      ? "unsaved"
-      : saveState === "saving"
-        ? "saving…"
-        : saveState === "saved"
-          ? "saved"
-          : saveState === "error"
-            ? "error"
-            : "autosave";
+  const saveLabel = draftStatusLabel({
+    requiresApproval: true,
+    isPendingApproval,
+    isDirty,
+    saveState,
+    defaultLabel: "approved",
+  });
 
   const alignButton = (colIndex: number, align: TableAlign, icon: typeof AlignLeft) => {
     const Icon = icon;
@@ -249,6 +328,17 @@ export function TableBuilderEditor({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+      <DraftApprovalBar
+        pendingSource={isPendingApproval ? pendingSource : null}
+        editedBy={githubHandle || editMeta.editedBy}
+        aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
+        onApprove={() => void handleApprove()}
+        onDiscard={() => void handleDiscard()}
+        approving={saveState === "saving"}
+      />
+      {isPendingApproval ? (
+        <PendingChangesPanel baseline={approvedBaseline} current={currentContent} />
+      ) : null}
       <div className="ui-pane-header shrink-0">
         <div className="flex items-center gap-2">
           <Table2 className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
@@ -289,9 +379,12 @@ export function TableBuilderEditor({
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
         {mode === "raw" ? (
-          <textarea
-            className="min-h-[12rem] w-full resize-y rounded-md border border-border bg-background p-3 font-mono text-xs leading-5"
+          <HighlightingTextarea
+            className="min-h-[12rem] w-full rounded-md border border-border bg-background p-3 font-mono text-xs leading-5"
+            mirrorClassName="p-3 font-mono text-xs leading-5"
             value={rawText}
+            baseline={approvedBaseline}
+            highlight={isPendingApproval}
             spellCheck={false}
             onChange={(event) => setRawText(event.target.value)}
           />
@@ -420,9 +513,9 @@ export function TableBuilderEditor({
           </div>
         )}
 
-        <div className="mt-6 border-t border-border pt-4">
+        <div className={cn("mt-6 border-t border-border pt-4", isPendingApproval && "rounded-md ring-1 ring-amber-500/30")}>
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Preview
+            Preview{isPendingApproval ? " — unapproved changes below" : ""}
           </p>
           <MarkdownViewer markdown={previewMarkdown} className="text-sm" />
         </div>

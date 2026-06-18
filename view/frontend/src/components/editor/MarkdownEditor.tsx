@@ -3,8 +3,11 @@ import { Eye, FileCode2 } from "lucide-react";
 
 import { CommentsPanel } from "@/components/editor/CommentsPanel";
 import { DispatchAiButton } from "@/components/editor/DispatchAiButton";
+import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
+import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
 import { MarkdownToolbar } from "@/components/editor/MarkdownToolbar";
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
+import { PendingChangesPanel } from "@/components/editor/PendingChangesPanel";
 import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
@@ -18,8 +21,20 @@ import {
 import { useDispatchJob } from "@/lib/useDispatchJob";
 import { authorNoteMacro, wrapInlineNote } from "@/lib/inlineNotes";
 import { cn } from "@/lib/utils";
-import { getUserName } from "@/lib/userIdentity";
+import { getGitHubHandle, getUserName } from "@/lib/userIdentity";
 import { parseFrontmatterStatus, parentPath, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
+import {
+  approveDraftAtPath,
+  discardDraftAtPath,
+  draftSaveMeta,
+  draftStatusLabel,
+  loadDraftApprovalState,
+  loadModelFileContent,
+  requiresDraftApproval,
+  type DraftEditMeta,
+  type DraftPendingSource,
+} from "@/lib/draftApproval";
+import { useRegisterDraftPending } from "@/lib/draftPendingStore";
 import {
   ApiError,
   claimPresence,
@@ -27,9 +42,8 @@ import {
   fetchPresence,
   heartbeatPresence,
   releasePresence,
+  saveModelFile,
 } from "@/modelApi";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 export type EditorLayout = "split" | "source" | "preview";
@@ -121,6 +135,7 @@ export function MarkdownEditor({
 }) {
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
+  const [approvedBaseline, setApprovedBaseline] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [paneMode, setPaneMode] = useState<PaneEditMode>(defaultPaneMode);
@@ -129,16 +144,34 @@ export function MarkdownEditor({
   const [unresolvedComments, setUnresolvedComments] = useState(0);
   const [selectedLine, setSelectedLine] = useState(1);
   const [otherEditor, setOtherEditor] = useState<string | null>(null);
+  const [pendingSource, setPendingSource] = useState<DraftPendingSource | null>(null);
+  const [editMeta, setEditMeta] = useState<DraftEditMeta>({
+    editedBy: null,
+    editedAt: null,
+    aiAssisted: false,
+    approvedBy: null,
+    approvedAt: null,
+  });
+  const dispatchSnapshotRef = useRef<string | null>(null);
+  const requiresApproval = useMemo(() => requiresDraftApproval(filePath), [filePath]);
   const dispatchPane = paneLabel === "Outline" ? "outline" : paneLabel === "Draft" ? "draft" : undefined;
   const authorName = useMemo(() => getUserName(), []);
+  const githubHandle = useMemo(() => getGitHubHandle(), []);
   const sourceRef = useRef<HTMLTextAreaElement | null>(null);
   const previewRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirty = content !== loadedContent;
+  const isPendingApproval = requiresApproval && content !== approvedBaseline;
+  useRegisterDraftPending(filePath, isPendingApproval);
   const isDirtyRef = useRef(isDirty);
   isDirtyRef.current = isDirty;
   const previewParts = useMemo(() => splitForPreviewEdit(content), [content]);
   const previewMeta = useMemo(() => parsePreviewBody(content), [content]);
   const previewBody = previewMeta.title ? previewMeta.body : previewParts.body;
+  const approvedPreviewMeta = useMemo(() => parsePreviewBody(approvedBaseline), [approvedBaseline]);
+  const approvedPreviewParts = useMemo(() => splitForPreviewEdit(approvedBaseline), [approvedBaseline]);
+  const approvedPreviewBody = approvedPreviewMeta.title
+    ? approvedPreviewMeta.body
+    : approvedPreviewParts.body;
   const unitStatus = useMemo(() => parseFrontmatterStatus(content), [content]);
   const unitPath = useMemo(() => unitPathFromUnitFile(filePath), [filePath]);
   const dispatchAction = useMemo(
@@ -159,25 +192,19 @@ export function MarkdownEditor({
     onError,
   });
 
+  const statusText = draftStatusLabel({
+    requiresApproval,
+    isPendingApproval,
+    isDirty,
+    saveState,
+    defaultLabel: saveState,
+  });
+
   const flushSave = useCallback(async () => {
     if (!isDirty) return;
     setSaveState("saving");
     try {
-      const response = await fetch(`${apiBaseUrl}/api/model/file`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: filePath, content }),
-      });
-      if (response.status === 404) {
-        const createRes = await fetch(`${apiBaseUrl}/api/model/file`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: filePath, content }),
-        });
-        if (!createRes.ok) throw new Error(`Failed to save ${filePath}`);
-      } else if (!response.ok) {
-        throw new Error(`Failed to save ${filePath}`);
-      }
+      await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
       setLoadedContent(content);
       setSaveState("saved");
       setLoadError(null);
@@ -187,12 +214,60 @@ export function MarkdownEditor({
       setLoadError(message);
       throw err;
     }
-  }, [content, filePath, isDirty]);
+  }, [content, filePath, isDirty, pendingSource]);
+
+  const handleApproveDraft = useCallback(async () => {
+    setSaveState("saving");
+    try {
+      if (isDirty) await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
+      await approveDraftAtPath(filePath, githubHandle || null);
+      const { meta } = await loadDraftApprovalState(filePath);
+      setEditMeta(meta);
+      setLoadedContent(content);
+      setApprovedBaseline(content);
+      setPendingSource(null);
+      dispatchSnapshotRef.current = null;
+      setSaveState("saved");
+      setLoadError(null);
+      window.setTimeout(() => setSaveState("idle"), 900);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSaveState("error");
+      setLoadError(message);
+      onError?.(message);
+    }
+  }, [content, filePath, githubHandle, isDirty, onError]);
+
+  const handleDiscardDraft = useCallback(async () => {
+    setSaveState("saving");
+    try {
+      await discardDraftAtPath(filePath);
+      const restored = await loadModelFileContent(filePath);
+      const { meta } = await loadDraftApprovalState(filePath);
+      setEditMeta(meta);
+      setContent(restored);
+      setLoadedContent(restored);
+      setApprovedBaseline(restored);
+      setPendingSource(null);
+      dispatchSnapshotRef.current = null;
+      setSaveState("idle");
+      setLoadError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSaveState("error");
+      setLoadError(message);
+      onError?.(message);
+    }
+  }, [filePath, onError]);
 
   const handleDispatch = useCallback(async () => {
     if (!canDispatch || !unitPath || !dispatchAction) return;
     try {
+      if (requiresApproval) {
+        dispatchSnapshotRef.current = approvedBaseline;
+      }
       await flushSave();
+      onBeforeDispatch?.();
       await runUnitDispatch({
         unitPath,
         action: dispatchAction,
@@ -201,11 +276,24 @@ export function MarkdownEditor({
     } catch (err) {
       onError?.(err instanceof Error ? err.message : String(err));
     }
-  }, [canDispatch, dispatchAction, flushSave, onDispatchComplete, onError, runUnitDispatch, unitPath]);
+  }, [
+    approvedBaseline,
+    canDispatch,
+    dispatchAction,
+    flushSave,
+    onBeforeDispatch,
+    onDispatchComplete,
+    onError,
+    requiresApproval,
+    runUnitDispatch,
+    unitPath,
+  ]);
 
   useEffect(() => {
     setPreviewRawEdit(false);
     setPaneMode(defaultPaneMode);
+    setPendingSource(null);
+    dispatchSnapshotRef.current = null;
   }, [defaultPaneMode, filePath]);
 
   useEffect(() => {
@@ -231,34 +319,55 @@ export function MarkdownEditor({
   }, [filePath, refreshVersion]);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let cancelled = false;
+    if (!requiresApproval) {
+      setApprovedBaseline("");
+      return () => {
+        cancelled = true;
+      };
+    }
+    void loadDraftApprovalState(filePath).then(({ content: baseline, meta }) => {
+      if (!cancelled) {
+        setApprovedBaseline(baseline);
+        setEditMeta(meta);
+        if (meta.aiAssisted && baseline) {
+          setPendingSource((prev) => (prev === "human" ? prev : "ai"));
+        }
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, refreshVersion, requiresApproval]);
+
+  useEffect(() => {
+    let cancelled = false;
     if (isDirtyRef.current) {
-      return () => controller.abort();
+      return () => {
+        cancelled = true;
+      };
     }
 
-    fetch(`${apiBaseUrl}/api/model/file?path=${encodeURIComponent(filePath)}`, {
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (response.status === 404) {
-          setContent("");
-          setLoadedContent("");
-          setSaveState("idle");
-          setLoadError(null);
-          return;
+    void loadModelFileContent(filePath)
+      .then(async (diskContent) => {
+        if (cancelled) return;
+        const snapshot = dispatchSnapshotRef.current;
+        dispatchSnapshotRef.current = null;
+        setContent(diskContent);
+        setLoadedContent(diskContent);
+        if (requiresApproval && snapshot !== null && diskContent !== snapshot) {
+          setPendingSource("ai");
+          void loadDraftApprovalState(filePath).then(({ meta }) => {
+            if (!cancelled) setEditMeta(meta);
+          });
+        } else if (!requiresApproval || diskContent === approvedBaseline) {
+          setPendingSource(null);
         }
-        if (!response.ok) throw new Error(`Failed to load ${filePath}`);
-        return (await response.json()) as { content: string };
-      })
-      .then((data) => {
-        if (!data) return;
-        setContent(data.content);
-        setLoadedContent(data.content);
         setSaveState("idle");
         setLoadError(null);
       })
       .catch((err: unknown) => {
-        if (!controller.signal.aborted) {
+        if (!cancelled) {
           const message = err instanceof Error ? err.message : String(err);
           setLoadError(message);
           setSaveState("error");
@@ -266,31 +375,30 @@ export function MarkdownEditor({
         }
       });
 
-    return () => controller.abort();
-  }, [filePath, onError, refreshVersion]);
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, onError, refreshVersion, requiresApproval]);
 
   useEffect(() => {
+    if (requiresApproval && content !== approvedBaseline) {
+      setPendingSource((prev) => (prev === "ai" ? "ai" : "human"));
+    } else if (requiresApproval) {
+      setPendingSource(null);
+    }
     if (!isDirty) return;
     setSaveState("dirty");
     const timeout = window.setTimeout(async () => {
       setSaveState("saving");
       const nextContent = content;
       try {
-        const response = await fetch(`${apiBaseUrl}/api/model/file`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: filePath, content: nextContent }),
-        });
-        if (response.status === 404) {
-          const createRes = await fetch(`${apiBaseUrl}/api/model/file`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ path: filePath, content: nextContent }),
-          });
-          if (!createRes.ok) throw new Error(`Failed to save ${filePath}`);
-        } else if (!response.ok) {
-          throw new Error(`Failed to save ${filePath}`);
-        }
+        await saveModelFile(filePath, nextContent, draftSaveMeta(pendingSource));
+        setEditMeta((prev) => ({
+          ...prev,
+          editedBy: githubHandle || prev.editedBy,
+          editedAt: new Date().toISOString(),
+          aiAssisted: pendingSource === "ai" || prev.aiAssisted,
+        }));
         setLoadedContent(nextContent);
         setSaveState("saved");
         setLoadError(null);
@@ -303,7 +411,7 @@ export function MarkdownEditor({
       }
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [content, filePath, isDirty, onError]);
+  }, [approvedBaseline, content, filePath, githubHandle, isDirty, onError, pendingSource, requiresApproval]);
 
   useEffect(() => {
     let cancelled = false;
@@ -565,7 +673,7 @@ export function MarkdownEditor({
             <span className="ui-label">Source</span>
             <div className="flex items-center gap-1.5">
               <span className="font-mono text-ui-2xs text-muted-foreground">
-                {isDirty ? "unsaved" : saveState}
+                {statusText}
                 {unitStatus ? ` · ${unitStatus}` : ""}
               </span>
             </div>
@@ -579,10 +687,13 @@ export function MarkdownEditor({
           />
         </>
       ) : null}
-      <textarea
-        ref={sourceRef}
-        className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-transparent p-4 font-mono text-[13px] leading-6 outline-none focus:ring-0 focus-visible:outline-none"
+      <HighlightingTextarea
+        inputRef={sourceRef}
+        className="min-h-0 flex-1 p-4 font-mono text-[13px] leading-6"
+        mirrorClassName="p-4 font-mono text-[13px] leading-6"
         value={content}
+        baseline={approvedBaseline}
+        highlight={requiresApproval && isPendingApproval}
         spellCheck={false}
         aria-label={`Edit source ${filePath}`}
         onChange={(e) => setContent(e.target.value)}
@@ -602,7 +713,7 @@ export function MarkdownEditor({
             <span className="ui-label truncate">Preview</span>
             <div className="flex shrink-0 items-center gap-1.5">
               <span className="hidden text-ui-2xs text-muted-foreground sm:inline">
-                {isDirty ? "unsaved" : saveState}
+                {statusText}
               </span>
               {modeToggle}
             </div>
@@ -625,7 +736,7 @@ export function MarkdownEditor({
         )}
       >
         {renderedEditable ? (
-          <div className="flex min-h-full flex-col gap-4">
+          <div className="flex flex-col gap-4">
             {previewMeta.title ? (
               <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">
                 {previewMeta.title}
@@ -634,6 +745,10 @@ export function MarkdownEditor({
             <RenderedMarkdownField
               inputRef={previewRef}
               value={previewBody}
+              approvedBaseline={approvedPreviewBody}
+              highlightPending={requiresApproval && isPendingApproval}
+              compact={compact}
+              showPreview={!compact}
               ariaLabel={`Edit ${paneLabel ?? "document"} ${filePath}`}
               placeholder="Write here…"
               linkContextPath={linkContextPath || parentPath(filePath)}
@@ -696,6 +811,17 @@ export function MarkdownEditor({
             Being edited by {otherEditor}
           </div>
         ) : null}
+        <DraftApprovalBar
+          pendingSource={isPendingApproval ? pendingSource : null}
+          editedBy={githubHandle || editMeta.editedBy}
+          aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
+          onApprove={() => void handleApproveDraft()}
+          onDiscard={() => void handleDiscardDraft()}
+          approving={saveState === "saving"}
+        />
+        {isPendingApproval ? (
+          <PendingChangesPanel baseline={approvedBaseline} current={content} />
+        ) : null}
         {loadError ? (
           <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
             {loadError}
@@ -710,7 +836,7 @@ export function MarkdownEditor({
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <span className="font-mono text-ui-2xs text-muted-foreground">
-                {isDirty ? "unsaved" : saveState}
+                {statusText}
                 {unitStatus ? ` · ${unitStatus}` : ""}
               </span>
               {canDispatch && dispatchAction ? (

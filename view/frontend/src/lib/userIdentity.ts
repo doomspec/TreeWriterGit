@@ -1,4 +1,9 @@
 const STORAGE_KEY = "treewriter.userName";
+const GITHUB_HANDLE_KEY = "treewriter.githubHandle";
+
+export function normalizeGitHubHandle(raw: string): string {
+  return raw.trim().replace(/^@+/, "");
+}
 
 export function getUserName(): string {
   try {
@@ -18,6 +23,33 @@ export function getUserName(): string {
 export function setUserName(name: string): void {
   try {
     localStorage.setItem(STORAGE_KEY, name.trim() || "Anonymous");
+  } catch {
+    // ignore
+  }
+}
+
+/** GitHub handle used for draft edit/approval provenance (without @). */
+export function getGitHubHandle(): string {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("github");
+    if (fromUrl?.trim()) {
+      const handle = normalizeGitHubHandle(fromUrl);
+      if (handle) {
+        localStorage.setItem(GITHUB_HANDLE_KEY, handle);
+        return handle;
+      }
+    }
+    const stored = localStorage.getItem(GITHUB_HANDLE_KEY);
+    if (stored?.trim()) return normalizeGitHubHandle(stored);
+  } catch {
+    // private mode
+  }
+  return "";
+}
+
+export function setGitHubHandle(handle: string): void {
+  try {
+    localStorage.setItem(GITHUB_HANDLE_KEY, normalizeGitHubHandle(handle));
   } catch {
     // ignore
   }

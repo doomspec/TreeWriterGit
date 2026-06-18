@@ -1,5 +1,6 @@
 import { useMemo, useRef } from "react";
 
+import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { cn } from "@/lib/utils";
 import type { NavigateTarget } from "@/lib/modelTree";
@@ -18,6 +19,9 @@ export function RenderedMarkdownField({
   onNavigate,
   inputRef,
   showPreview = true,
+  approvedBaseline,
+  highlightPending = false,
+  compact = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -32,16 +36,22 @@ export function RenderedMarkdownField({
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   /** When false, only the prose editor is shown (e.g. tight layouts). */
   showPreview?: boolean;
+  /** Last approved text — enables line highlighting when `highlightPending`. */
+  approvedBaseline?: string;
+  highlightPending?: boolean;
+  /** Tighter layout: hide duplicate preview strip above the editor. */
+  compact?: boolean;
 }) {
   const localRef = useRef<HTMLTextAreaElement>(null);
   const textareaRef = inputRef ?? localRef;
+  const baseline = approvedBaseline ?? value;
 
   const lineCount = useMemo(() => value.split("\n").length, [value]);
   const minRows = Math.max(6, lineCount + 1);
-  const hasPreview = showPreview && value.trim().length > 0;
+  const hasPreview = showPreview && !compact && value.trim().length > 0;
 
   return (
-    <div className={cn("rendered-markdown-field flex min-h-[12rem] flex-col gap-4", className)}>
+    <div className={cn("rendered-markdown-field flex w-full flex-col gap-4", className)}>
       {hasPreview ? (
         <div className="rendered-markdown-field__preview-wrap shrink-0 border-b border-border/60 pb-4">
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -56,16 +66,20 @@ export function RenderedMarkdownField({
           />
         </div>
       ) : null}
-      <div className="rendered-markdown-field__editor min-h-0 flex-1">
+      <div className="rendered-markdown-field__editor w-full">
         {!hasPreview ? (
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Edit
           </p>
         ) : null}
-        <textarea
-          ref={textareaRef}
-          className="rendered-markdown-field__input markdown-reading-edit block w-full min-h-[8rem] resize-none border-0 bg-transparent p-0 outline-none focus:ring-0 focus-visible:outline-none"
+        <HighlightingTextarea
+          fillContainer={false}
+          inputRef={textareaRef}
+          className="rendered-markdown-field__input markdown-reading-edit block w-full min-h-[8rem] p-0 font-serif"
+          mirrorClassName="rendered-markdown-field__input markdown-reading-edit block w-full p-0 font-serif"
           value={value}
+          baseline={baseline}
+          highlight={highlightPending}
           rows={minRows}
           spellCheck={true}
           aria-label={ariaLabel}

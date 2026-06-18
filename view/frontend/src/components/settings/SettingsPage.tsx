@@ -13,7 +13,7 @@ import {
   type GitSyncSettings,
 } from "@/lib/settingsApi";
 import { saveLastAgentProvider } from "@/lib/lastAgentProvider";
-import { getUserName, setUserName } from "@/lib/userIdentity";
+import { getGitHubHandle, getUserName, setGitHubHandle, setUserName } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
 
 function SettingsSection({
@@ -95,16 +95,21 @@ export function SettingsPage({
   onBack,
   onError,
   onGitSyncChange,
+  viewSyncPaused = false,
+  onResolveViewSync,
 }: {
   onBack: () => void;
   onError: (message: string) => void;
   onGitSyncChange?: (settings: GitSyncSettings) => void;
+  viewSyncPaused?: boolean;
+  onResolveViewSync?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [gitSync, setGitSync] = useState<GitSyncSettings | null>(null);
   const [agents, setAgents] = useState<AgentSettings | null>(null);
   const [authorName, setAuthorName] = useState(() => getUserName());
+  const [githubHandle, setGithubHandleState] = useState(() => getGitHubHandle());
   const onGitSyncChangeRef = useRef(onGitSyncChange);
   const hasLoadedRef = useRef(false);
 
@@ -185,6 +190,11 @@ export function SettingsPage({
     setUserName(authorName.trim() || "Anonymous");
   };
 
+  const handleGitHubHandleSave = () => {
+    setGitHubHandle(githubHandle);
+    setGithubHandleState(getGitHubHandle());
+  };
+
   const syncStatus = gitSync?.status;
   const syncStatusLabel = syncStatus?.conflictDetected
     ? "Conflict"
@@ -247,6 +257,32 @@ export function SettingsPage({
                     Sync now
                   </Button>
                 </SettingRow>
+
+                {viewSyncPaused && onResolveViewSync ? (
+                  <SettingRow
+                    label="Resolve view/ pause"
+                    hint="Dispatch the default AI harness to commit view/ changes, rebase, and push"
+                  >
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      className="h-8 gap-1"
+                      disabled={!gitSync?.enabled || syncStatus?.running || saving === "harness"}
+                      onClick={() => {
+                        setSaving("harness");
+                        try {
+                          onResolveViewSync();
+                        } finally {
+                          window.setTimeout(() => setSaving(null), 600);
+                        }
+                      }}
+                    >
+                      <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+                      Resolve with harness
+                    </Button>
+                  </SettingRow>
+                ) : null}
 
                 <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -322,6 +358,25 @@ export function SettingsPage({
                       onBlur={handleAuthorSave}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") handleAuthorSave();
+                      }}
+                    />
+                  </div>
+                </SettingRow>
+                <SettingRow
+                  label="GitHub handle"
+                  hint="Recorded on draft edits and approvals (without @)"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">@</span>
+                    <input
+                      type="text"
+                      value={githubHandle}
+                      className="h-8 w-40 rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      placeholder="octocat"
+                      onChange={(event) => setGithubHandleState(event.target.value)}
+                      onBlur={handleGitHubHandleSave}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") handleGitHubHandleSave();
                       }}
                     />
                   </div>

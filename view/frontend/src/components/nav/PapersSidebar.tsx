@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { PaperAssetsPanel } from "@/components/nav/PaperAssetsPanel";
@@ -9,6 +9,12 @@ import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { PapersPanel } from "@/PapersPanel";
 import { cn } from "@/lib/utils";
+import {
+  loadWorkspacePreferences,
+  mergeWorkspaceDefaults,
+  saveWorkspacePreferences,
+  type PapersSidebarPanels,
+} from "@/lib/workspacePreferences";
 import type { GraphScope } from "@/lib/graphLocal";
 import type { ModelNode } from "@/lib/modelTree";
 
@@ -78,12 +84,21 @@ export function PapersSidebar({
   onGraphSelectNode: (id: string) => void;
   embedded?: boolean;
 }) {
-  const [sectionsOpen, setSectionsOpen] = useState(true);
-  const [assetsOpen, setAssetsOpen] = useState(true);
-  const [removedOpen, setRemovedOpen] = useState(false);
-  const [graphOpen, setGraphOpen] = useState(true);
+  const [panels, setPanels] = useState<PapersSidebarPanels>(() =>
+    mergeWorkspaceDefaults(loadWorkspacePreferences()).papersSidebar,
+  );
   const selectedSlug = paperSlugFromPath(currentPath);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
+
+  useEffect(() => {
+    saveWorkspacePreferences({ papersSidebar: panels });
+  }, [panels]);
+
+  const togglePanel = useCallback((key: keyof PapersSidebarPanels) => {
+    setPanels((current) => ({ ...current, [key]: !current[key] }));
+  }, []);
+
+  const { sectionsOpen, assetsOpen, removedOpen, graphOpen } = panels;
 
   return (
     <div
@@ -112,7 +127,7 @@ export function PapersSidebar({
         <SidebarSection
           title="Sections"
           open={sectionsOpen}
-          onToggle={() => setSectionsOpen((open) => !open)}
+          onToggle={() => togglePanel("sectionsOpen")}
         >
           <PapersPanel
             embedded
@@ -130,7 +145,7 @@ export function PapersSidebar({
         <SidebarSection
           title="Assets"
           open={assetsOpen}
-          onToggle={() => setAssetsOpen((open) => !open)}
+          onToggle={() => togglePanel("assetsOpen")}
         >
           <PaperAssetsPanel
             paperPath={paperPath}
@@ -147,7 +162,7 @@ export function PapersSidebar({
         <SidebarSection
           title="Removed"
           open={removedOpen}
-          onToggle={() => setRemovedOpen((open) => !open)}
+          onToggle={() => togglePanel("removedOpen")}
         >
           <TrashPanel
             paperPath={paperPath}
@@ -161,7 +176,7 @@ export function PapersSidebar({
         <SidebarSection
           title="Graph"
           open={graphOpen}
-          onToggle={() => setGraphOpen((open) => !open)}
+          onToggle={() => togglePanel("graphOpen")}
         >
           <div className="graph-tab-host flex h-[min(240px,36vh)] min-h-[200px] shrink-0 flex-col overflow-hidden">
             <GraphPanel

@@ -106,31 +106,39 @@ export function PaperWorkspace({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b border-border bg-card">
-        <div className="flex h-10 items-center gap-3 px-4">
-          <div className="relative min-w-0 flex-1 max-w-md">
-            <Search
-              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              placeholder="Search this paper…"
-              value={searchQuery}
-              className="ui-input h-8 pl-8"
-              onChange={(event) => onSearchChange(event.target.value)}
-            />
+      <div className="relative shrink-0 border-b border-border bg-card">
+        <div className="flex h-10 items-center justify-between gap-3 px-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <p className="hidden min-w-0 max-w-[9rem] truncate text-xs font-medium text-foreground lg:block">
+              {compose.title}
+            </p>
+            <div className="relative min-w-[10rem] max-w-sm flex-1">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                placeholder="Search this paper…"
+                value={searchQuery}
+                className="ui-input h-8 w-full"
+                onChange={(event) => onSearchChange(event.target.value)}
+              />
+            </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-            onClick={() => onOpenFile(outlinePath)}
-          >
-            <Pencil className="h-3 w-3" aria-hidden="true" />
-            Edit outline source
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-2 text-[10px]"
+              onClick={() => onOpenFile(outlinePath)}
+            >
+              <Pencil className="h-3 w-3" aria-hidden="true" />
+              <span className="hidden sm:inline">Edit outline source</span>
+              <span className="sm:hidden">Outline</span>
+            </Button>
+          </div>
         </div>
         {onSearchSelect ? (
           <SearchResults query={searchQuery} root={paperPath} onSelect={onSearchSelect} />

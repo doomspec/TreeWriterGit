@@ -577,3 +577,50 @@ export async function runFanOutDispatch(
   }
   return results;
 }
+
+const GIT_SYNC_RESOLVE_PROMPT = `TreeWriter automated git sync paused because uncommitted local changes under view/ blocked rebase. model/ may already be committed locally.
+
+Use the repository root (parent of model/ and view/). Commit only view/ UI changes, then finish sync.
+
+Steps:
+1. Run git status and review changes — focus on view/; do not edit model/ unless resolving a merge conflict.
+2. Stage view/: git add view/
+3. Commit with a clear message summarizing the UI changes.
+4. Fetch and rebase: git fetch origin && git rebase origin/$(git branch --show-current)
+5. Push: git push origin HEAD
+
+If rebase conflicts appear, resolve them carefully. When finished, confirm view/ is committed and push succeeded.`;
+
+/** Build an AI harness command to commit view/ and unblock git sync. */
+export async function buildGitSyncResolvePreview(
+  repoRoot: string,
+  provider: AiProvider,
+  sessionId?: string,
+): Promise<PreviewResult> {
+  const modelRoot = path.join(repoRoot, "model");
+  const id = sessionId ?? promptSessionId();
+  const promptsDir = path.join(repoRoot, ".treewriter-prompts");
+  await mkdir(promptsDir, { recursive: true });
+  const promptFile = path.join(promptsDir, `${id}.txt`);
+  await writeFile(promptFile, GIT_SYNC_RESOLVE_PROMPT, "utf8");
+  const promptRef = path.relative(modelRoot, promptFile).split(path.sep).join("/");
+
+  const argStr = provider.args
+    .map((a) =>
+      a === "{prompt}"
+        ? `"$(cat ${shellQuote(promptRef)})"`
+        : a.replace("{files}", ""),
+    )
+    .join(" ");
+
+  const command = `${provider.command} ${argStr}`.trim();
+
+  return {
+    prompt: GIT_SYNC_RESOLVE_PROMPT,
+    command,
+    outputPath: "view/",
+    providerName: provider.name,
+    sessionId: id,
+    promptFile: path.relative(repoRoot, promptFile).split(path.sep).join("/"),
+  };
+}
