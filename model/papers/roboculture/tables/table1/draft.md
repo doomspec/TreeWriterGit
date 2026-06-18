@@ -1,5 +1,5 @@
 **Table1.** _Caption text._
 
-| Column A | Column B |
-| --- | --- |
+| Value 1 | Value 2 |
+| 123 | 134 |
 |  |  |
