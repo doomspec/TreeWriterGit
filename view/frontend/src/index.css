@@ -569,7 +569,15 @@
   border-radius: 2px;
 }
 
-.dark .highlight-line--pending {
+.highlight-inline--pending {
+  background: hsl(45 93% 47% / 0.28);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border-radius: 2px;
+}
+
+.dark .highlight-line--pending,
+.dark .highlight-inline--pending {
   background: hsl(45 80% 50% / 0.22);
 }
 

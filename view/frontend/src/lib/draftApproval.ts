@@ -1,26 +1,20 @@
 import { isDraftPath, parentPath } from "@/lib/modelTree";
 import { getGitHubHandle } from "@/lib/userIdentity";
-import { fetchModelFile, saveModelFile, type SaveModelFileOptions } from "@/modelApi";
+import {
+  approveDraft,
+  discardDraft,
+  fetchDraftApprovalState,
+  fetchModelFile,
+  saveModelFile,
+  type DraftEditMeta,
+  type SaveModelFileOptions,
+} from "@/modelApi";
 
 export type DraftPendingSource = "human" | "ai";
 
-export type DraftEditMeta = {
-  editedBy: string | null;
-  editedAt: string | null;
-  aiAssisted: boolean;
-  approvedBy: string | null;
-  approvedAt: string | null;
-};
+export type { DraftEditMeta };
 
 export const DRAFT_APPROVED_DOC = "draft.approved.md";
-
-const emptyDraftEditMeta = (): DraftEditMeta => ({
-  editedBy: null,
-  editedAt: null,
-  aiAssisted: false,
-  approvedBy: null,
-  approvedAt: null,
-});
 
 export function requiresDraftApproval(filePath: string): boolean {
   return isDraftPath(filePath);
@@ -57,25 +51,7 @@ export async function loadDraftApprovalState(targetPath: string): Promise<{
   content: string;
   meta: DraftEditMeta;
 }> {
-  try {
-    const response = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000"}/api/model/draft-approved?path=${encodeURIComponent(targetPath)}`,
-    );
-    if (!response.ok) return { content: "", meta: emptyDraftEditMeta() };
-    const data = (await response.json()) as { content?: string; meta?: Partial<DraftEditMeta> };
-    return {
-      content: data.content ?? "",
-      meta: {
-        editedBy: data.meta?.editedBy ?? null,
-        editedAt: data.meta?.editedAt ?? null,
-        aiAssisted: Boolean(data.meta?.aiAssisted),
-        approvedBy: data.meta?.approvedBy ?? null,
-        approvedAt: data.meta?.approvedAt ?? null,
-      },
-    };
-  } catch {
-    return { content: "", meta: emptyDraftEditMeta() };
-  }
+  return fetchDraftApprovalState(targetPath);
 }
 
 /** @deprecated Use loadDraftApprovalState */
@@ -85,30 +61,12 @@ export async function loadApprovedDraftContent(targetPath: string): Promise<stri
 }
 
 export async function approveDraftAtPath(path: string, approvedBy?: string | null): Promise<void> {
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
   const handle = approvedBy ?? (getGitHubHandle() || null);
-  const response = await fetch(`${apiBaseUrl}/api/model/draft-approve`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, approvedBy: handle }),
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `Approve failed (${response.status})`);
-  }
+  await approveDraft(path, handle);
 }
 
 export async function discardDraftAtPath(path: string): Promise<void> {
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
-  const response = await fetch(`${apiBaseUrl}/api/model/draft-discard`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
-  });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `Discard failed (${response.status})`);
-  }
+  await discardDraft(path);
 }
 
 export function draftStatusLabel(options: {

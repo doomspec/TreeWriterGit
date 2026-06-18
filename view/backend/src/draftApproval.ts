@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
 
 import {
+  isEquationDir,
   isFigureDir,
   isTableDir,
   isUnitDir,
@@ -85,7 +86,8 @@ async function isDraftLeafDir(modelRoot: string, unitRel: string): Promise<boole
   return (
     (await isUnitDir(modelRoot, unitRel)) ||
     (await isFigureDir(modelRoot, unitRel)) ||
-    (await isTableDir(modelRoot, unitRel))
+    (await isTableDir(modelRoot, unitRel)) ||
+    (await isEquationDir(modelRoot, unitRel))
   );
 }
 
@@ -99,7 +101,7 @@ async function patchLeafIndex(
   const parsed = matter(await readFile(indexAbs, "utf8"));
   const data = parsed.data as Record<string, unknown>;
   const kind = String(data.kind ?? "");
-  if (kind !== "unit" && kind !== "figure" && kind !== "table") return null;
+  if (kind !== "unit" && kind !== "figure" && kind !== "table" && kind !== "equation") return null;
   await writeFile(indexAbs, matter.stringify(parsed.content, { ...data, ...patch }), "utf8");
   return `${unitRel}/INDEX.md`;
 }

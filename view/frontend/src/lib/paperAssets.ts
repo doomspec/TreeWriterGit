@@ -13,6 +13,18 @@ export type TableMetadata = {
   tableLabel: string | null;
 };
 
+export type EquationMetadata = {
+  kind: "equation-unit" | "equation-note";
+  path: string;
+  title: string;
+  caption: string;
+  summary: string | null;
+  sourcePath: string | null;
+  outlinePath: string | null;
+  draftPath: string | null;
+  equationLabel: string | null;
+};
+
 export type ReferenceMetadata = {
   path: string;
   title: string;
@@ -25,6 +37,7 @@ export type ReferenceMetadata = {
 export type PaperAssetsBundle = {
   figures: FigureMetadata[];
   tables: TableMetadata[];
+  equations: EquationMetadata[];
   references: ReferenceMetadata[];
 };
 

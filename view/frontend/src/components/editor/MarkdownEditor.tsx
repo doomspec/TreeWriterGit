@@ -24,8 +24,6 @@ import { cn } from "@/lib/utils";
 import { getGitHubHandle, getUserName } from "@/lib/userIdentity";
 import { parseFrontmatterStatus, parentPath, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
 import {
-  approveDraftAtPath,
-  discardDraftAtPath,
   draftSaveMeta,
   draftStatusLabel,
   loadDraftApprovalState,
@@ -34,7 +32,7 @@ import {
   type DraftEditMeta,
   type DraftPendingSource,
 } from "@/lib/draftApproval";
-import { useRegisterDraftPending } from "@/lib/draftPendingStore";
+import { useDraftAutosave, type SaveState } from "@/lib/useDraftAutosave";
 import {
   ApiError,
   claimPresence,
@@ -45,7 +43,6 @@ import {
   saveModelFile,
 } from "@/modelApi";
 
-type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 export type EditorLayout = "split" | "source" | "preview";
 export type PaneEditMode = "rendered" | "raw";
 
@@ -136,7 +133,6 @@ export function MarkdownEditor({
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
   const [approvedBaseline, setApprovedBaseline] = useState("");
-  const [saveState, setSaveState] = useState<SaveState>("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [paneMode, setPaneMode] = useState<PaneEditMode>(defaultPaneMode);
   const [previewRawEdit, setPreviewRawEdit] = useState(false);
@@ -144,7 +140,6 @@ export function MarkdownEditor({
   const [unresolvedComments, setUnresolvedComments] = useState(0);
   const [selectedLine, setSelectedLine] = useState(1);
   const [otherEditor, setOtherEditor] = useState<string | null>(null);
-  const [pendingSource, setPendingSource] = useState<DraftPendingSource | null>(null);
   const [editMeta, setEditMeta] = useState<DraftEditMeta>({
     editedBy: null,
     editedAt: null,
@@ -154,14 +149,66 @@ export function MarkdownEditor({
   });
   const dispatchSnapshotRef = useRef<string | null>(null);
   const requiresApproval = useMemo(() => requiresDraftApproval(filePath), [filePath]);
+
+  const saveContent = useCallback(
+    async (nextContent: string, pendingSource: DraftPendingSource | null) => {
+      await saveModelFile(filePath, nextContent, draftSaveMeta(pendingSource));
+      if (requiresApproval) {
+        const handle = getGitHubHandle();
+        setEditMeta((prev) => ({
+          ...prev,
+          editedBy: handle || prev.editedBy,
+          editedAt: new Date().toISOString(),
+          aiAssisted: pendingSource === "ai" || prev.aiAssisted,
+        }));
+      }
+    },
+    [filePath, requiresApproval],
+  );
+
+  const {
+    saveState,
+    setSaveState,
+    isDirty,
+    isPendingApproval,
+    pendingSource,
+    setPendingSource,
+    githubHandle,
+    flushSave,
+    handleApprove: handleApproveDraft,
+    handleDiscard: handleDiscardDraft,
+  } = useDraftAutosave({
+    targetPath: filePath,
+    content,
+    loadedContent,
+    setLoadedContent,
+    approvedBaseline,
+    setApprovedBaseline,
+    saveContent,
+    reloadAfterDiscard: () => loadModelFileContent(filePath),
+    onError: (message) => {
+      setLoadError(message);
+      onError?.(message);
+    },
+    onApproved: async () => {
+      const { meta } = await loadDraftApprovalState(filePath);
+      setEditMeta(meta);
+      dispatchSnapshotRef.current = null;
+      setLoadError(null);
+    },
+    onDiscarded: (restored) => {
+      setContent(restored);
+      void loadDraftApprovalState(filePath).then(({ meta }) => setEditMeta(meta));
+      dispatchSnapshotRef.current = null;
+      setLoadError(null);
+    },
+    requiresApproval,
+  });
+
   const dispatchPane = paneLabel === "Outline" ? "outline" : paneLabel === "Draft" ? "draft" : undefined;
   const authorName = useMemo(() => getUserName(), []);
-  const githubHandle = useMemo(() => getGitHubHandle(), []);
   const sourceRef = useRef<HTMLTextAreaElement | null>(null);
   const previewRef = useRef<HTMLTextAreaElement | null>(null);
-  const isDirty = content !== loadedContent;
-  const isPendingApproval = requiresApproval && content !== approvedBaseline;
-  useRegisterDraftPending(filePath, isPendingApproval);
   const isDirtyRef = useRef(isDirty);
   isDirtyRef.current = isDirty;
   const previewParts = useMemo(() => splitForPreviewEdit(content), [content]);
@@ -199,66 +246,6 @@ export function MarkdownEditor({
     saveState,
     defaultLabel: saveState,
   });
-
-  const flushSave = useCallback(async () => {
-    if (!isDirty) return;
-    setSaveState("saving");
-    try {
-      await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
-      setLoadedContent(content);
-      setSaveState("saved");
-      setLoadError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setSaveState("error");
-      setLoadError(message);
-      throw err;
-    }
-  }, [content, filePath, isDirty, pendingSource]);
-
-  const handleApproveDraft = useCallback(async () => {
-    setSaveState("saving");
-    try {
-      if (isDirty) await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
-      await approveDraftAtPath(filePath, githubHandle || null);
-      const { meta } = await loadDraftApprovalState(filePath);
-      setEditMeta(meta);
-      setLoadedContent(content);
-      setApprovedBaseline(content);
-      setPendingSource(null);
-      dispatchSnapshotRef.current = null;
-      setSaveState("saved");
-      setLoadError(null);
-      window.setTimeout(() => setSaveState("idle"), 900);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setSaveState("error");
-      setLoadError(message);
-      onError?.(message);
-    }
-  }, [content, filePath, githubHandle, isDirty, onError]);
-
-  const handleDiscardDraft = useCallback(async () => {
-    setSaveState("saving");
-    try {
-      await discardDraftAtPath(filePath);
-      const restored = await loadModelFileContent(filePath);
-      const { meta } = await loadDraftApprovalState(filePath);
-      setEditMeta(meta);
-      setContent(restored);
-      setLoadedContent(restored);
-      setApprovedBaseline(restored);
-      setPendingSource(null);
-      dispatchSnapshotRef.current = null;
-      setSaveState("idle");
-      setLoadError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setSaveState("error");
-      setLoadError(message);
-      onError?.(message);
-    }
-  }, [filePath, onError]);
 
   const handleDispatch = useCallback(async () => {
     if (!canDispatch || !unitPath || !dispatchAction) return;
@@ -378,40 +365,7 @@ export function MarkdownEditor({
     return () => {
       cancelled = true;
     };
-  }, [filePath, onError, refreshVersion, requiresApproval]);
-
-  useEffect(() => {
-    if (requiresApproval && content !== approvedBaseline) {
-      setPendingSource((prev) => (prev === "ai" ? "ai" : "human"));
-    } else if (requiresApproval) {
-      setPendingSource(null);
-    }
-    if (!isDirty) return;
-    setSaveState("dirty");
-    const timeout = window.setTimeout(async () => {
-      setSaveState("saving");
-      const nextContent = content;
-      try {
-        await saveModelFile(filePath, nextContent, draftSaveMeta(pendingSource));
-        setEditMeta((prev) => ({
-          ...prev,
-          editedBy: githubHandle || prev.editedBy,
-          editedAt: new Date().toISOString(),
-          aiAssisted: pendingSource === "ai" || prev.aiAssisted,
-        }));
-        setLoadedContent(nextContent);
-        setSaveState("saved");
-        setLoadError(null);
-        window.setTimeout(() => setSaveState("idle"), 900);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        setSaveState("error");
-        setLoadError(message);
-        onError?.(message);
-      }
-    }, 800);
-    return () => window.clearTimeout(timeout);
-  }, [approvedBaseline, content, filePath, githubHandle, isDirty, onError, pendingSource, requiresApproval]);
+  }, [filePath, onError, refreshVersion, requiresApproval, setPendingSource, setSaveState]);
 
   useEffect(() => {
     let cancelled = false;

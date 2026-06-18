@@ -31,6 +31,7 @@ import {
   findNode,
   flattenFiles,
   isFigureFolder,
+  isEquationFolder,
   isSectionContainer,
   isTableFolder,
   isUnitFolder,
@@ -155,6 +156,7 @@ export default function App() {
   const currentNode = browsePath ? findNode(tree, browsePath) : null;
   const isFigure = isFigureFolder(currentNode);
   const isTable = isTableFolder(currentNode);
+  const isEquation = isEquationFolder(currentNode);
   const isUnit = isUnitFolder(currentNode);
   const isPaperRoot = paperPath !== null && browsePath === paperPath;
   const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
@@ -165,7 +167,7 @@ export default function App() {
     const base = tablePath.split("/").pop() ?? "table";
     return base.charAt(0).toUpperCase() + base.slice(1);
   }, [tablePath]);
-  const unitPath = isUnit || isFigure ? browsePath : null;
+  const unitPath = isUnit || isFigure || isEquation ? browsePath : null;
   const sectionPath = isPaperSection && !activeFile && !isPaperRoot ? browsePath : null;
   const graphFocusPath = activeFile ? parentPath(activeFile) : currentPath || browsePath;
   const graphFetchRoot = resolveGraphFetchRoot(graphFocusPath);
@@ -498,7 +500,7 @@ export default function App() {
       : browsePath === "" || /(^|\/)sections$/.test(browsePath)
         ? "section"
         : "subsection";
-  const isLeafAssetOrUnit = isUnit || isFigure || isTable;
+  const isLeafAssetOrUnit = isUnit || isFigure || isTable || isEquation;
   const underPaper = paperPath !== null && browsePath.startsWith(paperPath);
   const canCreateFolder =
     sidebarTab === "papers"
@@ -743,6 +745,7 @@ export default function App() {
                 }
                 backLabel={showPaperViewBack ? "Paper view" : "Section view"}
                 isFigure={isFigure}
+                isEquation={isEquation}
                 onModelChanged={reloadModel}
                 paperPath={paperPath}
               />

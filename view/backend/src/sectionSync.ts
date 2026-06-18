@@ -2,15 +2,16 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
-import { orderedChildren, readIndexData, reorderChildren, isFigureDir, isTableDir, isUnitDir } from "./modelFs.js";
+import { orderedChildren, readIndexData, reorderChildren, isEquationDir, isFigureDir, isTableDir, isUnitDir } from "./modelFs.js";
 import { displayChildTitle } from "./compose.js";
 
 async function isSectionContainerDir(modelRoot: string, relPath: string): Promise<boolean> {
   if (await isUnitDir(modelRoot, relPath)) return false;
   if (await isFigureDir(modelRoot, relPath)) return false;
   if (await isTableDir(modelRoot, relPath)) return false;
+  if (await isEquationDir(modelRoot, relPath)) return false;
   const data = await readIndexData(modelRoot, relPath);
-  if (data.kind === "unit" || data.kind === "figure" || data.kind === "table") return false;
+  if (data.kind === "unit" || data.kind === "figure" || data.kind === "table" || data.kind === "equation") return false;
   return (await orderedChildren(modelRoot, relPath)).length > 0;
 }
 

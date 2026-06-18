@@ -6,20 +6,12 @@ import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
 import { PendingChangesPanel } from "@/components/editor/PendingChangesPanel";
 import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
 import { Button } from "@/components/ui/button";
-import {
-  approveDraftAtPath,
-  discardDraftAtPath,
-  draftSaveMeta,
-  draftStatusLabel,
-  type DraftPendingSource,
-} from "@/lib/draftApproval";
-import { getGitHubHandle } from "@/lib/userIdentity";
-import { useRegisterDraftPending } from "@/lib/draftPendingStore";
+import { draftSaveMeta, draftStatusLabel } from "@/lib/draftApproval";
+import { useDraftAutosave } from "@/lib/useDraftAutosave";
 import { cn } from "@/lib/utils";
 import { fetchApprovedSectionCompose, syncSectionDraft } from "@/modelApi";
 import { resolveNavigateTarget, type NavigateTarget } from "@/lib/modelTree";
 
-type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 type PaneEditMode = "rendered" | "raw";
 
 function buildDraftMarkdown(title: string, body: string): string {
@@ -60,16 +52,49 @@ export function ComposedDraftEditor({
   const [content, setContent] = useState(markdown);
   const [loadedContent, setLoadedContent] = useState(markdown);
   const [approvedBaseline, setApprovedBaseline] = useState("");
-  const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [pendingSource, setPendingSource] = useState<DraftPendingSource | null>(null);
   const [paneMode, setPaneMode] = useState<PaneEditMode>("rendered");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isDirtyRef = useRef(false);
-  const isDirty = content !== loadedContent;
-  const isPendingApproval = content !== approvedBaseline;
-  useRegisterDraftPending(containerPath, isPendingApproval);
+
+  const saveContent = useCallback(
+    async (body: string, pendingSource: "human" | "ai" | null) => {
+      await syncSectionDraft(
+        containerPath,
+        buildDraftMarkdown(title, body),
+        draftSaveMeta(pendingSource),
+      );
+    },
+    [containerPath, title],
+  );
+
+  const reloadAfterDiscard = useCallback(async () => {
+    const { draftMarkdown } = await fetchApprovedSectionCompose(containerPath);
+    return stripComposedTitle(title, draftMarkdown);
+  }, [containerPath, title]);
+
+  const {
+    saveState,
+    isDirty,
+    isPendingApproval,
+    pendingSource,
+    githubHandle,
+    handleApprove,
+    handleDiscard,
+  } = useDraftAutosave({
+    targetPath: containerPath,
+    content,
+    loadedContent,
+    setLoadedContent,
+    approvedBaseline,
+    setApprovedBaseline,
+    saveContent,
+    reloadAfterDiscard,
+    onError,
+    onSaved: onSynced,
+    onDiscarded: (restored) => setContent(restored),
+  });
+
   isDirtyRef.current = isDirty;
-  const githubHandle = getGitHubHandle();
   const lineCount = useMemo(() => Math.max(24, content.split("\n").length + 2), [content]);
 
   useEffect(() => {
@@ -92,75 +117,7 @@ export function ComposedDraftEditor({
     if (isDirtyRef.current) return;
     setContent(markdown);
     setLoadedContent(markdown);
-    setSaveState("idle");
   }, [markdown, refreshVersion]);
-
-  useEffect(() => {
-    if (isPendingApproval) {
-      setPendingSource("human");
-    } else {
-      setPendingSource(null);
-    }
-  }, [isPendingApproval]);
-
-  useEffect(() => {
-    if (!isDirty) return;
-    setSaveState("dirty");
-    const timeout = window.setTimeout(async () => {
-      setSaveState("saving");
-      const draftMarkdown = buildDraftMarkdown(title, content);
-      try {
-        await syncSectionDraft(containerPath, draftMarkdown, draftSaveMeta(pendingSource));
-        setLoadedContent(content);
-        setSaveState("saved");
-        onSynced?.();
-        window.setTimeout(() => setSaveState("idle"), 900);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setSaveState("error");
-        onError(message);
-      }
-    }, 800);
-    return () => window.clearTimeout(timeout);
-  }, [containerPath, content, isDirty, onError, onSynced, pendingSource, title]);
-
-  const handleApprove = useCallback(async () => {
-    setSaveState("saving");
-    const draftMarkdown = buildDraftMarkdown(title, content);
-    try {
-      if (isDirty) await syncSectionDraft(containerPath, draftMarkdown, draftSaveMeta(pendingSource));
-      await approveDraftAtPath(containerPath, githubHandle || null);
-      setLoadedContent(content);
-      setApprovedBaseline(content);
-      setPendingSource(null);
-      setSaveState("saved");
-      onSynced?.();
-      window.setTimeout(() => setSaveState("idle"), 900);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setSaveState("error");
-      onError(message);
-    }
-  }, [containerPath, content, githubHandle, isDirty, onError, onSynced, pendingSource, title]);
-
-  const handleDiscard = useCallback(async () => {
-    setSaveState("saving");
-    try {
-      await discardDraftAtPath(containerPath);
-      const { draftMarkdown } = await fetchApprovedSectionCompose(containerPath);
-      const restored = stripComposedTitle(title, draftMarkdown);
-      setContent(restored);
-      setLoadedContent(restored);
-      setApprovedBaseline(restored);
-      setPendingSource(null);
-      setSaveState("idle");
-      onSynced?.();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setSaveState("error");
-      onError(message);
-    }
-  }, [containerPath, onError, onSynced, title]);
 
   const handleHeadingNavigate = useCallback(
     (href: string) => {
@@ -274,15 +231,13 @@ export function ComposedDraftEditor({
               highlight={isPendingApproval}
               rows={lineCount}
               spellCheck={false}
-              aria-label={`Edit raw composed ${paneLabel.toLowerCase()}`}
+              aria-label={`Edit composed ${paneLabel.toLowerCase()} (raw)`}
               onChange={(event) => setContent(event.target.value)}
               onClick={handleRawClick}
             />
           )
         ) : (
-          <p className="text-sm italic text-muted-foreground">
-            No draft content yet — start writing here; changes autosave to child section drafts.
-          </p>
+          <p className="text-sm italic text-muted-foreground">Empty composed draft.</p>
         )}
       </div>
     </div>

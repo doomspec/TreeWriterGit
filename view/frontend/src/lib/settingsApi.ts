@@ -1,4 +1,4 @@
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import { request } from "@/lib/apiClient";
 
 export type GitSyncStatus = {
   enabled: boolean;
@@ -36,30 +36,6 @@ export type AppSettings = {
   gitSync: GitSyncSettings;
   agents: AgentSettings;
 };
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
-  const text = await response.text();
-  let body: unknown = {};
-  if (text) {
-    try {
-      body = JSON.parse(text) as unknown;
-    } catch {
-      throw new Error(`Invalid JSON from API (${response.status})`);
-    }
-  }
-  if (!response.ok) {
-    const message =
-      typeof body === "object" && body && "error" in body
-        ? String((body as { error: unknown }).error)
-        : `Request failed (${response.status})`;
-    throw new Error(message);
-  }
-  return body as T;
-}
 
 export function fetchSettings(): Promise<AppSettings> {
   return request<AppSettings>("/api/settings");

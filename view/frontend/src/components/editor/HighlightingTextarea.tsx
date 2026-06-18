@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef } from "react";
 
-import { pendingLineHighlights, splitLines } from "@/lib/draftDiff";
+import { pendingLineHighlightRows, splitLines } from "@/lib/draftDiff";
 import { cn } from "@/lib/utils";
 
 type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
@@ -30,8 +30,8 @@ export function HighlightingTextarea({
   const text = typeof value === "string" ? value : String(value ?? "");
   const showHighlight = highlight && text !== baseline;
   const lines = useMemo(() => splitLines(text), [text]);
-  const kinds = useMemo(
-    () => (showHighlight ? pendingLineHighlights(baseline, text) : lines.map(() => "equal" as const)),
+  const rows = useMemo(
+    () => (showHighlight ? pendingLineHighlightRows(baseline, text) : lines.map((line) => ({ kind: "equal" as const, text: line }))),
     [baseline, lines, showHighlight, text],
   );
 
@@ -63,17 +63,39 @@ export function HighlightingTextarea({
       )}
       aria-hidden="true"
     >
-      {lines.map((line, index) => (
-        <div
-          key={index}
-          className={cn(
-            "highlight-line",
-            kinds[index] === "insert" && "highlight-line--pending",
-          )}
-        >
-          {line.length > 0 ? line : "\u00a0"}
-        </div>
-      ))}
+      {lines.map((line, index) => {
+        const row = rows[index] ?? { kind: "equal" as const, text: line };
+        const display = line.length > 0 ? line : "\u00a0";
+
+        if (row.kind === "inline") {
+          return (
+            <div key={index} className="highlight-line">
+              {row.segments.map((segment, segmentIndex) =>
+                segment.text ? (
+                  <span
+                    key={segmentIndex}
+                    className={segment.kind === "insert" ? "highlight-inline--pending" : undefined}
+                  >
+                    {segment.text}
+                  </span>
+                ) : null,
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <div
+            key={index}
+            className={cn(
+              "highlight-line",
+              row.kind === "full" && "highlight-line--pending",
+            )}
+          >
+            {display}
+          </div>
+        );
+      })}
     </pre>
   ) : null;
 

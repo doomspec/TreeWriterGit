@@ -21,6 +21,7 @@ export const ASSET_EXTENSIONS = new Set([
   ".jpeg",
   ".svg",
   ".mmd",
+  ".tex",
   ".gif",
   ".webp",
 ]);
@@ -67,6 +68,7 @@ export function assetContentType(relativePath: string): string {
     case ".webp":
       return "image/webp";
     case ".mmd":
+    case ".tex":
       return "text/plain; charset=utf-8";
     default:
       return "application/octet-stream";

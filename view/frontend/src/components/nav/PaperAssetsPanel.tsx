@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Image, Plus, Table2, Upload } from "lucide-react";
+import { BookOpen, Image, Plus, Sigma, Table2, Upload } from "lucide-react";
 
 import { TreeRowActions } from "@/components/nav/TreeRowActions";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
@@ -8,6 +8,7 @@ import {
   fetchPaperAssets,
   importReferencesFromBibtex,
   slugifyAssetName,
+  type EquationMetadata,
   type PaperAssetsBundle,
   type ReferenceMetadata,
   type TableMetadata,
@@ -17,7 +18,7 @@ import type { FigureMetadata } from "@/lib/figures";
 import { cn } from "@/lib/utils";
 import { createNode } from "@/modelApi";
 
-type CreateKind = "figure" | "table";
+type CreateKind = "figure" | "table" | "equation";
 
 function AssetGroup({
   title,
@@ -160,7 +161,7 @@ export function PaperAssetsPanel({
     void loadAssets();
   }, [loadAssets, refreshVersion]);
 
-  const openAsset = (item: FigureMetadata | TableMetadata | ReferenceMetadata) => {
+  const openAsset = (item: FigureMetadata | TableMetadata | EquationMetadata | ReferenceMetadata) => {
     if ("citeKey" in item) {
       onOpenFile(item.path);
       return;
@@ -172,7 +173,7 @@ export function PaperAssetsPanel({
     onNavigate(item.path);
   };
 
-  const isActive = (item: FigureMetadata | TableMetadata | ReferenceMetadata): boolean => {
+  const isActive = (item: FigureMetadata | TableMetadata | EquationMetadata | ReferenceMetadata): boolean => {
     if ("citeKey" in item) {
       return activeFile === item.path;
     }
@@ -195,6 +196,12 @@ export function PaperAssetsPanel({
     try {
       if (kind === "figure") {
         const created = await createNode(`${paperPath}/figures`, name, "figure");
+        handleModelChanged();
+        onNavigate(created.path);
+        return;
+      }
+      if (kind === "equation") {
+        const created = await createNode(`${paperPath}/equations`, name, "equation");
         handleModelChanged();
         onNavigate(created.path);
         return;
@@ -240,7 +247,7 @@ export function PaperAssetsPanel({
 
   if (!paperPath) {
     return (
-      <p className="px-3 py-4 text-[11px] text-muted-foreground">Select a paper to view figures, tables, and references.</p>
+      <p className="px-3 py-4 text-[11px] text-muted-foreground">Select a paper to view figures, tables, equations, and references.</p>
     );
   }
 
@@ -250,6 +257,7 @@ export function PaperAssetsPanel({
 
   const figures = assets?.figures ?? [];
   const tables = assets?.tables ?? [];
+  const equations = assets?.equations ?? [];
   const references = assets?.references ?? [];
 
   return (
@@ -307,6 +315,26 @@ export function PaperAssetsPanel({
         </AssetGroup>
 
         <AssetGroup
+          title="Equations"
+          icon={Sigma}
+          emptyLabel="No equations yet"
+          count={equations.length}
+          onAdd={() => setCreateKind("equation")}
+        >
+          {equations.map((equation) => (
+            <AssetRow
+              key={equation.path}
+              label={equation.equationLabel ?? equation.title}
+              hint={equation.caption || equation.summary}
+              active={isActive(equation)}
+              onClick={() => openAsset(equation)}
+              onDelete={() => requestArchive(equation.path, equation.title)}
+              deleteLabel={`Remove equation ${equation.title}`}
+            />
+          ))}
+        </AssetGroup>
+
+        <AssetGroup
           title="References"
           icon={BookOpen}
           emptyLabel={importing ? "Importing…" : "Import a .bib file to add references"}
@@ -348,6 +376,15 @@ export function PaperAssetsPanel({
         open={createKind === "table"}
         title="New table"
         label="Table folder name"
+        defaultValue=""
+        confirmLabel="Create"
+        onConfirm={submitCreate}
+        onCancel={() => setCreateKind(null)}
+      />
+      <NamePromptDialog
+        open={createKind === "equation"}
+        title="New equation"
+        label="Equation folder name"
         defaultValue=""
         confirmLabel="Create"
         onConfirm={submitCreate}

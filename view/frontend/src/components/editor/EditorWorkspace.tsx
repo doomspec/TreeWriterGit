@@ -3,6 +3,7 @@ import { ArrowLeft, Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
+import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { outlinePathFor, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
@@ -30,6 +31,7 @@ export function EditorWorkspace({
   onBackToSectionView,
   backLabel = "Section view",
   isFigure = false,
+  isEquation = false,
   onModelChanged,
   paperPath = null,
 }: {
@@ -50,6 +52,7 @@ export function EditorWorkspace({
   onBackToSectionView?: () => void;
   backLabel?: string;
   isFigure?: boolean;
+  isEquation?: boolean;
   onModelChanged?: () => void;
   paperPath?: string | null;
 }) {
@@ -60,9 +63,9 @@ export function EditorWorkspace({
 
   const handleDraftContentChange = useCallback(
     (content: string) => {
-      if (isFigure) setLiveDraftCaption(captionFromDraft(content));
+      if (isFigure || isEquation) setLiveDraftCaption(captionFromDraft(content));
     },
-    [isFigure],
+    [isEquation, isFigure],
   );
 
   useEffect(() => {
@@ -131,6 +134,15 @@ export function EditorWorkspace({
             refreshVersion={refreshVersion}
             liveCaption={liveDraftCaption}
             embeddedInEditor
+            onModelChanged={onModelChanged}
+            onError={onError}
+          />
+        ) : null}
+        {isEquation && unitPath ? (
+          <EquationPreviewPanel
+            unitPath={unitPath}
+            refreshVersion={refreshVersion}
+            liveCaption={liveDraftCaption}
             onModelChanged={onModelChanged}
             onError={onError}
           />

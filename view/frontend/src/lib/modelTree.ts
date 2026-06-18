@@ -154,6 +154,7 @@ export function isUnitFolder(node: ModelNode | null): boolean {
   );
   if (!hasOutlineDraft) return false;
   if (isTableFolder(node)) return false;
+  if (isEquationFolder(node)) return false;
   const hasFigureAsset = node.children.some(
     (c) =>
       c.type === "file" &&
@@ -177,6 +178,17 @@ export function isTableFolder(node: ModelNode | null): boolean {
   return hasOutline && hasDraft && !hasFigureAsset;
 }
 
+/** Equation leaf folder under equations/ with outline + draft + LaTeX source. */
+export function isEquationFolder(node: ModelNode | null): boolean {
+  if (!node?.children) return false;
+  if (node.children.some((c) => c.type === "directory")) return false;
+  if (!node.path.includes("/equations/")) return false;
+  const hasOutline = node.children.some((c) => c.type === "file" && c.name === OUTLINE_DOC);
+  const hasDraft = node.children.some((c) => c.type === "file" && c.name === DRAFT_DOC);
+  const hasTex = node.children.some((c) => c.type === "file" && c.name.endsWith(".tex"));
+  return hasOutline && hasDraft && hasTex;
+}
+
 /** Figure leaf folder: outline + draft + image/mermaid asset. */
 export function isFigureFolder(node: ModelNode | null): boolean {
   if (!node?.children) return false;
@@ -192,8 +204,11 @@ export function isFigureFolder(node: ModelNode | null): boolean {
 }
 
 export function isLeafEditorFolder(node: ModelNode | null): boolean {
-  return isUnitFolder(node) || isFigureFolder(node) || isTableFolder(node);
+  return isUnitFolder(node) || isFigureFolder(node) || isTableFolder(node) || isEquationFolder(node);
 }
+
+export const EQUATION_LINK_PREFIX = "equation://";
+export const EQUATION_BLOCK_LANG = "treewriter-equation";
 
 /** Section container: has child folders (paper, section, subsection). */
 export function isSectionContainer(node: ModelNode | null): boolean {
@@ -230,6 +245,10 @@ export function preprocessFigureEmbeds(markdown: string): string {
     return `\n\n\`\`\`${FIGURE_BLOCK_LANG}\n${target.trim()}\n\`\`\`\n\n`;
   });
 
+  result = result.replace(/::equation\[([^\]]+)\]/g, (_match, target: string) => {
+    return `\n\n\`\`\`${EQUATION_BLOCK_LANG}\n${target.trim()}\n\`\`\`\n\n`;
+  });
+
   result = result.replace(
     /!\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g,
     (_match, target: string, alias?: string) => {
@@ -243,9 +262,13 @@ export function preprocessFigureEmbeds(markdown: string): string {
     (_match, target: string, alias?: string) => {
       const label = alias?.trim() || target.split("/").pop() || target;
       const trimmed = target.trim().replace(/\/INDEX\.md$/i, "");
-      const isAsset = /\.(png|jpe?g|svg|mmd|gif|webp)$/i.test(trimmed);
+      const isAsset = /\.(png|jpe?g|svg|mmd|gif|webp|tex)$/i.test(trimmed);
       if (isAsset) {
         return `\n\n![${label}](${ASSET_LINK_PREFIX}${trimmed})\n\n`;
+      }
+      if (trimmed.includes("/equations/")) {
+        const equationPath = trimmed.replace(/\.md$/, "");
+        return `[${label}](${EQUATION_LINK_PREFIX}${equationPath})`;
       }
       const isFigureCandidate =
         !trimmed.endsWith(".md") || trimmed.includes("/notes/data/");

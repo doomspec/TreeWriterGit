@@ -20,7 +20,7 @@ type PaperCompose = {
     path: string;
     title: string;
     summary: string | null;
-    kind: "unit" | "section" | "figure" | "table";
+    kind: "unit" | "section" | "figure" | "table" | "equation";
   }>;
 };
 

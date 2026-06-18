@@ -62,6 +62,7 @@ async function walkMarkdown(absDir: string, modelRoot: string, acc: string[]): P
 
 function inferType(kind: unknown, id: string): GraphNodeType {
   if (kind === "figure") return "figure";
+  if (kind === "equation") return "figure";
   if (kind === "unit") return "unit";
   if (kind === "section" || kind === "subsection") return "section";
   if (kind === "paper") return "paper";

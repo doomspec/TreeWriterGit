@@ -5,7 +5,8 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
-import { ModelFsError, isFigureDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { ModelFsError, isEquationDir, isFigureDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { resolveEquationMetadata } from "./equations.js";
 import { resolveFigureMetadata } from "./figures.js";
 import { buildInlineNoteLatexPreamble } from "./inlineNotes.js";
 
@@ -154,6 +155,19 @@ export function findMissingCitations(combinedMarkdown: string, bibliography: str
   return wanted.filter((key) => !inBib.has(key));
 }
 
+async function readEquationExportBody(modelRoot: string, dirRel: string): Promise<string | null> {
+  const meta = await resolveEquationMetadata(modelRoot, dirRel);
+  if (!meta?.sourcePath) return null;
+  const source = (await readFile(path.join(modelRoot, meta.sourcePath), "utf8")).trim();
+  if (!source) return null;
+  const caption = meta.caption.trim() || meta.summary?.trim();
+  const lines = ["\\begin{equation}", source, "\\end{equation}"];
+  if (caption) {
+    lines.push("", `*${caption}*`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 async function readFigureExportBody(modelRoot: string, dirRel: string): Promise<string | null> {
   const meta = await resolveFigureMetadata(modelRoot, dirRel);
   if (!meta) return null;
@@ -257,6 +271,16 @@ async function walkPaper(
     const status = String(data.status ?? "outline");
     if (!shouldIncludeUnit(status, includeDrafts)) return 0;
     const body = await readFigureExportBody(modelRoot, dirRel);
+    if (!body) return 0;
+    parts.push(`${body}\n\n`);
+    return 1;
+  }
+
+  if (await isEquationDir(modelRoot, dirRel)) {
+    const data = await readIndexData(modelRoot, dirRel);
+    const status = String(data.status ?? "outline");
+    if (!shouldIncludeUnit(status, includeDrafts)) return 0;
+    const body = await readEquationExportBody(modelRoot, dirRel);
     if (!body) return 0;
     parts.push(`${body}\n\n`);
     return 1;

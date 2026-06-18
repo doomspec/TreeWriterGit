@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
 
+import { listPaperEquations } from "./equations.js";
 import { listPaperFigures } from "./figures.js";
 import { indexSkeleton, outlineDocSkeleton } from "./modelFs.js";
 import { listPaperTables } from "./tables.js";
@@ -19,6 +20,7 @@ export type ReferenceMetadata = {
 export type PaperAssetsBundle = {
   figures: Awaited<ReturnType<typeof listPaperFigures>>;
   tables: Awaited<ReturnType<typeof listPaperTables>>;
+  equations: Awaited<ReturnType<typeof listPaperEquations>>;
   references: ReferenceMetadata[];
 };
 
@@ -31,12 +33,13 @@ export async function ensurePaperAssetContainers(
   modelRoot: string,
   paperRel: string,
 ): Promise<void> {
-  for (const container of ["figures", "tables"] as const) {
+  for (const container of ["figures", "tables", "equations"] as const) {
     const rel = path.posix.join(paperRel, container);
     const abs = path.join(modelRoot, rel);
     if (existsSync(abs)) continue;
     await mkdir(abs, { recursive: true });
-    const title = container === "figures" ? "Figures" : "Tables";
+    const title =
+      container === "figures" ? "Figures" : container === "tables" ? "Tables" : "Equations";
     await writeFile(path.join(abs, "INDEX.md"), indexSkeleton(container, "section"), "utf8");
     await writeFile(
       path.join(abs, "outline.md"),
@@ -83,10 +86,11 @@ export async function listPaperAssets(
   paperRel: string,
 ): Promise<PaperAssetsBundle> {
   await ensurePaperAssetContainers(modelRoot, paperRel);
-  const [figures, tables, references] = await Promise.all([
+  const [figures, tables, equations, references] = await Promise.all([
     listPaperFigures(modelRoot, paperRel),
     listPaperTables(modelRoot, paperRel),
+    listPaperEquations(modelRoot, paperRel),
     listPaperReferences(modelRoot, paperRel),
   ]);
-  return { figures, tables, references };
+  return { figures, tables, equations, references };
 }

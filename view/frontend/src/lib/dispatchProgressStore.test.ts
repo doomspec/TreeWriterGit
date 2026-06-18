@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearDispatchJob,
@@ -10,7 +10,24 @@ import {
 
 describe("dispatchProgressStore", () => {
   beforeEach(() => {
-    localStorage.clear();
+    const store = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+      clear: () => {
+        store.clear();
+      },
+    });
+    vi.stubGlobal("window", new EventTarget());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("saves and loads jobs by key", () => {

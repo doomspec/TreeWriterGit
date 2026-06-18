@@ -274,7 +274,7 @@ export async function scaffoldPaper(
     await createNode(modelRoot, sectionsRel, sectionName, "section");
   }
 
-  for (const assetDir of ["figures", "tables"] as const) {
+  for (const assetDir of ["figures", "tables", "equations"] as const) {
     await createNode(modelRoot, paperRel, assetDir, "section");
   }
 

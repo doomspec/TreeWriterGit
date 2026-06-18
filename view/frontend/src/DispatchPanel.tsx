@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 
 import { fetchContextFiles, fanOutDispatch } from "@/modelApi";
 import { saveLastAgentProvider, resolveAgentProvider } from "@/lib/lastAgentProvider";
+import type { AgentDispatchAction } from "@/lib/agentDispatchClient";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -21,9 +22,7 @@ interface AiProvider {
   writesFiles: boolean;
 }
 
-type DispatchAction = "draft" | "revise" | "expand" | "cite-check" | "custom" | "refresh-index" | "sync-outline";
-
-const ACTIONS: { value: DispatchAction; label: string }[] = [
+const ACTIONS: { value: AgentDispatchAction; label: string }[] = [
   { value: "draft", label: "Draft from outline" },
   { value: "sync-outline", label: "Sync outline from draft" },
   { value: "revise", label: "Revise draft" },
@@ -99,7 +98,7 @@ export function DispatchPanel({
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [providersLoaded, setProvidersLoaded] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState("");
-  const [action, setAction] = useState<DispatchAction>("draft");
+  const [action, setAction] = useState<AgentDispatchAction>("draft");
   const [customPrompt, setCustomPrompt] = useState("");
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [editedCommand, setEditedCommand] = useState("");
@@ -396,7 +395,7 @@ export function DispatchPanel({
             <select
               className="h-7 w-28 rounded-sm border border-border bg-background px-2 text-xs"
               value={action}
-              onChange={(e) => { setAction(e.target.value as DispatchAction); setPreview(null); setEditedCommand(""); }}
+              onChange={(e) => { setAction(e.target.value as AgentDispatchAction); setPreview(null); setEditedCommand(""); }}
             >
               {ACTIONS.map((a) => (
                 <option key={a.value} value={a.value}>{a.label}</option>

@@ -1,46 +1,8 @@
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import { ApiError, getApiBaseUrl, request } from "@/lib/apiClient";
 
-export type NodeKind = "section" | "subsection" | "unit" | "figure" | "table";
+export { ApiError, getApiBaseUrl, request };
 
-export class ApiError extends Error {
-  status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-    this.name = "ApiError";
-  }
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init
-  });
-  const text = await response.text();
-  let body: unknown = {};
-  if (text) {
-    const trimmed = text.trim();
-    if (trimmed.startsWith("<")) {
-      throw new ApiError(
-        `API returned HTML instead of JSON (${response.status}). Is the backend running at ${apiBaseUrl}?`,
-        response.status,
-      );
-    }
-    try {
-      body = JSON.parse(text) as unknown;
-    } catch {
-      throw new ApiError(`Invalid JSON from API (${response.status})`, response.status);
-    }
-  }
-  if (!response.ok) {
-    const message =
-      typeof body === "object" && body && "error" in body
-        ? String((body as { error: unknown }).error)
-        : `Request failed (${response.status})`;
-    throw new ApiError(message, response.status);
-  }
-  return body as T;
-}
+export type NodeKind = "section" | "subsection" | "unit" | "figure" | "table" | "equation";
 
 export function createNode(parent: string, name: string, kind: NodeKind) {
   return request<{ ok: true; path: string; kind: NodeKind }>("/api/model/node", {
@@ -395,4 +357,60 @@ export async function saveModelFile(
     }
     throw err;
   }
+}
+
+export type DraftEditMeta = {
+  editedBy: string | null;
+  editedAt: string | null;
+  aiAssisted: boolean;
+  approvedBy: string | null;
+  approvedAt: string | null;
+};
+
+const emptyDraftEditMeta = (): DraftEditMeta => ({
+  editedBy: null,
+  editedAt: null,
+  aiAssisted: false,
+  approvedBy: null,
+  approvedAt: null,
+});
+
+export async function fetchDraftApprovalState(targetPath: string): Promise<{
+  content: string;
+  meta: DraftEditMeta;
+}> {
+  try {
+    const data = await request<{ content?: string; meta?: Partial<DraftEditMeta> }>(
+      `/api/model/draft-approved?path=${encodeURIComponent(targetPath)}`,
+    );
+    return {
+      content: data.content ?? "",
+      meta: {
+        editedBy: data.meta?.editedBy ?? null,
+        editedAt: data.meta?.editedAt ?? null,
+        aiAssisted: Boolean(data.meta?.aiAssisted),
+        approvedBy: data.meta?.approvedBy ?? null,
+        approvedAt: data.meta?.approvedAt ?? null,
+      },
+    };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return { content: "", meta: emptyDraftEditMeta() };
+    }
+    return { content: "", meta: emptyDraftEditMeta() };
+  }
+}
+
+export async function approveDraft(path: string, approvedBy?: string | null): Promise<void> {
+  await request("/api/model/draft-approve", {
+    method: "POST",
+    body: JSON.stringify({ path, approvedBy: approvedBy ?? null }),
+  });
+}
+
+export async function discardDraft(path: string): Promise<void> {
+  await request("/api/model/draft-discard", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
 }

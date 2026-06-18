@@ -2,7 +2,8 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import { isFigureDir, isTableDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { isEquationDir, isFigureDir, isTableDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { resolveEquationMetadata } from "./equations.js";
 import { resolveFigureMetadata } from "./figures.js";
 import { resolveTableMetadata } from "./tables.js";
 
@@ -11,7 +12,7 @@ export type SectionChild = {
   path: string;
   title: string;
   summary: string | null;
-  kind: "unit" | "section" | "figure" | "table";
+  kind: "unit" | "section" | "figure" | "table" | "equation";
 };
 
 export type SectionComposeResult = {
@@ -130,6 +131,22 @@ async function composeTableDraftBlock(
   return draftHeadingBlock(depth, childTitle, linkHref, `${tableEmbed}${caption}`);
 }
 
+async function composeEquationDraftBlock(
+  modelRoot: string,
+  childRel: string,
+  childTitle: string,
+  linkHref: string,
+  depth: number,
+): Promise<string> {
+  const meta = await resolveEquationMetadata(modelRoot, childRel);
+  const caption = meta?.caption?.trim() || meta?.summary?.trim() || "";
+  const equationEmbed = `::equation[${childRel}]\n\n`;
+  if (!caption) {
+    return linkedHeadingBlock(depth, childTitle, linkHref, equationEmbed);
+  }
+  return draftHeadingBlock(depth, childTitle, linkHref, `${equationEmbed}${caption}`);
+}
+
 async function composeDraftBlock(
   modelRoot: string,
   sectionRel: string,
@@ -145,6 +162,10 @@ async function composeDraftBlock(
 
   if (await isTableDir(modelRoot, childRel)) {
     return composeTableDraftBlock(modelRoot, childRel, childTitle, linkHref, depth);
+  }
+
+  if (await isEquationDir(modelRoot, childRel)) {
+    return composeEquationDraftBlock(modelRoot, childRel, childTitle, linkHref, depth);
   }
 
   const unit = await isUnitDir(modelRoot, childRel);
@@ -214,7 +235,8 @@ export async function composeSectionView(
     const childTitle = displayChildTitle(childIndex.title, childName);
     const figure = await isFigureDir(modelRoot, childRel);
     const table = figure ? false : await isTableDir(modelRoot, childRel);
-    const unit = figure || table ? false : await isUnitDir(modelRoot, childRel);
+    const equation = figure || table ? false : await isEquationDir(modelRoot, childRel);
+    const unit = figure || table || equation ? false : await isUnitDir(modelRoot, childRel);
     const linkHref = `${childName}/INDEX.md`;
 
     const childOutline = await readOutlineContent(modelRoot, childRel);
@@ -225,10 +247,10 @@ export async function composeSectionView(
       path: childRel,
       title: childTitle,
       summary: childSummary,
-      kind: figure ? "figure" : table ? "table" : unit ? "unit" : "section",
+      kind: figure ? "figure" : table ? "table" : equation ? "equation" : unit ? "unit" : "section",
     });
 
-    const assetBadge = figure ? " *(Figure)*" : table ? " *(Table)*" : "";
+    const assetBadge = figure ? " *(Figure)*" : table ? " *(Table)*" : equation ? " *(Equation)*" : "";
     outlineParts.push(linkedHeadingBlock(3, `${childTitle}${assetBadge}`, linkHref));
     outlineParts.push(childSummary ? `${childSummary}\n\n` : `*No summary yet — open to write.*\n\n`);
 

@@ -3,11 +3,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { FigureCard, FigureLink } from "@/components/editor/FigureCard";
+import { EquationCard, EquationLink } from "@/components/editor/EquationCard";
 import { InlineNoteBadge } from "@/components/editor/InlineNoteBadge";
 import { MermaidBlock } from "@/components/editor/MermaidBlock";
 import { resolveAssetSrc } from "@/lib/figures";
 import { parseInlineNoteCodeSpan, preprocessInlineNotesForMarkdown } from "@/lib/inlineNotes";
 import {
+  EQUATION_BLOCK_LANG,
   FIGURE_BLOCK_LANG,
   preprocessMarkdownLinks,
   resolveNavigateTarget,
@@ -46,6 +48,15 @@ export function MarkdownViewer({
         if (codeClassName === `language-${FIGURE_BLOCK_LANG}`) {
           return (
             <FigureCard
+              targetPath={raw.trim()}
+              linkContextPath={linkContextPath}
+              onNavigate={onNavigate}
+            />
+          );
+        }
+        if (codeClassName === `language-${EQUATION_BLOCK_LANG}`) {
+          return (
+            <EquationCard
               targetPath={raw.trim()}
               linkContextPath={linkContextPath}
               onNavigate={onNavigate}
@@ -112,6 +123,19 @@ export function MarkdownViewer({
             >
               {children}
             </FigureLink>
+          );
+        }
+
+        if (href.startsWith("equation://")) {
+          return (
+            <EquationLink
+              href={href}
+              linkContextPath={linkContextPath}
+              onNavigate={onNavigate}
+              linksClickable={linksClickable}
+            >
+              {children}
+            </EquationLink>
           );
         }
 

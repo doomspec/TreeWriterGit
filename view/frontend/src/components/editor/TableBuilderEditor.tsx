@@ -16,16 +16,11 @@ import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { PendingChangesPanel } from "@/components/editor/PendingChangesPanel";
 import { Button } from "@/components/ui/button";
 import {
-  approveDraftAtPath,
-  discardDraftAtPath,
   draftSaveMeta,
   draftStatusLabel,
   loadDraftApprovalState,
   loadModelFileContent,
-  type DraftPendingSource,
 } from "@/lib/draftApproval";
-import { getGitHubHandle } from "@/lib/userIdentity";
-import { useRegisterDraftPending } from "@/lib/draftPendingStore";
 import { cn } from "@/lib/utils";
 import {
   initTableDraft,
@@ -34,9 +29,9 @@ import {
   type ParsedTableDraft,
   type TableAlign,
 } from "@/lib/tableMarkdown";
-import { saveModelFile } from "@/modelApi";
+import { useDraftAutosave } from "@/lib/useDraftAutosave";
 
-type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
+import { saveModelFile } from "@/modelApi";
 
 function TableGridPicker({
   maxRows = 8,
@@ -101,8 +96,6 @@ export function TableBuilderEditor({
   const [data, setData] = useState<ParsedTableDraft>(() => initTableDraft(2, 2, tableTitle));
   const [loaded, setLoaded] = useState("");
   const [approvedBaseline, setApprovedBaseline] = useState("");
-  const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [pendingSource, setPendingSource] = useState<DraftPendingSource | null>(null);
   const [editMeta, setEditMeta] = useState({
     editedBy: null as string | null,
     aiAssisted: false,
@@ -110,10 +103,60 @@ export function TableBuilderEditor({
   const [mode, setMode] = useState<"visual" | "raw">("visual");
   const [rawText, setRawText] = useState("");
   const currentContent = mode === "raw" ? rawText : serializeTableDraft(data);
-  const isDirty = currentContent !== loaded;
-  const isPendingApproval = currentContent !== approvedBaseline;
-  useRegisterDraftPending(filePath, isPendingApproval);
-  const githubHandle = getGitHubHandle();
+
+  const applyContent = useCallback(
+    (content: string) => {
+      const parsed = parseTableDraft(content, tableTitle);
+      setData(parsed);
+      const serialized = serializeTableDraft(parsed);
+      setLoaded(serialized);
+      setRawText(content);
+    },
+    [tableTitle],
+  );
+
+  const syncAfterSave = useCallback(
+    (content: string) => {
+      if (mode === "raw") {
+        setData(parseTableDraft(content, tableTitle));
+      } else {
+        setRawText(content);
+      }
+    },
+    [mode, tableTitle],
+  );
+
+  const saveContent = useCallback(
+    async (content: string, pendingSource: "human" | "ai" | null) => {
+      await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
+      syncAfterSave(content);
+    },
+    [filePath, syncAfterSave],
+  );
+
+  const {
+    saveState,
+    isDirty,
+    isPendingApproval,
+    pendingSource,
+    githubHandle,
+    handleApprove,
+    handleDiscard,
+    setSaveState,
+  } = useDraftAutosave({
+    targetPath: filePath,
+    content: currentContent,
+    loadedContent: loaded,
+    setLoadedContent: setLoaded,
+    approvedBaseline,
+    setApprovedBaseline,
+    saveContent,
+    reloadAfterDiscard: () => loadModelFileContent(filePath),
+    onError,
+    onSaved: onModelChanged,
+    onDiscarded: applyContent,
+    onApproved: () => applyContent(currentContent),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -133,11 +176,7 @@ export function TableBuilderEditor({
     void loadModelFileContent(filePath)
       .then((content) => {
         if (cancelled) return;
-        const parsed = parseTableDraft(content, tableTitle);
-        setData(parsed);
-        const serialized = serializeTableDraft(parsed);
-        setLoaded(serialized);
-        setRawText(content);
+        applyContent(content);
         setSaveState("idle");
       })
       .catch((err) => {
@@ -146,87 +185,7 @@ export function TableBuilderEditor({
     return () => {
       cancelled = true;
     };
-  }, [filePath, onError, refreshVersion, tableTitle]);
-
-  useEffect(() => {
-    if (isPendingApproval) {
-      setSaveState(isDirty ? "dirty" : "saved");
-      setPendingSource("human");
-    } else {
-      setSaveState("idle");
-      setPendingSource(null);
-    }
-  }, [isDirty, isPendingApproval]);
-
-  useEffect(() => {
-    if (!isDirty) return;
-    setSaveState("dirty");
-    const timeout = window.setTimeout(async () => {
-      setSaveState("saving");
-      const content = currentContent;
-      try {
-        await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
-        setLoaded(content);
-        if (mode === "raw") {
-          setData(parseTableDraft(content, tableTitle));
-        } else {
-          setRawText(content);
-        }
-        setSaveState("saved");
-        onModelChanged?.();
-        window.setTimeout(() => setSaveState("idle"), 900);
-      } catch (err) {
-        setSaveState("error");
-        onError(err instanceof Error ? err.message : String(err));
-      }
-    }, 800);
-    return () => window.clearTimeout(timeout);
-  }, [currentContent, filePath, isDirty, mode, onError, onModelChanged, pendingSource, tableTitle]);
-
-  const applyContent = useCallback(
-    (content: string) => {
-      const parsed = parseTableDraft(content, tableTitle);
-      setData(parsed);
-      const serialized = serializeTableDraft(parsed);
-      setLoaded(serialized);
-      setRawText(content);
-    },
-    [tableTitle],
-  );
-
-  const handleApprove = useCallback(async () => {
-    setSaveState("saving");
-    const content = currentContent;
-    try {
-      if (isDirty) await saveModelFile(filePath, content, draftSaveMeta(pendingSource));
-      await approveDraftAtPath(filePath, githubHandle || null);
-      applyContent(content);
-      setApprovedBaseline(content);
-      setPendingSource(null);
-      setSaveState("saved");
-      onModelChanged?.();
-      window.setTimeout(() => setSaveState("idle"), 900);
-    } catch (err) {
-      setSaveState("error");
-      onError(err instanceof Error ? err.message : String(err));
-    }
-  }, [applyContent, currentContent, filePath, githubHandle, isDirty, onError, onModelChanged, pendingSource]);
-
-  const handleDiscard = useCallback(async () => {
-    setSaveState("saving");
-    try {
-      await discardDraftAtPath(filePath);
-      const restored = await loadModelFileContent(filePath);
-      applyContent(restored);
-      setApprovedBaseline(restored);
-      setPendingSource(null);
-      setSaveState("idle");
-      onModelChanged?.();
-    } catch (err) {
-      setSaveState("error");
-      onError(err instanceof Error ? err.message : String(err));
-    }
-  }, [applyContent, filePath, onError, onModelChanged]);
+  }, [applyContent, filePath, onError, refreshVersion, setSaveState, tableTitle]);
 
   const colCount = useMemo(
     () => Math.max(data.headers.length, data.aligns.length, ...data.rows.map((r) => r.length), 1),

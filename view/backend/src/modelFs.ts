@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, rename, rm, stat, readdir } from "node:fs/promises";
 import matter from "gray-matter";
 
-export type NodeKind = "section" | "subsection" | "unit" | "figure" | "table";
+export type NodeKind = "section" | "subsection" | "unit" | "figure" | "table" | "equation";
 
 export class ModelFsError extends Error {
   status: number;
@@ -83,6 +83,7 @@ export async function isTableDir(modelRoot: string, relPath: string): Promise<bo
   if (
     data.kind === "unit" ||
     data.kind === "figure" ||
+    data.kind === "equation" ||
     data.kind === "section" ||
     data.kind === "subsection" ||
     data.kind === "paper"
@@ -92,10 +93,16 @@ export async function isTableDir(modelRoot: string, relPath: string): Promise<bo
   return false;
 }
 
+/** True when folder is an equation leaf (kind: equation). */
+export async function isEquationDir(modelRoot: string, relPath: string): Promise<boolean> {
+  const data = await readIndexData(modelRoot, relPath);
+  return data.kind === "equation";
+}
+
 /** True when folder is a figure leaf (kind: figure or outline+draft+asset heuristic). */
 export async function isFigureDir(modelRoot: string, relPath: string): Promise<boolean> {
   const data = await readIndexData(modelRoot, relPath);
-  if (data.kind === "table") return false;
+  if (data.kind === "table" || data.kind === "equation") return false;
   if (data.kind === "figure") return true;
   if (data.kind === "unit" || data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
     return false;
@@ -119,7 +126,7 @@ export async function isFigureDir(modelRoot: string, relPath: string): Promise<b
 /** True when folder is a leaf unit (kind-based with draft.md fallback for legacy trees). */
 export async function isUnitDir(modelRoot: string, relPath: string): Promise<boolean> {
   const data = await readIndexData(modelRoot, relPath);
-  if (data.kind === "figure" || data.kind === "table") return false;
+  if (data.kind === "figure" || data.kind === "table" || data.kind === "equation") return false;
   if (data.kind === "unit") return true;
   if (data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
     return false;
@@ -194,6 +201,16 @@ export function indexSkeleton(name: string, kind: NodeKind): string {
       links: [],
     });
   }
+  if (kind === "equation") {
+    return matter.stringify("\n", {
+      kind: "equation",
+      title,
+      status: "outline",
+      equation_label: null,
+      equation_source: "source.tex",
+      links: [],
+    });
+  }
   return matter.stringify("\n", {
     kind,
     title,
@@ -214,6 +231,9 @@ export function outlineDocSkeleton(name: string, kind: NodeKind): string {
   }
   if (kind === "table") {
     return `# ${title}\n\n## Summary\n\n_Describe rows, columns, statistics, and what the reader should take away._\n`;
+  }
+  if (kind === "equation") {
+    return `# ${title}\n\n## Summary\n\n_Describe variables, notation, and where this equation is used._\n`;
   }
   return `# ${title}\n\n## Summary\n\n_Overview of this section for authors and readers._\n\n## Outline\n\n`;
 }
@@ -273,6 +293,7 @@ export async function materializeOutline(modelRoot: string, outlineRel: string):
       rawKind === "unit" ||
       rawKind === "figure" ||
       rawKind === "table" ||
+      rawKind === "equation" ||
       rawKind === "subsection" ||
       rawKind === "section"
         ? rawKind
@@ -339,14 +360,16 @@ export async function createNode(
   await mkdir(abs, { recursive: true });
   await writeFile(path.join(abs, "INDEX.md"), indexSkeleton(name, kind), "utf8");
   await writeFile(path.join(abs, "outline.md"), outlineDocSkeleton(name, kind), "utf8");
-  if (kind === "unit" || kind === "figure" || kind === "table") {
+  if (kind === "unit" || kind === "figure" || kind === "table" || kind === "equation") {
     await writeFile(
       path.join(abs, "draft.md"),
       kind === "figure"
         ? `**${titleCase(name)}.** _Caption text._\n`
         : kind === "table"
           ? `**${titleCase(name)}.** _Caption text._\n\n| Column A | Column B |\n| --- | --- |\n|  |  |\n`
-          : "",
+          : kind === "equation"
+            ? `**${titleCase(name)}.** _Caption describing the equation._\n`
+            : "",
       "utf8",
     );
   }
@@ -356,6 +379,9 @@ export async function createNode(
       "flowchart TD\n  A[Start] --> B[End]\n",
       "utf8",
     );
+  }
+  if (kind === "equation") {
+    await writeFile(path.join(abs, "source.tex"), "E = mc^2\n", "utf8");
   }
   await patchNodeOrder(modelRoot, parentRel, (order) =>
     order.includes(name) ? order : [...order, name],

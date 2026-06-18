@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, Image, Layers, Table2 } from "lucide-react";
+import { BookOpen, Image, Layers, Sigma, Table2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
+  defaultEquationInsertMode,
   defaultFigureInsertMode,
+  equationInsertSnippet,
   figureInsertSnippet,
   referenceInsertSnippet,
   tableInsertSnippet,
 } from "@/lib/assetInsert";
 import type { FigureMetadata } from "@/lib/figures";
 import {
+  type EquationMetadata,
   fetchPaperAssets,
   type PaperAssetsBundle,
   type ReferenceMetadata,
@@ -91,6 +94,7 @@ export function AssetInsertMenu({
   const [panelPosition, setPanelPosition] = useState<{ top: number; left: number } | null>(null);
 
   const figureMode = defaultFigureInsertMode(filePath);
+  const equationMode = defaultEquationInsertMode(filePath);
 
   const loadAssets = useCallback(async () => {
     setLoading(true);
@@ -160,6 +164,7 @@ export function AssetInsertMenu({
 
   const figures = assets?.figures ?? [];
   const tables = assets?.tables ?? [];
+  const equations = assets?.equations ?? [];
   const references = assets?.references ?? [];
 
   const panel =
@@ -206,6 +211,21 @@ export function AssetInsertMenu({
               ))}
             </AssetSection>
             <AssetSection
+              title="Equations"
+              icon={Sigma}
+              emptyLabel="No equations yet — add one in the sidebar"
+              count={equations.length}
+            >
+              {equations.map((equation: EquationMetadata) => (
+                <AssetPickButton
+                  key={equation.path}
+                  label={equation.title}
+                  hint={equationMode === "embed" ? "Embed equation" : "Link to equation"}
+                  onClick={() => pick(equationInsertSnippet(equation.path, equation.title, equationMode))}
+                />
+              ))}
+            </AssetSection>
+            <AssetSection
               title="References"
               icon={BookOpen}
               emptyLabel="Import a .bib file in the sidebar"
@@ -236,7 +256,7 @@ export function AssetInsertMenu({
         variant={open ? "default" : "ghost"}
         size="sm"
         className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-        title="Insert figure, table, or reference from paper assets"
+        title="Insert figure, table, equation, or reference from paper assets"
         aria-label="Insert asset"
         aria-expanded={open}
         aria-haspopup="listbox"

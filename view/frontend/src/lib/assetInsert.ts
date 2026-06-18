@@ -19,6 +19,17 @@ export function tableInsertSnippet(path: string, title: string): string {
   return `[[${path}|${title}]]`;
 }
 
+export function equationInsertSnippet(path: string, title: string, mode: "embed" | "link"): string {
+  if (mode === "embed") {
+    return `\n::equation[${path}]\n\n`;
+  }
+  return `[[${path}|${title}]]`;
+}
+
+export function defaultEquationInsertMode(filePath: string): "embed" | "link" {
+  return filePath.endsWith("/draft.md") ? "embed" : "link";
+}
+
 export function referenceInsertSnippet(citeKey: string): string {
   return `[@${citeKey}]`;
 }
