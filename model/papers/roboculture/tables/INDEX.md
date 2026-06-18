@@ -1,7 +1,8 @@
 ---
 kind: section
 title: Tables
-child_order: []
+child_order:
+  - table1
 links: []
 composed_at_commit: null
 ---
