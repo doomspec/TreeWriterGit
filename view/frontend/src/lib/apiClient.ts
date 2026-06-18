@@ -42,3 +42,12 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return body as T;
 }
+
+export async function requestText(path: string, init?: RequestInit): Promise<string> {
+  const apiBaseUrl = getApiBaseUrl();
+  const response = await fetch(`${apiBaseUrl}${path}`, init);
+  if (!response.ok) {
+    throw new ApiError(`Request failed (${response.status})`, response.status);
+  }
+  return response.text();
+}

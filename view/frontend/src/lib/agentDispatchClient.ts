@@ -1,10 +1,9 @@
 import { fanOutDispatch, fetchContextFiles } from "@/modelApi";
+import { request } from "@/lib/apiClient";
 import { resolveAgentProvider, saveLastAgentProvider } from "@/lib/lastAgentProvider";
 import { fetchGitSyncResolveHarness } from "@/lib/settingsApi";
 import { getGitHubHandle } from "@/lib/userIdentity";
 import type { PersistedDispatchJob } from "@/lib/dispatchProgressStore";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
 export type AgentDispatchAction =
   | "draft"
@@ -71,9 +70,7 @@ let providersCache: ProviderConfig | null = null;
 
 export async function loadAgentProviderConfig(): Promise<ProviderConfig> {
   if (providersCache) return providersCache;
-  const res = await fetch(`${apiBaseUrl}/api/agent/providers`);
-  if (!res.ok) throw new Error(`Providers load failed (${res.status})`);
-  providersCache = (await res.json()) as ProviderConfig;
+  providersCache = await request<ProviderConfig>("/api/agent/providers");
   return providersCache;
 }
 
@@ -109,9 +106,8 @@ export async function previewAgentDispatch(options: {
   const sessionId =
     options.sessionId ?? `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-  const res = await fetch(`${apiBaseUrl}/api/agent/preview`, {
+  return request<AgentPreviewResult>("/api/agent/preview", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       unitPath: options.unitPath,
       action: options.action,
@@ -121,11 +117,6 @@ export async function previewAgentDispatch(options: {
       contextPaths,
     }),
   });
-  if (!res.ok) {
-    const body = (await res.json()) as { error?: string };
-    throw new Error(body.error ?? `Preview failed (${res.status})`);
-  }
-  return (await res.json()) as AgentPreviewResult;
 }
 
 async function recordAgentSession(options: {
@@ -135,9 +126,8 @@ async function recordAgentSession(options: {
   command: string;
 }): Promise<void> {
   try {
-    await fetch(`${apiBaseUrl}/api/sessions`, {
+    await request("/api/sessions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         unitPath: options.unitPath,
         provider: options.provider,
@@ -161,9 +151,8 @@ export async function runAgentDispatchSilent(options: {
   const provider = options.provider ?? (await getDefaultAgentProvider());
   const contextPaths =
     options.contextPaths ?? (await defaultContextPaths(options.unitPath, options.action));
-  const res = await fetch(`${apiBaseUrl}/api/agent/run`, {
+  const result = await request<{ outputPath: string; sessionId: string }>("/api/agent/run", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       unitPath: options.unitPath,
       action: options.action,
@@ -173,12 +162,8 @@ export async function runAgentDispatchSilent(options: {
       triggeredBy: getGitHubHandle() || undefined,
     }),
   });
-  if (!res.ok) {
-    const body = (await res.json()) as { error?: string };
-    throw new Error(body.error ?? `Agent run failed (${res.status})`);
-  }
   rememberAgentProvider(provider);
-  return (await res.json()) as { outputPath: string; sessionId: string };
+  return result;
 }
 
 export async function runAgentDispatch(options: {
@@ -430,9 +415,8 @@ export async function runFanOutDispatchSilent(options: {
   customPrompt?: string;
 }): Promise<number> {
   const provider = options.provider ?? (await getDefaultAgentProvider());
-  const res = await fetch(`${apiBaseUrl}/api/agent/fan-out/run`, {
+  const data = await request<{ count: number }>("/api/agent/fan-out/run", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       sectionPath: options.sectionPath,
       action: options.action,
@@ -441,12 +425,7 @@ export async function runFanOutDispatchSilent(options: {
       triggeredBy: getGitHubHandle() || undefined,
     }),
   });
-  if (!res.ok) {
-    const body = (await res.json()) as { error?: string };
-    throw new Error(body.error ?? `Fan-out run failed (${res.status})`);
-  }
   rememberAgentProvider(provider);
-  const data = (await res.json()) as { count: number };
   return data.count;
 }
 
