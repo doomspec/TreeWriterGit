@@ -140,6 +140,10 @@ export function flattenFiles(nodes: ModelNode[]): ModelNode[] {
 
 export const PAPERS_ROOT = "papers";
 
+export function isUnderPapers(path: string): boolean {
+  return path === PAPERS_ROOT || path.startsWith(`${PAPERS_ROOT}/`);
+}
+
 /** True for `papers/{slug}` — the paper root folder (not a nested section). */
 export function isPaperRootPath(pathValue: string): boolean {
   return /^papers\/[^/]+$/.test(pathValue.trim().replace(/\\/g, "/"));

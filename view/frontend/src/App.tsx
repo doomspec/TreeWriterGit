@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowUp,
   FilePlus,
@@ -15,8 +13,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SettingsPage } from "@/components/settings/SettingsPage";
-import type { GitSyncSettings } from "@/lib/settingsApi";
-import { fetchGitSyncStatus, runGitSyncNow } from "@/lib/settingsApi";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { BottomPanel } from "@/components/layout/BottomPanel";
 import { ResizableSidebarLayout } from "@/components/layout/ResizableSidebarLayout";
@@ -35,15 +31,13 @@ import {
   isEquationFolder,
   isSectionContainer,
   isTableFolder,
+  isUnderPapers,
   isUnitFolder,
   outlinePathFor,
   parentPath,
   PAPERS_ROOT,
-  resolveModelPathTarget,
-  type ModelNode,
-  type NavigateTarget,
 } from "@/lib/modelTree";
-import { createNode, fetchCommentSummary, fetchModelTree, type NodeKind } from "@/modelApi";
+import { createNode, fetchCommentSummary, type NodeKind } from "@/modelApi";
 import { PaperExportMenu } from "@/components/paper/PaperExportMenu";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import {
@@ -53,80 +47,23 @@ import {
 } from "@/lib/workspacePreferences";
 import type { GraphScope } from "@/lib/graphLocal";
 import { resolveGraphFetchRoot } from "@/lib/graphLocal";
-import { isViewSyncPaused } from "@/lib/gitSync";
+import { formatGitSyncError, gitSyncHasError, isViewSyncPaused } from "@/lib/gitSync";
 import { resolveViewSyncWithHarness } from "@/lib/agentDispatchClient";
-import {
-  buildTerminalWebSocketUrl,
-  clearTerminalSessionId,
-  loadTerminalSessionId,
-  parseTerminalSessionMessage,
-  saveTerminalSessionId,
-} from "@/lib/terminalSession";
-
-const terminalUrl = import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://localhost:4000/terminal";
-const modelEventsUrl = import.meta.env.VITE_MODEL_EVENTS_WS_URL ?? "ws://localhost:4000/model-events";
-
-function isUnderPapers(path: string): boolean {
-  return path === PAPERS_ROOT || path.startsWith(`${PAPERS_ROOT}/`);
-}
-
-type ConnectionState = "connecting" | "connected" | "closed";
-
-type GitSyncState = {
-  enabled: boolean;
-  running: boolean;
-  lastRunAt: string | null;
-  lastSuccessAt: string | null;
-  lastError: string | null;
-  lastOutput?: string | null;
-  conflictDetected?: boolean;
-  autoSync?: boolean;
-  intervalMs?: number;
-  viewChangesBlocked?: boolean;
-};
+import { useGitSyncState } from "@/lib/useGitSyncState";
+import { useModelTree } from "@/lib/useModelTree";
+import { useTerminalSession } from "@/lib/useTerminalSession";
+import { useWorkspaceNavigation } from "@/lib/useWorkspaceNavigation";
 
 type AppView = "workspace" | "settings";
 
-function formatGitSyncError(state: GitSyncState): string {
-  const parts: string[] = [];
-  if (state.conflictDetected) {
-    parts.push("Git sync conflict detected.");
-  }
-  if (state.lastError?.trim()) {
-    parts.push(state.lastError.trim());
-  }
-  if (state.lastOutput?.trim()) {
-    parts.push(`---\n${state.lastOutput.trim()}`);
-  }
-  return parts.join("\n\n") || "Git sync failed.";
-}
-
-function gitSyncHasError(state: GitSyncState | null): boolean {
-  return Boolean(state && (state.lastError || state.conflictDetected));
-}
-
 export default function App() {
   const savedPrefs = useMemo(() => mergeWorkspaceDefaults(loadWorkspacePreferences()), []);
-  const terminalElementRef = useRef<HTMLDivElement | null>(null);
-  const terminalRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const terminalConnectRef = useRef<{ sessionId: string | null; forceNew: boolean }>({
-    sessionId: loadTerminalSessionId(),
-    forceNew: false,
-  });
 
-  const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
-  const [sessionKey, setSessionKey] = useState(0);
-  const [tree, setTree] = useState<ModelNode[]>([]);
-  const [treeLoaded, setTreeLoaded] = useState(false);
   const [currentPath, setCurrentPath] = useState(savedPrefs.currentPath);
   const [activeFile, setActiveFile] = useState<string | null>(savedPrefs.activeFile);
   const [editorLayout, setEditorLayout] = useState<EditorLayout>(savedPrefs.editorLayout);
   const [sidebarTab, setSidebarTab] = useState<WorkspaceNavTab>(savedPrefs.sidebarTab);
   const [searchQuery, setSearchQuery] = useState(savedPrefs.searchQuery);
-  const [refreshVersion, setRefreshVersion] = useState(0);
-  const [gitSync, setGitSync] = useState<GitSyncState | null>(null);
   const [appView, setAppView] = useState<AppView>("workspace");
   const [error, setError] = useState<string | null>(null);
   const [agentPanelOpen, setAgentPanelOpen] = useState(savedPrefs.agentPanelOpen);
@@ -137,6 +74,50 @@ export default function App() {
   const [commentSummary, setCommentSummary] = useState<{ unresolved: number; total: number } | null>(
     null,
   );
+
+  const {
+    gitSync,
+    loadGitSyncStatus,
+    runGitSync,
+    handleGitSyncSettingsChange,
+    handleGitBadgeClick,
+    gitStatusLabel,
+  } = useGitSyncState({ onError: setError });
+
+  const onModelEventsRefresh = useCallback(() => {
+    loadGitSyncStatus().catch(() => {});
+  }, [loadGitSyncStatus]);
+
+  const { tree, treeLoaded, refreshVersion, reloadModel } = useModelTree({
+    onError: setError,
+    onEventsRefresh: onModelEventsRefresh,
+  });
+
+  const {
+    openFile,
+    navigateTo,
+    handleMarkdownNavigate,
+    backToSectionView,
+    handleSidebarTabChange,
+    handleSearchSelect,
+  } = useWorkspaceNavigation({
+    tree,
+    sidebarTab,
+    setCurrentPath,
+    setActiveFile,
+    setEditorLayout,
+    setSidebarTab,
+  });
+
+  const {
+    terminalElementRef,
+    connectionState,
+    sendToTerminal,
+    refitTerminal,
+    reconnectTerminal,
+  } = useTerminalSession({
+    refitTriggers: [sidebarTab, currentPath, activeFile, agentPanelOpen, sidebarWidth],
+  });
 
   const files = useMemo(() => flattenFiles(tree), [tree]);
   const browsePath =
@@ -199,100 +180,8 @@ export default function App() {
     sidebarWidth,
   ]);
 
-  const loadTree = useCallback(async () => {
-    const data = await fetchModelTree();
-    setTree(data.tree);
-    setTreeLoaded(true);
-  }, []);
-
-  const loadGitSyncStatus = useCallback(async () => {
-    try {
-      setGitSync(await fetchGitSyncStatus());
-    } catch {
-      // non-fatal
-    }
-  }, []);
-
-  const handleGitSyncSettingsChange = useCallback((settings: GitSyncSettings) => {
-    setGitSync({
-      ...settings.status,
-      autoSync: settings.autoSync,
-      intervalMs: settings.intervalMs,
-    });
-  }, []);
-
-  const reloadModel = useCallback(() => {
-    loadTree().catch(() => {});
-    setRefreshVersion((v) => v + 1);
-  }, [loadTree]);
-
-  const openFile = useCallback(
-    (path: string) => {
-      const folder = parentPath(path);
-      const nextPath =
-        sidebarTab === "papers" && folder !== "" && !isUnderPapers(folder) ? PAPERS_ROOT : folder;
-      setCurrentPath(nextPath);
-      setActiveFile(path);
-      setEditorLayout("split");
-    },
-    [sidebarTab],
-  );
-
-  const navigateTo = useCallback(
-    (path: string) => {
-      const normalized =
-        sidebarTab === "papers" && path !== "" && !isUnderPapers(path) ? PAPERS_ROOT : path;
-      const target = resolveModelPathTarget(tree, normalized);
-      if (!target) return;
-      if (target.type === "file") {
-        openFile(target.path);
-        return;
-      }
-      setCurrentPath(target.path);
-      const node = findNode(tree, target.path);
-      if (isUnitFolder(node)) {
-        setActiveFile(outlinePathFor(target.path));
-        setEditorLayout("split");
-      } else {
-        setActiveFile(null);
-      }
-    },
-    [openFile, sidebarTab, tree],
-  );
-
-  const handleMarkdownNavigate = useCallback(
-    (target: NavigateTarget) => {
-      const path = target.type === "file" ? target.path : target.path;
-      const resolved = resolveModelPathTarget(tree, path);
-      if (!resolved) return;
-      if (resolved.type === "file") {
-        openFile(resolved.path);
-        return;
-      }
-      navigateTo(resolved.path);
-    },
-    [navigateTo, openFile, tree],
-  );
-
-  const backToSectionView = useCallback(() => {
-    setActiveFile(null);
-  }, []);
-
   const showSectionViewBack = Boolean(activeFile && isPaperSection && !isUnit && !isPaperRoot);
   const showPaperViewBack = Boolean(activeFile && isPaperRoot);
-
-  const handleSidebarTabChange = useCallback((tab: WorkspaceNavTab) => {
-    setSidebarTab(tab);
-    if (tab === "papers") {
-      setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
-      setActiveFile(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadTree().catch((err) => setError(err instanceof Error ? err.message : String(err)));
-    loadGitSyncStatus().catch(() => {});
-  }, [loadGitSyncStatus, loadTree]);
 
   useEffect(() => {
     if (!treeLoaded) return;
@@ -324,28 +213,6 @@ export default function App() {
   }, [browsePath, isUnit, treeLoaded]);
 
   useEffect(() => {
-    const socket = new WebSocket(modelEventsUrl);
-    let reloadTimer: number | undefined;
-    socket.addEventListener("message", () => {
-      window.clearTimeout(reloadTimer);
-      reloadTimer = window.setTimeout(() => {
-        loadTree().catch(() => {});
-        loadGitSyncStatus().catch(() => {});
-        setRefreshVersion((v) => v + 1);
-      }, 150);
-    });
-    return () => {
-      window.clearTimeout(reloadTimer);
-      socket.close();
-    };
-  }, [loadGitSyncStatus, loadTree]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => loadGitSyncStatus().catch(() => {}), 10_000);
-    return () => window.clearInterval(timer);
-  }, [loadGitSyncStatus]);
-
-  useEffect(() => {
     if (!paperSlug) {
       setCommentSummary(null);
       return;
@@ -355,110 +222,6 @@ export default function App() {
     const timer = window.setInterval(load, 10_000);
     return () => window.clearInterval(timer);
   }, [paperSlug, refreshVersion]);
-
-  useEffect(() => {
-    if (!terminalElementRef.current) return;
-
-    setConnectionState("connecting");
-    const terminal = new Terminal({
-      cursorBlink: true,
-      convertEol: true,
-      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-      fontSize: 11,
-      lineHeight: 1.3,
-      theme: {
-        background: "#0f1113",
-        foreground: "#e8eaed",
-        cursor: "#ffffff",
-        selectionBackground: "#3b4754",
-      },
-    });
-    const fitAddon = new FitAddon();
-    const { sessionId, forceNew } = terminalConnectRef.current;
-    const socket = new WebSocket(buildTerminalWebSocketUrl(terminalUrl, { sessionId, forceNew }));
-    terminalConnectRef.current = { sessionId: loadTerminalSessionId(), forceNew: false };
-
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-    socketRef.current = socket;
-
-    terminal.loadAddon(fitAddon);
-    terminal.open(terminalElementRef.current);
-    fitAddon.fit();
-
-    const sendResize = () => {
-      fitAddon.fit();
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
-      }
-    };
-
-    const resizeObserver = new ResizeObserver(sendResize);
-    resizeObserver.observe(terminalElementRef.current);
-
-    const dataDisposable = terminal.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "input", data }));
-      }
-    });
-
-    socket.addEventListener("open", () => {
-      setConnectionState("connected");
-      sendResize();
-    });
-    socket.addEventListener("message", (event) => {
-      if (typeof event.data !== "string") return;
-      const sessionIdFromServer = parseTerminalSessionMessage(event.data);
-      if (sessionIdFromServer) {
-        saveTerminalSessionId(sessionIdFromServer);
-        return;
-      }
-      terminal.write(event.data);
-    });
-    socket.addEventListener("close", () => {
-      setConnectionState("closed");
-      terminal.writeln("\r\n[terminal disconnected]");
-    });
-    socket.addEventListener("error", () => {
-      setConnectionState("closed");
-      terminal.writeln("\r\n[terminal websocket error]");
-    });
-
-    return () => {
-      resizeObserver.disconnect();
-      dataDisposable.dispose();
-      socket.close();
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
-      socketRef.current = null;
-    };
-  }, [sessionKey]);
-
-  const refitTerminal = useCallback(() => {
-    window.requestAnimationFrame(() => {
-      fitAddonRef.current?.fit();
-      const terminal = terminalRef.current;
-      const socket = socketRef.current;
-      if (terminal && socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    refitTerminal();
-    const onResize = () => refitTerminal();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [refitTerminal, sessionKey, sidebarTab, currentPath, activeFile, agentPanelOpen, sidebarWidth]);
-
-  const sendToTerminal = useCallback((command: string) => {
-    const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "input", data: command }));
-    }
-  }, []);
 
   const openAgentPanel = useCallback(() => {
     setAgentPanelOpen(true);
@@ -473,26 +236,6 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [openAgentPanel, sendToTerminal]);
-
-  const runGitSync = useCallback(async () => {
-    try {
-      const state = await runGitSyncNow();
-      setGitSync(state);
-      if (gitSyncHasError(state)) {
-        setError(formatGitSyncError(state));
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  const handleGitBadgeClick = useCallback(() => {
-    if (gitSync && gitSyncHasError(gitSync)) {
-      setError(formatGitSyncError(gitSync));
-      return;
-    }
-    void runGitSync();
-  }, [gitSync, runGitSync]);
 
   const containerKind: NodeKind =
     paperPath && browsePath === paperPath
@@ -530,26 +273,6 @@ export default function App() {
     }
   };
 
-  const handleSearchSelect = useCallback(
-    (hit: { path: string }) => {
-      if (hit.path.endsWith(".md")) {
-        openFile(hit.path);
-      } else {
-        navigateTo(parentPath(hit.path));
-      }
-    },
-    [navigateTo, openFile],
-  );
-
-  const gitStatusLabel = gitSync?.conflictDetected
-    ? "conflict"
-    : gitSync?.lastError
-      ? "error"
-      : gitSync?.running
-        ? "syncing"
-        : gitSync?.enabled
-          ? "ok"
-          : "off";
   const viewSyncPaused = isViewSyncPaused(gitSync);
 
   return (
@@ -858,15 +581,7 @@ export default function App() {
           canFanOut={isPaperSection && !isUnit}
           onSendToTerminal={sendToTerminal}
           onError={setError}
-          onReconnect={() => {
-            const previousSessionId = loadTerminalSessionId();
-            clearTerminalSessionId();
-            terminalConnectRef.current = {
-              sessionId: previousSessionId,
-              forceNew: true,
-            };
-            setSessionKey((k) => k + 1);
-          }}
+          onReconnect={reconnectTerminal}
           onLayoutChange={refitTerminal}
           terminalHostRef={terminalElementRef}
         />

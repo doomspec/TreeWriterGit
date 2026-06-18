@@ -1,0 +1,88 @@
+@layer components {
+  .ui-label {
+    font-size: 0.6875rem;
+    line-height: 1.125rem;
+    letter-spacing: 0.01em;
+    @apply font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+
+  .ui-badge {
+    font-size: 0.625rem;
+    line-height: 1rem;
+    letter-spacing: 0.02em;
+    @apply inline-flex items-center rounded-full px-2 py-0.5 font-medium uppercase tracking-wide;
+  }
+
+  .ui-badge-neutral {
+    @apply ui-badge bg-muted text-muted-foreground;
+  }
+
+  .ui-badge-success {
+    @apply ui-badge;
+    background-color: hsl(var(--success) / 0.12);
+    color: hsl(var(--success));
+  }
+
+  .ui-badge-warning {
+    @apply ui-badge;
+    background-color: hsl(var(--warning) / 0.12);
+    color: hsl(var(--warning));
+  }
+
+  .ui-badge-destructive {
+    @apply ui-badge;
+    background-color: hsl(var(--destructive) / 0.1);
+    color: hsl(var(--destructive));
+  }
+
+  .ui-tab {
+    font-size: 0.6875rem;
+    line-height: 1.125rem;
+    letter-spacing: 0.01em;
+    transition-duration: 150ms;
+    @apply flex-1 cursor-pointer rounded-sm px-2 py-1.5 font-semibold uppercase tracking-wide transition-colors ease-out;
+  }
+
+  .ui-tab-active {
+    @apply bg-accent text-accent-foreground;
+  }
+
+  .ui-tab-inactive {
+    @apply text-muted-foreground hover:text-foreground;
+  }
+
+  .ui-tab-inactive:hover {
+    background-color: hsl(var(--accent) / 0.5);
+  }
+
+  .ui-nav-row {
+    transition-duration: 150ms;
+    @apply flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs transition-colors ease-out;
+  }
+
+  .ui-nav-row:hover {
+    background-color: hsl(var(--accent) / 0.6);
+  }
+
+  .ui-nav-row-active {
+    @apply bg-accent font-medium text-accent-foreground;
+  }
+
+  .ui-nav-row-inactive {
+    @apply text-muted-foreground;
+  }
+
+  .ui-pane-header {
+    background-color: hsl(var(--reading-bg));
+    @apply flex h-9 shrink-0 items-center justify-between border-b border-border px-3;
+  }
+
+  .ui-toolbar {
+    @apply flex h-9 shrink-0 items-center gap-1 border-b border-border bg-card px-2;
+  }
+
+  .ui-input {
+    transition-duration: 150ms;
+    @apply h-8 w-full rounded-md border border-border bg-background pl-8 pr-2 text-xs outline-none transition-shadow ease-out placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+}
