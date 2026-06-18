@@ -6,6 +6,7 @@ import {
   displayFileLabel,
   isIndexStale,
   isUnitFolder,
+  isPaperRootPath,
   outlineLinkTargets,
   parseFrontmatterLinks,
   parseIndexFrontmatter,
@@ -182,6 +183,15 @@ describe("isIndexStale", () => {
   it("flags missing composed_at_commit", () => {
     expect(isIndexStale(null)).toBe(true);
     expect(isIndexStale("abc")).toBe(false);
+  });
+});
+
+describe("isPaperRootPath", () => {
+  it("matches paper slug folders only", () => {
+    expect(isPaperRootPath("papers/roboculture")).toBe(true);
+    expect(isPaperRootPath("papers/roboculture/introduction")).toBe(false);
+    expect(isPaperRootPath("papers")).toBe(false);
+    expect(isPaperRootPath("notes/foo")).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
+import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
 import { DispatchAiButton } from "@/components/editor/DispatchAiButton";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ type SectionCompose = {
     path: string;
     title: string;
     summary: string | null;
-    kind: "unit" | "section" | "figure";
+    kind: "unit" | "section" | "figure" | "table";
   }>;
 };
 
@@ -153,7 +154,6 @@ export function SectionWorkspace({
   }, [focusedPane, handleFanOut]);
 
   const outlinePath = outlinePathFor(sectionPath);
-  const draftPath = `${sectionPath}/draft.md`;
 
   if (loading) {
     return (
@@ -193,17 +193,7 @@ export function SectionWorkspace({
             onClick={() => onOpenFile(outlinePath)}
           >
             <Pencil className="h-3 w-3" aria-hidden="true" />
-            Edit outline
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1 px-2 text-[10px]"
-            onClick={() => onOpenFile(draftPath)}
-          >
-            <Pencil className="h-3 w-3" aria-hidden="true" />
-            Edit draft
+            Edit outline source
           </Button>
         </div>
       </div>
@@ -239,24 +229,19 @@ export function SectionWorkspace({
             onFocusCapture={() => setFocusedPane("draft")}
             onMouseDown={() => setFocusedPane("draft")}
           >
-            <div className="ui-pane-header">
-              <span className="ui-label">Draft</span>
-              {aiButton("draft")}
-            </div>
-            <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
-              {compose.draftMarkdown.trim() ? (
-                <MarkdownViewer
-                  markdown={compose.draftMarkdown.replace(/^#\s+.+\n+/, "")}
-                  linkContextPath={sectionPath}
-                  linksClickable
-                  onNavigate={handleLinkNavigate}
-                />
-              ) : (
-                <p className="text-sm italic text-muted-foreground">
-                  No draft content yet — use AI on Outline to draft units, or open subsections to write.
-                </p>
-              )}
-            </div>
+            <ComposedDraftEditor
+              containerPath={sectionPath}
+              title={compose.title}
+              markdown={compose.draftMarkdown.replace(/^#\s+.+\n+/, "")}
+              refreshVersion={refreshVersion}
+              linkContextPath={sectionPath}
+              children={compose.children}
+              onNavigate={handleLinkNavigate}
+              onError={onError}
+              onSynced={onDispatchComplete}
+              paneLabel="Draft"
+              headerExtra={aiButton("draft")}
+            />
           </div>
         }
       />

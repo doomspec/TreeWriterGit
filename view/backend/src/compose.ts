@@ -2,15 +2,16 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import { isFigureDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { isFigureDir, isTableDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
 import { resolveFigureMetadata } from "./figures.js";
+import { resolveTableMetadata } from "./tables.js";
 
 export type SectionChild = {
   name: string;
   path: string;
   title: string;
   summary: string | null;
-  kind: "unit" | "section" | "figure";
+  kind: "unit" | "section" | "figure" | "table";
 };
 
 export type SectionComposeResult = {
@@ -105,6 +106,22 @@ async function composeFigureDraftBlock(
   return draftHeadingBlock(depth, childTitle, linkHref, `${figureEmbed}${caption}`);
 }
 
+async function composeTableDraftBlock(
+  modelRoot: string,
+  childRel: string,
+  childTitle: string,
+  linkHref: string,
+  depth: number,
+): Promise<string> {
+  const meta = await resolveTableMetadata(modelRoot, childRel);
+  const caption = meta?.caption?.trim() || meta?.summary?.trim() || "";
+  const tableEmbed = `[[${childRel}|${childTitle}]]\n\n`;
+  if (!caption) {
+    return linkedHeadingBlock(depth, childTitle, linkHref, tableEmbed);
+  }
+  return draftHeadingBlock(depth, childTitle, linkHref, `${tableEmbed}${caption}`);
+}
+
 async function composeDraftBlock(
   modelRoot: string,
   sectionRel: string,
@@ -115,6 +132,10 @@ async function composeDraftBlock(
 ): Promise<string> {
   if (await isFigureDir(modelRoot, childRel)) {
     return composeFigureDraftBlock(modelRoot, childRel, childTitle, linkHref, depth);
+  }
+
+  if (await isTableDir(modelRoot, childRel)) {
+    return composeTableDraftBlock(modelRoot, childRel, childTitle, linkHref, depth);
   }
 
   const unit = await isUnitDir(modelRoot, childRel);
@@ -155,6 +176,7 @@ export async function composeSectionView(
   const indexData = await readIndexData(modelRoot, dirRel);
   const title = String(indexData.title ?? titleCase(path.posix.basename(dirRel)));
   const kind = typeof indexData.kind === "string" ? indexData.kind : null;
+  const isPaper = kind === "paper";
 
   const ownOutline = await readOutlineContent(modelRoot, dirRel);
   const ownSummary = parseOutlineSummary(ownOutline);
@@ -165,9 +187,12 @@ export async function composeSectionView(
 
   if (ownSummary) {
     outlineParts.push(`## Summary\n\n${ownSummary}\n\n`);
+    if (isPaper) {
+      draftParts.push(`${ownSummary}\n\n`);
+    }
   }
 
-  outlineParts.push(`## Subsections\n\n`);
+  outlineParts.push(`## ${isPaper ? "Sections" : "Subsections"}\n\n`);
 
   for (const childName of await orderedChildren(modelRoot, dirRel)) {
     const childRel = resolveChildPath(modelRoot, dirRel, childName);
@@ -176,7 +201,8 @@ export async function composeSectionView(
     const childIndex = await readIndexData(modelRoot, childRel);
     const childTitle = displayChildTitle(childIndex.title, childName);
     const figure = await isFigureDir(modelRoot, childRel);
-    const unit = figure ? false : await isUnitDir(modelRoot, childRel);
+    const table = figure ? false : await isTableDir(modelRoot, childRel);
+    const unit = figure || table ? false : await isUnitDir(modelRoot, childRel);
     const linkHref = `${childName}/INDEX.md`;
 
     const childOutline = await readOutlineContent(modelRoot, childRel);
@@ -187,11 +213,11 @@ export async function composeSectionView(
       path: childRel,
       title: childTitle,
       summary: childSummary,
-      kind: figure ? "figure" : unit ? "unit" : "section",
+      kind: figure ? "figure" : table ? "table" : unit ? "unit" : "section",
     });
 
-    const figureBadge = figure ? " *(Figure)*" : "";
-    outlineParts.push(linkedHeadingBlock(3, `${childTitle}${figureBadge}`, linkHref));
+    const assetBadge = figure ? " *(Figure)*" : table ? " *(Table)*" : "";
+    outlineParts.push(linkedHeadingBlock(3, `${childTitle}${assetBadge}`, linkHref));
     outlineParts.push(childSummary ? `${childSummary}\n\n` : `*No summary yet — open to write.*\n\n`);
 
     const draftBlock = await composeDraftBlock(modelRoot, dirRel, childRel, childTitle, linkHref, 1);

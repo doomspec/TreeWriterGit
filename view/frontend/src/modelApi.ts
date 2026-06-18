@@ -339,3 +339,10 @@ export function fanOutDispatch(body: {
     body: JSON.stringify(body),
   });
 }
+
+export function syncSectionDraft(containerPath: string, draftMarkdown: string) {
+  return request<{ updated: string[] }>("/api/model/section-draft-sync", {
+    method: "POST",
+    body: JSON.stringify({ path: containerPath, draftMarkdown }),
+  });
+}

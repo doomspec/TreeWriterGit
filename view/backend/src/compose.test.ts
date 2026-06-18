@@ -103,4 +103,50 @@ describe("composeSectionView", () => {
     expect(view.outlineMarkdown).toContain("### [Background](background/INDEX.md)");
     expect(view.children[0]?.title).toBe("Background");
   });
+
+  it("composes paper draft from ordered sections and skips asset folders", async () => {
+    await writeSection(
+      "papers/demo",
+      {
+        kind: "paper",
+        title: "Demo Paper",
+        section_order: ["introduction", "results"],
+      },
+      `# Demo Paper\n\n## Summary\n\nPaper summary text.\n`,
+    );
+    await writeSection(
+      "papers/demo/introduction",
+      { kind: "section", child_order: ["background"] },
+      `# Introduction\n\n## Summary\n\nIntro summary.\n`,
+    );
+    await writeSection(
+      "papers/demo/introduction/background",
+      { kind: "unit", title: "Background" },
+      `# Background\n\n## Summary\n\nBg summary.\n`,
+      "# Background\n\nBackground prose.\n",
+    );
+    await writeSection(
+      "papers/demo/results",
+      { kind: "section", child_order: ["main"] },
+    );
+    await writeSection(
+      "papers/demo/results/main",
+      { kind: "unit", title: "Main Result" },
+      `# Main\n\n## Summary\n\nResult summary.\n`,
+      "# Main Result\n\nResult prose.\n",
+    );
+    await mkdir(path.join(root, "papers/demo/figures"), { recursive: true });
+    await writeSection("papers/demo/figures/fig1", { kind: "figure", title: "Figure 1" });
+
+    const view = await composeSectionView(root, "papers/demo");
+    expect(view.title).toBe("Demo Paper");
+    expect(view.outlineMarkdown).toContain("## Sections");
+    expect(view.draftMarkdown).toContain("Paper summary text.");
+    expect(view.draftMarkdown).toContain("## [Introduction](introduction/INDEX.md)");
+    expect(view.draftMarkdown).toContain("Background prose.");
+    expect(view.draftMarkdown).toContain("## [Results](results/INDEX.md)");
+    expect(view.draftMarkdown).toContain("Result prose.");
+    expect(view.draftMarkdown).not.toContain("figures");
+    expect(view.children.map((c) => c.name)).toEqual(["introduction", "results"]);
+  });
 });

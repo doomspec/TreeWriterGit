@@ -140,6 +140,11 @@ export function flattenFiles(nodes: ModelNode[]): ModelNode[] {
 
 export const PAPERS_ROOT = "papers";
 
+/** True for `papers/{slug}` — the paper root folder (not a nested section). */
+export function isPaperRootPath(pathValue: string): boolean {
+  return /^papers\/[^/]+$/.test(pathValue.trim().replace(/\\/g, "/"));
+}
+
 /** Folder with outline.md (and optionally draft.md) — editable outline + draft pair. */
 export function isUnitFolder(node: ModelNode | null): boolean {
   if (!node?.children) return false;
@@ -148,12 +153,28 @@ export function isUnitFolder(node: ModelNode | null): boolean {
     (c) => c.type === "file" && (c.name === OUTLINE_DOC || c.name === DRAFT_DOC),
   );
   if (!hasOutlineDraft) return false;
+  if (isTableFolder(node)) return false;
   const hasFigureAsset = node.children.some(
     (c) =>
       c.type === "file" &&
       /\.(png|jpe?g|svg|mmd|gif|webp)$/i.test(c.name),
   );
   return !hasFigureAsset;
+}
+
+/** Table leaf folder under tables/ with outline + draft (no figure asset). */
+export function isTableFolder(node: ModelNode | null): boolean {
+  if (!node?.children) return false;
+  if (node.children.some((c) => c.type === "directory")) return false;
+  if (!node.path.includes("/tables/")) return false;
+  const hasOutline = node.children.some((c) => c.type === "file" && c.name === OUTLINE_DOC);
+  const hasDraft = node.children.some((c) => c.type === "file" && c.name === DRAFT_DOC);
+  const hasFigureAsset = node.children.some(
+    (c) =>
+      c.type === "file" &&
+      /\.(png|jpe?g|svg|mmd|gif|webp)$/i.test(c.name),
+  );
+  return hasOutline && hasDraft && !hasFigureAsset;
 }
 
 /** Figure leaf folder: outline + draft + image/mermaid asset. */
@@ -171,7 +192,7 @@ export function isFigureFolder(node: ModelNode | null): boolean {
 }
 
 export function isLeafEditorFolder(node: ModelNode | null): boolean {
-  return isUnitFolder(node) || isFigureFolder(node);
+  return isUnitFolder(node) || isFigureFolder(node) || isTableFolder(node);
 }
 
 /** Section container: has child folders (paper, section, subsection). */
@@ -580,7 +601,7 @@ export type PaperSectionItem = {
   title: string;
 };
 
-const PAPER_SKIP_FOLDERS = new Set(["notes", ".sessions", ".trash"]);
+const PAPER_SKIP_FOLDERS = new Set(["notes", ".sessions", ".trash", "figures", "tables"]);
 
 function orderedDirectoryChildren(
   tree: ModelNode[],

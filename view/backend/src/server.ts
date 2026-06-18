@@ -30,6 +30,7 @@ import { buildGraph } from "./graph.js";
 import { getCachedGraph, invalidateGraphCache } from "./graphCache.js";
 import { searchModel, validateSearchQuery } from "./search.js";
 import { composeSectionView } from "./compose.js";
+import { syncSectionDraftToChildren } from "./sectionSync.js";
 import {
   assetContentType,
   isAllowedAssetPath,
@@ -584,6 +585,27 @@ app.get("/api/model/section-compose", async (request, response, next) => {
     }
     resolveModelPath(modelRoot, pathParam);
     response.json(await composeSectionView(modelRoot, pathParam));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/model/section-draft-sync", async (request, response, next) => {
+  try {
+    const pathParam = String(request.body?.path ?? "");
+    const draftMarkdown = String(request.body?.draftMarkdown ?? "");
+    if (!pathParam) {
+      response.status(400).json({ error: "path is required" });
+      return;
+    }
+    if (!draftMarkdown.trim()) {
+      response.status(400).json({ error: "draftMarkdown is required" });
+      return;
+    }
+    resolveModelPath(modelRoot, pathParam);
+    const updated = await syncSectionDraftToChildren(modelRoot, pathParam, draftMarkdown);
+    invalidateGraphCache();
+    response.json({ updated });
   } catch (error) {
     next(error);
   }

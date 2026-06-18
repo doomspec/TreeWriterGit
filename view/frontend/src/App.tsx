@@ -15,13 +15,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SettingsPage } from "@/components/settings/SettingsPage";
+import type { GitSyncSettings } from "@/lib/settingsApi";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { BottomPanel } from "@/components/layout/BottomPanel";
 import { ResizableSidebarLayout } from "@/components/layout/ResizableSidebarLayout";
 import { WorkspaceNav, type WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import { WorkspaceModeTabs } from "@/components/layout/WorkspaceModeTabs";
 import { EditorWorkspace } from "@/components/editor/EditorWorkspace";
+import { PaperWorkspace } from "@/components/editor/PaperWorkspace";
 import { SectionWorkspace } from "@/components/editor/SectionWorkspace";
+import { TableWorkspace } from "@/components/editor/TableWorkspace";
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
 import { FolderBrowse } from "@/components/nav/FolderBrowse";
 import {
@@ -29,6 +32,7 @@ import {
   flattenFiles,
   isFigureFolder,
   isSectionContainer,
+  isTableFolder,
   isUnitFolder,
   outlinePathFor,
   parentPath,
@@ -141,18 +145,27 @@ export default function App() {
     const match = browsePath.match(/^papers\/([^/]+)/);
     return match?.[1] ?? null;
   }, [browsePath]);
-  const currentNode = browsePath ? findNode(tree, browsePath) : null;
-  const isFigure = isFigureFolder(currentNode);
-  const isUnit = isUnitFolder(currentNode);
-  const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
-  const unitPath = isUnit || isFigure ? browsePath : null;
-  const sectionPath = isPaperSection && !activeFile ? browsePath : null;
-  const graphFocusPath = activeFile ? parentPath(activeFile) : currentPath || browsePath;
-  const graphFetchRoot = resolveGraphFetchRoot(graphFocusPath);
   const paperPath = useMemo(
     () => (paperSlug ? `papers/${paperSlug}` : null),
     [paperSlug],
   );
+  const currentNode = browsePath ? findNode(tree, browsePath) : null;
+  const isFigure = isFigureFolder(currentNode);
+  const isTable = isTableFolder(currentNode);
+  const isUnit = isUnitFolder(currentNode);
+  const isPaperRoot = paperPath !== null && browsePath === paperPath;
+  const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
+  const paperWorkspacePath = isPaperRoot && !activeFile ? paperPath : null;
+  const tablePath = isTable ? browsePath : null;
+  const tableTitle = useMemo(() => {
+    if (!tablePath) return "Table";
+    const base = tablePath.split("/").pop() ?? "table";
+    return base.charAt(0).toUpperCase() + base.slice(1);
+  }, [tablePath]);
+  const unitPath = isUnit || isFigure ? browsePath : null;
+  const sectionPath = isPaperSection && !activeFile && !isPaperRoot ? browsePath : null;
+  const graphFocusPath = activeFile ? parentPath(activeFile) : currentPath || browsePath;
+  const graphFetchRoot = resolveGraphFetchRoot(graphFocusPath);
   const exportPaperSlug = paperSlug;
 
   useEffect(() => {
@@ -192,6 +205,14 @@ export default function App() {
   const loadGitSyncStatus = useCallback(async () => {
     const response = await fetch(`${apiBaseUrl}/api/git-sync/status`);
     if (response.ok) setGitSync((await response.json()) as GitSyncState);
+  }, []);
+
+  const handleGitSyncSettingsChange = useCallback((settings: GitSyncSettings) => {
+    setGitSync({
+      ...settings.status,
+      autoSync: settings.autoSync,
+      intervalMs: settings.intervalMs,
+    });
   }, []);
 
   const reloadModel = useCallback(() => {
@@ -251,7 +272,8 @@ export default function App() {
     setActiveFile(null);
   }, []);
 
-  const showSectionViewBack = Boolean(activeFile && isPaperSection && !isUnit);
+  const showSectionViewBack = Boolean(activeFile && isPaperSection && !isUnit && !isPaperRoot);
+  const showPaperViewBack = Boolean(activeFile && isPaperRoot);
 
   const handleSidebarTabChange = useCallback((tab: WorkspaceNavTab) => {
     setSidebarTab(tab);
@@ -459,7 +481,21 @@ export default function App() {
   }, [gitSync, runGitSync]);
 
   const containerKind: NodeKind =
-    browsePath === "" || /(^|\/)sections$/.test(browsePath) ? "section" : "subsection";
+    paperPath && browsePath === paperPath
+      ? "section"
+      : browsePath === "" || /(^|\/)sections$/.test(browsePath)
+        ? "section"
+        : "subsection";
+  const isLeafAssetOrUnit = isUnit || isFigure || isTable;
+  const underPaper = paperPath !== null && browsePath.startsWith(paperPath);
+  const canCreateFolder =
+    sidebarTab === "papers"
+      ? underPaper && !isLeafAssetOrUnit
+      : browsePath !== PAPERS_ROOT;
+  const canCreateUnit =
+    sidebarTab === "papers"
+      ? underPaper && browsePath !== paperPath && !isLeafAssetOrUnit
+      : Boolean(currentNode && isSectionContainer(currentNode));
   const canGoUp =
     sidebarTab === "papers" ? browsePath !== PAPERS_ROOT && browsePath !== "" : Boolean(browsePath);
 
@@ -602,13 +638,7 @@ export default function App() {
         <SettingsPage
           onBack={() => setAppView("workspace")}
           onError={setError}
-          onGitSyncChange={(settings) => {
-            setGitSync({
-              ...settings.status,
-              autoSync: settings.autoSync,
-              intervalMs: settings.intervalMs,
-            });
-          }}
+          onGitSyncChange={handleGitSyncSettingsChange}
         />
       ) : (
       <div className="workspace-shell flex min-h-0 min-w-0 flex-1 flex-col">
@@ -647,7 +677,35 @@ export default function App() {
         >
         <section className="relative flex min-h-0 flex-1 flex-col bg-workspace">
           <div className="flex min-h-0 flex-1 flex-col">
-            {unitPath || activeFile ? (
+            {paperWorkspacePath ? (
+              <PaperWorkspace
+                paperPath={paperWorkspacePath}
+                refreshVersion={refreshVersion}
+                onNavigate={navigateTo}
+                onOpenFile={openFile}
+                onError={setError}
+                dualPaneSplit={dualPaneSplit}
+                onDualPaneSplitChange={setDualPaneSplit}
+                onDispatchComplete={reloadModel}
+                onSendToTerminal={sendToTerminal}
+                onBeforeDispatch={openAgentPanel}
+              />
+            ) : tablePath ? (
+              <TableWorkspace
+                tablePath={tablePath}
+                tableTitle={tableTitle}
+                refreshVersion={refreshVersion}
+                onError={setError}
+                onNavigate={handleMarkdownNavigate}
+                onDispatchComplete={reloadModel}
+                onSendToTerminal={sendToTerminal}
+                onBeforeDispatch={openAgentPanel}
+                onModelChanged={reloadModel}
+                paperPath={paperPath}
+                dualPaneSplit={dualPaneSplit}
+                onDualPaneSplitChange={setDualPaneSplit}
+              />
+            ) : unitPath || activeFile ? (
               <EditorWorkspace
                 unitPath={unitPath}
                 activeFile={activeFile ?? (unitPath ? outlinePathFor(unitPath) : "")}
@@ -662,7 +720,10 @@ export default function App() {
                 onSendToTerminal={sendToTerminal}
                 onBeforeDispatch={openAgentPanel}
                 onDispatchComplete={reloadModel}
-                onBackToSectionView={showSectionViewBack ? backToSectionView : undefined}
+                onBackToSectionView={
+                  showPaperViewBack || showSectionViewBack ? backToSectionView : undefined
+                }
+                backLabel={showPaperViewBack ? "Paper view" : "Section view"}
                 isFigure={isFigure}
                 onModelChanged={reloadModel}
                 paperPath={paperPath}
@@ -709,26 +770,30 @@ export default function App() {
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                title={`New ${containerKind}`}
-                onClick={() => createChild(containerKind)}
-              >
-                <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                title="New unit"
-                onClick={() => createChild("unit")}
-              >
-                <FilePlus className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
+              {canCreateFolder ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  title={`New ${containerKind}`}
+                  onClick={() => createChild(containerKind)}
+                >
+                  <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              ) : null}
+              {canCreateUnit ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  title="New unit"
+                  onClick={() => createChild("unit")}
+                >
+                  <FilePlus className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"

@@ -48,7 +48,7 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-const SKIP_CHILDREN = new Set(["notes", ".sessions", ".trash"]);
+const SKIP_CHILDREN = new Set(["notes", ".sessions", ".trash", "figures", "tables"]);
 
 export async function readIndexData(
   modelRoot: string,

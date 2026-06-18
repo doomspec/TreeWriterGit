@@ -10,6 +10,7 @@ import {
   parseLinkedHeadingBlocks,
   parseOutlineListItems,
   resolveChildHref,
+  extractPreambleBeforeLinkedHeadings,
   syncSectionDraftToChildren,
   syncSectionOutlineToChildren,
 } from "./sectionSync.js";
@@ -113,6 +114,21 @@ Section overview
   });
 });
 
+describe("extractPreambleBeforeLinkedHeadings", () => {
+  it("splits summary text from linked section headings", () => {
+    const { preamble, remainder } = extractPreambleBeforeLinkedHeadings(`# Paper
+
+Paper summary here.
+
+## [Introduction](introduction/INDEX.md)
+
+Intro body.
+`);
+    expect(preamble).toBe("Paper summary here.");
+    expect(remainder).toContain("## [Introduction]");
+  });
+});
+
 describe("syncSectionDraftToChildren", () => {
   it("writes child drafts from composed section draft blocks", async () => {
     const updated = await syncSectionDraftToChildren(
@@ -135,5 +151,38 @@ Contribution draft text.
       "utf8",
     );
     expect(backgroundDraft.trim()).toBe("Background draft text.");
+  });
+
+  it("recursively syncs nested subsection units", async () => {
+    await mkdir(path.join(modelRoot, "papers/demo/introduction/methods/setup"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/introduction/methods/INDEX.md"),
+      matter.stringify("\n", { kind: "section", title: "Methods", child_order: ["setup"] }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/introduction/methods/setup/INDEX.md"),
+      matter.stringify("\n", { kind: "unit", title: "Setup", status: "outline", links: [] }),
+      "utf8",
+    );
+
+    const updated = await syncSectionDraftToChildren(
+      modelRoot,
+      "papers/demo/introduction",
+      `# Introduction
+
+## [Methods](methods/INDEX.md)
+
+### [Setup](methods/setup/INDEX.md)
+
+Setup prose here.
+`,
+    );
+    expect(updated.some((p) => p.endsWith("methods/setup/draft.md"))).toBe(true);
+    const setupDraft = await readFile(
+      path.join(modelRoot, "papers/demo/introduction/methods/setup/draft.md"),
+      "utf8",
+    );
+    expect(setupDraft.trim()).toBe("Setup prose here.");
   });
 });

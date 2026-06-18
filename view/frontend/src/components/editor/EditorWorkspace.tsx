@@ -28,6 +28,7 @@ export function EditorWorkspace({
   onBeforeDispatch,
   onDispatchComplete,
   onBackToSectionView,
+  backLabel = "Section view",
   isFigure = false,
   onModelChanged,
   paperPath = null,
@@ -47,6 +48,7 @@ export function EditorWorkspace({
   onDispatchComplete?: () => void;
   /** Return to composed section outline + draft view. */
   onBackToSectionView?: () => void;
+  backLabel?: string;
   isFigure?: boolean;
   onModelChanged?: () => void;
   paperPath?: string | null;
@@ -73,6 +75,8 @@ export function EditorWorkspace({
     { id: "preview", icon: Eye, label: "Preview" },
   ];
 
+  const isPaperEditor = Boolean(paperPath && unitPath === paperPath);
+
   if (isLeafEditor && outlinePath && draftPath) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -86,7 +90,7 @@ export function EditorWorkspace({
               refreshVersion={refreshVersion}
               layout="preview"
               compact
-              paneLabel="Outline"
+              paneLabel={isPaperEditor ? "Paper outline" : "Outline"}
               defaultPaneMode="rendered"
               className="min-h-0 flex-1"
               isFigureUnit={isFigure}
@@ -106,7 +110,7 @@ export function EditorWorkspace({
               refreshVersion={refreshVersion}
               layout="preview"
               compact
-              paneLabel="Draft"
+              paneLabel={isPaperEditor ? "Paper draft" : "Draft"}
               defaultPaneMode="rendered"
               className="min-h-0 flex-1"
               isFigureUnit={isFigure}
@@ -147,7 +151,7 @@ export function EditorWorkspace({
             onClick={onBackToSectionView}
           >
             <ArrowLeft className="h-3 w-3" aria-hidden="true" />
-            Section view
+            {backLabel}
           </Button>
         ) : (
           <span />

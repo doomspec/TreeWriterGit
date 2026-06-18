@@ -1,8 +1,35 @@
 {
   "aiProviders": [
-    { "name": "Claude Code", "command": "claude", "args": ["-p", "{prompt}"], "writesFiles": true },
-    { "name": "Aider", "command": "aider", "args": ["--message", "{prompt}", "{files}"], "writesFiles": true },
-    { "name": "Codex", "command": "codex", "args": ["{prompt}"], "writesFiles": true }
+    {
+      "name": "Claude Code",
+      "command": "claude",
+      "args": [
+        "-p",
+        "{prompt}"
+      ],
+      "writesFiles": true
+    },
+    {
+      "name": "Aider",
+      "command": "aider",
+      "args": [
+        "--message",
+        "{prompt}",
+        "{files}"
+      ],
+      "writesFiles": true
+    },
+    {
+      "name": "Codex",
+      "command": "codex",
+      "args": [
+        "{prompt}"
+      ],
+      "writesFiles": true
+    }
   ],
-  "defaultProvider": "Claude Code"
+  "defaultProvider": "Codex",
+  "gitSync": {
+    "autoSync": true
+  }
 }

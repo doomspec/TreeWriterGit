@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Bot, GitBranch, RefreshCw, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -105,20 +105,27 @@ export function SettingsPage({
   const [gitSync, setGitSync] = useState<GitSyncSettings | null>(null);
   const [agents, setAgents] = useState<AgentSettings | null>(null);
   const [authorName, setAuthorName] = useState(() => getUserName());
+  const onGitSyncChangeRef = useRef(onGitSyncChange);
+  const hasLoadedRef = useRef(false);
+
+  useEffect(() => {
+    onGitSyncChangeRef.current = onGitSyncChange;
+  }, [onGitSyncChange]);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const settings: AppSettings = await fetchSettings();
       setGitSync(settings.gitSync);
       setAgents(settings.agents);
-      onGitSyncChange?.(settings.gitSync);
+      onGitSyncChangeRef.current?.(settings.gitSync);
+      hasLoadedRef.current = true;
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [onError, onGitSyncChange]);
+  }, [onError]);
 
   useEffect(() => {
     void load();

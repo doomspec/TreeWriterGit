@@ -95,62 +95,56 @@ export function PapersSidebar({
   const [graphOpen, setGraphOpen] = useState(true);
   const selectedSlug = paperSlugFromPath(currentPath);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
-  const otherPanelsOpen =
-    Number(sectionsOpen) + Number(assetsOpen) + Number(removedOpen) + Number(graphOpen);
 
   return (
     <div
       className={cn(
         "flex min-h-0 flex-col",
-        embedded ? "min-h-0 flex-1" : "border-r border-border bg-sidebar",
+        embedded ? "min-h-0 flex-1 overflow-hidden" : "border-r border-border bg-sidebar",
       )}
     >
-      <div className="shrink-0 space-y-2 border-b border-border p-3">
-        <PaperSelectorBar
-          tree={tree}
-          currentPath={currentPath}
-          refreshVersion={refreshVersion}
-          onNavigate={onNavigate}
-          onPaperCreated={onPaperCreated}
-          onError={onError}
-        />
-        <PaperInfoLine
-          slug={selectedSlug}
-          refreshVersion={refreshVersion}
-          onError={onError}
-        />
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="space-y-2 border-b border-border p-3">
+          <PaperSelectorBar
+            tree={tree}
+            currentPath={currentPath}
+            refreshVersion={refreshVersion}
+            onNavigate={onNavigate}
+            onPaperCreated={onPaperCreated}
+            onError={onError}
           />
-          <input
-            type="search"
-            placeholder="Search papers…"
-            value={searchQuery}
-            className="ui-input pl-8"
-            onChange={(e) => onSearchChange(e.target.value)}
+          <PaperInfoLine
+            slug={selectedSlug}
+            refreshVersion={refreshVersion}
+            onError={onError}
           />
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              placeholder="Search papers…"
+              value={searchQuery}
+              className="ui-input pl-8"
+              onChange={(e) => onSearchChange(e.target.value)}
+            />
+          </div>
+          {onSearchSelect ? (
+            <SearchResults
+              query={searchQuery}
+              root={paperSearchRoot ?? PAPERS_ROOT}
+              onSelect={onSearchSelect}
+            />
+          ) : null}
         </div>
-        {onSearchSelect ? (
-          <SearchResults
-            query={searchQuery}
-            root={paperSearchRoot ?? PAPERS_ROOT}
-            onSelect={onSearchSelect}
-          />
-        ) : null}
-      </div>
 
-      <SidebarSection
-        title="Sections"
-        open={sectionsOpen}
-        onToggle={() => setSectionsOpen((open) => !open)}
-        className={cn(
-          sectionsOpen && otherPanelsOpen > 1 && "max-h-[min(38%,18rem)] shrink-0",
-          sectionsOpen && otherPanelsOpen === 1 && "min-h-0 flex-1",
-        )}
-      >
-        <div className="min-h-0 overflow-auto">
+        <SidebarSection
+          title="Sections"
+          open={sectionsOpen}
+          onToggle={() => setSectionsOpen((open) => !open)}
+        >
           <PapersPanel
             embedded
             hidePaperHeader
@@ -162,42 +156,30 @@ export function PapersSidebar({
             onPaperCreated={onPaperCreated}
             onError={onError}
           />
-        </div>
-      </SidebarSection>
+        </SidebarSection>
 
-      <SidebarSection
-        title="Assets"
-        open={assetsOpen}
-        onToggle={() => setAssetsOpen((open) => !open)}
-        className={cn(
-          assetsOpen && otherPanelsOpen > 1 && "max-h-[min(32%,16rem)] shrink-0",
-          assetsOpen && otherPanelsOpen === 1 && "min-h-0 flex-1",
-        )}
-      >
-        <div className="min-h-0 overflow-auto">
+        <SidebarSection
+          title="Assets"
+          open={assetsOpen}
+          onToggle={() => setAssetsOpen((open) => !open)}
+        >
           <PaperAssetsPanel
-          paperPath={paperPath}
-          currentPath={currentPath}
-          activeFile={activeFile}
-          refreshVersion={refreshVersion}
-          onNavigate={onNavigate}
-          onOpenFile={onOpenFile}
-          onModelChanged={onModelChanged}
-          onError={onError}
-        />
-        </div>
-      </SidebarSection>
+            paperPath={paperPath}
+            currentPath={currentPath}
+            activeFile={activeFile}
+            refreshVersion={refreshVersion}
+            onNavigate={onNavigate}
+            onOpenFile={onOpenFile}
+            onModelChanged={onModelChanged}
+            onError={onError}
+          />
+        </SidebarSection>
 
-      <SidebarSection
-        title="Removed"
-        open={removedOpen}
-        onToggle={() => setRemovedOpen((open) => !open)}
-        className={cn(
-          removedOpen && otherPanelsOpen > 1 && "max-h-[min(28%,14rem)] shrink-0",
-          removedOpen && otherPanelsOpen === 1 && "min-h-0 flex-1",
-        )}
-      >
-        <div className="min-h-0 overflow-auto">
+        <SidebarSection
+          title="Removed"
+          open={removedOpen}
+          onToggle={() => setRemovedOpen((open) => !open)}
+        >
           <TrashPanel
             paperPath={paperPath}
             refreshVersion={refreshVersion}
@@ -205,28 +187,27 @@ export function PapersSidebar({
             onNavigate={onNavigate}
             onError={onError}
           />
-        </div>
-      </SidebarSection>
+        </SidebarSection>
 
-      <SidebarSection
-        title="Graph"
-        open={graphOpen}
-        onToggle={() => setGraphOpen((open) => !open)}
-        className={graphOpen ? "min-h-0 flex-1" : undefined}
-      >
-        <div className="graph-tab-host flex min-h-0 flex-1 flex-col overflow-hidden">
-          <GraphPanel
-            embedded
-            active={graphOpen}
-            fetchRoot={graphFetchRoot}
-            focusPath={graphFocusPath}
-            graphScope={graphScope}
-            refreshVersion={refreshVersion}
-            onGraphScopeChange={onGraphScopeChange}
-            onSelectNode={onGraphSelectNode}
-          />
-        </div>
-      </SidebarSection>
+        <SidebarSection
+          title="Graph"
+          open={graphOpen}
+          onToggle={() => setGraphOpen((open) => !open)}
+        >
+          <div className="graph-tab-host flex h-[min(240px,36vh)] min-h-[200px] shrink-0 flex-col overflow-hidden">
+            <GraphPanel
+              embedded
+              active={graphOpen}
+              fetchRoot={graphFetchRoot}
+              focusPath={graphFocusPath}
+              graphScope={graphScope}
+              refreshVersion={refreshVersion}
+              onGraphScopeChange={onGraphScopeChange}
+              onSelectNode={onGraphSelectNode}
+            />
+          </div>
+        </SidebarSection>
+      </div>
     </div>
   );
 }

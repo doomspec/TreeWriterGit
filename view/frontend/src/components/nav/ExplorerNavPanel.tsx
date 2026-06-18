@@ -185,10 +185,11 @@ export function ExplorerNavPanel({
     <div
       className={cn(
         "flex min-h-0 flex-col",
-        embedded ? "min-h-0 flex-1" : "border-r border-border bg-sidebar",
+        embedded ? "min-h-0 flex-1 overflow-hidden" : "border-r border-border bg-sidebar",
       )}
     >
-      <div className="border-b border-border p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="border-b border-border p-3">
         <div className="relative">
           <Search
             className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
@@ -205,29 +206,30 @@ export function ExplorerNavPanel({
         {onSearchSelect ? (
           <SearchResults query={searchQuery} onSelect={onSearchSelect} />
         ) : null}
-      </div>
+        </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-2">
-        <button
-          type="button"
-          className={cn(
-            "ui-nav-row mb-1",
-            currentPath === "" ? "ui-nav-row-active" : "ui-nav-row-inactive",
+        <div className="p-2">
+          <button
+            type="button"
+            className={cn(
+              "ui-nav-row mb-1",
+              currentPath === "" ? "ui-nav-row-active" : "ui-nav-row-inactive",
+            )}
+            onClick={() => onNavigate("")}
+          >
+            <Folder className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>model</span>
+          </button>
+          {filteredTree.length === 0 ? (
+            <p className="px-2 py-1 text-[11px] text-muted-foreground">No matches.</p>
+          ) : (
+            <ul className="space-y-0.5">
+              {filteredTree.map((node) => (
+                <FileTreeNode key={node.path} node={node} depth={0} {...treeProps} />
+              ))}
+            </ul>
           )}
-          onClick={() => onNavigate("")}
-        >
-          <Folder className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>model</span>
-        </button>
-        {filteredTree.length === 0 ? (
-          <p className="px-2 py-1 text-[11px] text-muted-foreground">No matches.</p>
-        ) : (
-          <ul className="space-y-0.5">
-            {filteredTree.map((node) => (
-              <FileTreeNode key={node.path} node={node} depth={0} {...treeProps} />
-            ))}
-          </ul>
-        )}
+        </div>
       </div>
     </div>
   );

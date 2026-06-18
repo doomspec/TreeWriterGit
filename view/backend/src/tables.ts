@@ -90,6 +90,13 @@ async function readTableNoteMetadata(
   };
 }
 
+export async function resolveTableMetadata(
+  modelRoot: string,
+  dirRel: string,
+): Promise<TableMetadata | null> {
+  return readTableUnitMetadata(modelRoot, dirRel);
+}
+
 export function paperTablesDir(paperRel: string): string {
   return path.posix.join(paperRel, "tables");
 }

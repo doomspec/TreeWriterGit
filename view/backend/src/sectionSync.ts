@@ -2,8 +2,17 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
-import { orderedChildren, readIndexData, reorderChildren } from "./modelFs.js";
+import { orderedChildren, readIndexData, reorderChildren, isFigureDir, isTableDir, isUnitDir } from "./modelFs.js";
 import { displayChildTitle } from "./compose.js";
+
+async function isSectionContainerDir(modelRoot: string, relPath: string): Promise<boolean> {
+  if (await isUnitDir(modelRoot, relPath)) return false;
+  if (await isFigureDir(modelRoot, relPath)) return false;
+  if (await isTableDir(modelRoot, relPath)) return false;
+  const data = await readIndexData(modelRoot, relPath);
+  if (data.kind === "unit" || data.kind === "figure" || data.kind === "table") return false;
+  return (await orderedChildren(modelRoot, relPath)).length > 0;
+}
 
 function stripLeadingH1(markdown: string): string {
   return markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").replace(/^\s*#(?!#)\s+[^\n\r]+\r?\n?/, "").trim();
@@ -49,7 +58,24 @@ export function resolveChildHref(sectionRel: string, href: string): string | nul
   return sectionRel ? `${sectionRel}/${clean}`.replace(/\/+/g, "/") : clean;
 }
 
-/** Parse `* [Title](href)` bullets under ## Outline. */
+/** Text before the first linked ##/### heading in a composed draft. */
+export function extractPreambleBeforeLinkedHeadings(markdown: string): {
+  preamble: string;
+  remainder: string;
+} {
+  const stripped = stripFrontmatter(markdown)
+    .replace(/^\s*#(?!#)\s+[^\n\r]+\r?\n?/, "")
+    .trimStart();
+  const lines = stripped.split("\n");
+  const idx = lines.findIndex((line) => /^#{2,4}\s+\[[^\]]+\]\([^)]+\)\s*$/.test(line.trim()));
+  if (idx === -1) {
+    return { preamble: stripped.trim(), remainder: "" };
+  }
+  return {
+    preamble: lines.slice(0, idx).join("\n").trim(),
+    remainder: lines.slice(idx).join("\n").trim(),
+  };
+}
 export function parseOutlineListItems(markdown: string): OutlineListItem[] {
   const body = stripFrontmatter(markdown);
   const outlineMatch = body.match(/##\s+Outline\s*\n([\s\S]*?)(?=\n##\s|\n#[^#]|$)/i);
@@ -184,18 +210,43 @@ export async function syncSectionDraftToChildren(
   modelRoot: string,
   sectionRel: string,
   draftMarkdown: string,
+  hrefRoot: string = sectionRel,
 ): Promise<string[]> {
   const children = await orderedChildren(modelRoot, sectionRel);
   if (children.length === 0) return [];
 
-  const blocks = parseLinkedHeadingBlocks(draftMarkdown);
-  if (blocks.length === 0) return [];
-
+  const indexData = await readIndexData(modelRoot, sectionRel);
+  const sectionTitle = String(indexData.title ?? path.posix.basename(sectionRel));
   const updated = new Set<string>();
+
+  let workingMarkdown = draftMarkdown;
+  if (indexData.kind === "paper") {
+    const { preamble, remainder } = extractPreambleBeforeLinkedHeadings(draftMarkdown);
+    if (preamble) {
+      updated.add(await writeChildOutlineSummary(modelRoot, sectionRel, sectionTitle, preamble));
+    }
+    workingMarkdown = remainder
+      ? `# ${sectionTitle}\n\n${remainder}\n`
+      : draftMarkdown;
+  }
+
+  const blocks = parseLinkedHeadingBlocks(workingMarkdown);
+  if (blocks.length === 0) return [...updated];
   for (const block of blocks) {
-    const childRel = resolveChildHref(sectionRel, block.href);
+    const childRel = resolveChildHref(hrefRoot, block.href);
     if (!childRel) continue;
-    updated.add(await writeChildDraft(modelRoot, childRel, block.body));
+    if (await isSectionContainerDir(modelRoot, childRel)) {
+      for (const path of await syncSectionDraftToChildren(
+        modelRoot,
+        childRel,
+        block.body,
+        hrefRoot,
+      )) {
+        updated.add(path);
+      }
+    } else {
+      updated.add(await writeChildDraft(modelRoot, childRel, block.body));
+    }
   }
 
   return [...updated];

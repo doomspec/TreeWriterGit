@@ -501,11 +501,11 @@ export function MarkdownEditor({
         size="sm"
         className="h-6 gap-1 px-2 text-[10px]"
         aria-pressed={paneMode === "rendered"}
-        title="Rendered editing"
+        title="Preview + edit — live formatted view above source"
         onClick={() => setPaneMode("rendered")}
       >
         <Eye className="h-3 w-3" aria-hidden="true" />
-        Rendered
+        Preview
       </Button>
       <Button
         type="button"
