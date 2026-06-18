@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import type { GitSyncSettings } from "@/lib/settingsApi";
+import { fetchGitSyncStatus, runGitSyncNow } from "@/lib/settingsApi";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { BottomPanel } from "@/components/layout/BottomPanel";
 import { ResizableSidebarLayout } from "@/components/layout/ResizableSidebarLayout";
@@ -42,7 +43,7 @@ import {
   type ModelNode,
   type NavigateTarget,
 } from "@/lib/modelTree";
-import { createNode, fetchCommentSummary, type NodeKind } from "@/modelApi";
+import { createNode, fetchCommentSummary, fetchModelTree, type NodeKind } from "@/modelApi";
 import { PaperExportMenu } from "@/components/paper/PaperExportMenu";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import {
@@ -62,7 +63,6 @@ import {
   saveTerminalSessionId,
 } from "@/lib/terminalSession";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 const terminalUrl = import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://localhost:4000/terminal";
 const modelEventsUrl = import.meta.env.VITE_MODEL_EVENTS_WS_URL ?? "ws://localhost:4000/model-events";
 
@@ -200,16 +200,17 @@ export default function App() {
   ]);
 
   const loadTree = useCallback(async () => {
-    const response = await fetch(`${apiBaseUrl}/api/model/tree`);
-    if (!response.ok) throw new Error(`Failed to load model tree: ${response.status}`);
-    const data = (await response.json()) as { tree: ModelNode[] };
+    const data = await fetchModelTree();
     setTree(data.tree);
     setTreeLoaded(true);
   }, []);
 
   const loadGitSyncStatus = useCallback(async () => {
-    const response = await fetch(`${apiBaseUrl}/api/git-sync/status`);
-    if (response.ok) setGitSync((await response.json()) as GitSyncState);
+    try {
+      setGitSync(await fetchGitSyncStatus());
+    } catch {
+      // non-fatal
+    }
   }, []);
 
   const handleGitSyncSettingsChange = useCallback((settings: GitSyncSettings) => {
@@ -474,15 +475,14 @@ export default function App() {
   }, [openAgentPanel, sendToTerminal]);
 
   const runGitSync = useCallback(async () => {
-    const response = await fetch(`${apiBaseUrl}/api/git-sync/run`, { method: "POST" });
-    if (!response.ok) {
-      setError(`Git sync request failed (${response.status})`);
-      return;
-    }
-    const state = (await response.json()) as GitSyncState;
-    setGitSync(state);
-    if (gitSyncHasError(state)) {
-      setError(formatGitSyncError(state));
+    try {
+      const state = await runGitSyncNow();
+      setGitSync(state);
+      if (gitSyncHasError(state)) {
+        setError(formatGitSyncError(state));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
 

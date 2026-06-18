@@ -3,7 +3,7 @@ import { Bot, ChevronDown, ChevronRight, RefreshCw, TerminalSquare } from "lucid
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { DispatchPanel } from "@/DispatchPanel";
+import { DispatchPanel } from "@/components/dispatch/DispatchPanel";
 
 export function RightPanel({
   open,

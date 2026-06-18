@@ -5,7 +5,7 @@ import { PaperSelect, paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { Button } from "@/components/ui/button";
 import { usePaperList } from "@/lib/usePaperList";
 import type { ModelNode } from "@/lib/modelTree";
-import { NewPaperModal } from "@/NewPaperModal";
+import { NewPaperModal } from "@/components/paper/NewPaperModal";
 
 export function PaperSelectorBar({
   tree,

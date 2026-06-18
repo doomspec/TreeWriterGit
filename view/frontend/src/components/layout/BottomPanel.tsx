@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { Bot, PanelBottomClose, RefreshCw, TerminalSquare } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { DispatchPanel } from "@/DispatchPanel";
+import { DispatchPanel } from "@/components/dispatch/DispatchPanel";
 
 export function BottomPanel({
   open,

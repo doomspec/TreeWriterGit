@@ -12,9 +12,9 @@ import {
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, NamePromptDialog } from "@/components/ui/NamePromptDialog";
-import { getDefaultAgentProvider, rememberAgentProvider } from "@/lib/agentDispatchClient";
+import { getDefaultAgentProvider, previewAgentDispatch, rememberAgentProvider } from "@/lib/agentDispatchClient";
 import { cn } from "@/lib/utils";
-import { ApiError, deleteNode, moveNode, reorderChildren } from "@/modelApi";
+import { ApiError, deleteNode, fetchModelFile, moveNode, reorderChildren } from "@/modelApi";
 import {
   childCardsForFolder,
   indexPathFor,
@@ -31,14 +31,14 @@ import {
   type OutlineItem,
 } from "@/lib/modelTree";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
-
-async function fetchModelFile(pathValue: string): Promise<string> {
-  const response = await fetch(`${apiBaseUrl}/api/model/file?path=${encodeURIComponent(pathValue)}`);
-  if (response.status === 404) return "";
-  if (!response.ok) throw new Error(`Failed to load ${pathValue}`);
-  const data = (await response.json()) as { content: string };
-  return data.content;
+async function loadModelFileContent(pathValue: string): Promise<string> {
+  try {
+    const data = await fetchModelFile(pathValue);
+    return data.content;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return "";
+    throw err;
+  }
 }
 
 export function FolderBrowse({
@@ -93,7 +93,7 @@ export function FolderBrowse({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([fetchModelFile(indexPath), fetchModelFile(outlinePath)])
+    Promise.all([loadModelFileContent(indexPath), loadModelFileContent(outlinePath)])
       .then(([index, outline]) => {
         if (!cancelled) {
           setIndexContent(index);
@@ -123,7 +123,7 @@ export function FolderBrowse({
     }
     Promise.all(
       dirs.map(async (item) => {
-        const outline = await fetchModelFile(outlinePathFor(item.path));
+        const outline = await loadModelFileContent(outlinePathFor(item.path));
         return [item.path, parseOutlineSummary(outline) ?? ""] as const;
       }),
     )
@@ -245,20 +245,11 @@ export function FolderBrowse({
     if (!onSendToTerminal) return;
     try {
       const provider = await getDefaultAgentProvider();
-      const res = await fetch(`${apiBaseUrl}/api/agent/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          unitPath: currentPath,
-          action: "refresh-index",
-          provider,
-        }),
+      const data = await previewAgentDispatch({
+        unitPath: currentPath,
+        action: "refresh-index",
+        provider,
       });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: string };
-        throw new Error(body.error ?? `Refresh preview failed (${res.status})`);
-      }
-      const data = (await res.json()) as { command: string };
       rememberAgentProvider(provider);
       onSendToTerminal(`${data.command}\n`);
     } catch (err) {

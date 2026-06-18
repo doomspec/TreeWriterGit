@@ -3,11 +3,11 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { PaperAssetsPanel } from "@/components/nav/PaperAssetsPanel";
 import { TrashPanel } from "@/components/nav/TrashPanel";
-import { GraphPanel } from "@/GraphPanel";
+import { GraphPanel } from "@/components/graph/GraphPanel";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
-import { PapersPanel } from "@/PapersPanel";
+import { PapersPanel } from "@/components/paper/PapersPanel";
 import { cn } from "@/lib/utils";
 import {
   loadWorkspacePreferences,

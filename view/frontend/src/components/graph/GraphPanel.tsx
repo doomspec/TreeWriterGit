@@ -22,8 +22,7 @@ import {
   type GraphScope,
 } from "@/lib/graphLocal";
 import { applyFitTransform } from "@/lib/graphFit";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import { fetchModelGraph, type ModelGraphEdge, type ModelGraphNode } from "@/modelApi";
 
 interface RawNode {
   id: string;
@@ -138,14 +137,10 @@ export function GraphPanel({
     }
     let cancelled = false;
     setLoading(true);
-    fetch(`${apiBaseUrl}/api/model/graph?root=${encodeURIComponent(fetchRoot)}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Graph load failed (${response.status})`);
-        return (await response.json()) as { nodes: RawNode[]; edges: RawEdge[] };
-      })
+    fetchModelGraph(fetchRoot)
       .then((data) => {
         if (cancelled) return;
-        const nodes = data.nodes.filter((node) => node.type !== "missing");
+        const nodes = data.nodes.filter((node) => node.type !== "missing") as RawNode[];
         const nodeIds = new Set(nodes.map((node) => node.id));
         const edges = data.edges.filter(
           (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target),

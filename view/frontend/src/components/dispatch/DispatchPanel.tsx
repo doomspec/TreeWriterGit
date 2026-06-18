@@ -4,10 +4,18 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { fetchContextFiles, fanOutDispatch } from "@/modelApi";
+import {
+  type AgentDispatchAction,
+  type AgentPreviewResult,
+  type AgentSessionFile,
+  createUnitSession,
+  fetchUnitSessions,
+  loadAgentProviderConfig,
+  patchUnitSession,
+  previewAgentDispatch,
+} from "@/lib/agentDispatchClient";
 import { saveLastAgentProvider, resolveAgentProvider } from "@/lib/lastAgentProvider";
-import type { AgentDispatchAction } from "@/lib/agentDispatchClient";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import type { AiProviderInfo } from "@/lib/settingsApi";
 
 interface ContextFileOption {
   path: string;
@@ -16,11 +24,9 @@ interface ContextFileOption {
   defaultIncluded: boolean;
 }
 
-interface AiProvider {
-  name: string;
-  command: string;
-  writesFiles: boolean;
-}
+type AiProvider = AiProviderInfo;
+type PreviewResult = AgentPreviewResult;
+type SessionFile = AgentSessionFile;
 
 const ACTIONS: { value: AgentDispatchAction; label: string }[] = [
   { value: "draft", label: "Draft from outline" },
@@ -31,24 +37,6 @@ const ACTIONS: { value: AgentDispatchAction; label: string }[] = [
   { value: "refresh-index", label: "Refresh outline" },
   { value: "custom", label: "Custom" },
 ];
-
-interface PreviewResult {
-  prompt: string;
-  command: string;
-  outputPath: string;
-  sessionId?: string;
-}
-
-interface SessionFile {
-  filename: string;
-  at: string;
-  provider: string;
-  action: string;
-  command: string;
-  status: "dispatched" | "complete" | "skipped";
-  notes?: string;
-  body: string;
-}
 
 const STATUS_COLOR: Record<SessionFile["status"], string> = {
   dispatched: "text-warning",
@@ -117,9 +105,7 @@ export function DispatchPanel({
   const loadProviders = async () => {
     if (providersLoaded) return;
     try {
-      const res = await fetch(`${apiBaseUrl}/api/agent/providers`);
-      if (!res.ok) throw new Error(`Providers load failed (${res.status})`);
-      const data = (await res.json()) as { aiProviders: AiProvider[]; defaultProvider: string };
+      const data = await loadAgentProviderConfig();
       setProviders(data.aiProviders);
       setSelectedProvider(
         resolveAgentProvider(
@@ -134,15 +120,11 @@ export function DispatchPanel({
   };
 
   const loadSessions = useCallback(async (unitPath: string) => {
-    if (!unitPath) { setSessions([]); return; }
-    try {
-      const res = await fetch(`${apiBaseUrl}/api/sessions?unitPath=${encodeURIComponent(unitPath)}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { sessions: SessionFile[] };
-      setSessions(data.sessions);
-    } catch {
-      // non-fatal — sessions are informational
+    if (!unitPath) {
+      setSessions([]);
+      return;
     }
+    setSessions(await fetchUnitSessions(unitPath));
   }, []);
 
   useEffect(() => {
@@ -175,10 +157,10 @@ export function DispatchPanel({
     pendingSessionRef.current = null;
     void (async () => {
       try {
-        await fetch(`${apiBaseUrl}/api/sessions`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ unitPath: currentPath, filename, status: "complete" }),
+        await patchUnitSession({
+          unitPath: currentPath,
+          filename,
+          status: "complete",
         });
         await loadSessions(currentPath);
       } catch {
@@ -216,23 +198,14 @@ export function DispatchPanel({
     previewSessionIdRef.current = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     try {
       const contextPaths = isUnit ? [...selectedContext] : undefined;
-      const res = await fetch(`${apiBaseUrl}/api/agent/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          unitPath: currentPath,
-          action,
-          provider: selectedProvider,
-          customPrompt: action === "custom" ? customPrompt : undefined,
-          sessionId: previewSessionIdRef.current,
-          contextPaths,
-        }),
+      const data = await previewAgentDispatch({
+        unitPath: currentPath,
+        action,
+        provider: selectedProvider,
+        customPrompt: action === "custom" ? customPrompt : undefined,
+        sessionId: previewSessionIdRef.current,
+        contextPaths,
       });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: string };
-        throw new Error(body.error ?? `Preview failed (${res.status})`);
-      }
-      const data = (await res.json()) as PreviewResult;
       setPreview(data);
       setEditedCommand(data.command);
       if (runAfter) {
@@ -249,22 +222,13 @@ export function DispatchPanel({
 
   const recordSession = async (command: string) => {
     try {
-      const res = await fetch(`${apiBaseUrl}/api/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          unitPath: currentPath,
-          provider: selectedProvider,
-          action,
-          command,
-          status: "dispatched",
-        }),
+      const filename = await createUnitSession({
+        unitPath: currentPath,
+        provider: selectedProvider,
+        action,
+        command,
       });
-      if (res.ok) {
-        const data = (await res.json()) as { path?: string };
-        const filename = data.path?.split("/").pop();
-        if (filename) pendingSessionRef.current = filename;
-      }
+      if (filename) pendingSessionRef.current = filename;
       await loadSessions(currentPath);
     } catch {
       // non-fatal
@@ -320,10 +284,10 @@ export function DispatchPanel({
 
   const handleMarkStatus = async (session: SessionFile, status: SessionFile["status"]) => {
     try {
-      await fetch(`${apiBaseUrl}/api/sessions`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unitPath: currentPath, filename: session.filename, status }),
+      await patchUnitSession({
+        unitPath: currentPath,
+        filename: session.filename,
+        status,
       });
       await loadSessions(currentPath);
     } catch {

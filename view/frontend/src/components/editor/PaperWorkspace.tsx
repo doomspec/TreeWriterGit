@@ -7,22 +7,7 @@ import { SearchResults } from "@/components/layout/SearchResults";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
-import type { SearchHit } from "@/modelApi";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
-
-type PaperCompose = {
-  path: string;
-  title: string;
-  draftMarkdown: string;
-  children: Array<{
-    name: string;
-    path: string;
-    title: string;
-    summary: string | null;
-    kind: "unit" | "section" | "figure" | "table" | "equation";
-  }>;
-};
+import { fetchSectionCompose, type SearchHit } from "@/modelApi";
 
 export function PaperWorkspace({
   paperPath,
@@ -53,17 +38,13 @@ export function PaperWorkspace({
   onSearchChange: (query: string) => void;
   onSearchSelect?: (hit: SearchHit) => void;
 }) {
-  const [compose, setCompose] = useState<PaperCompose | null>(null);
+  const [compose, setCompose] = useState<Awaited<ReturnType<typeof fetchSectionCompose>> | null>(null);
   const [loading, setLoading] = useState(true);
   const outlinePath = outlinePathFor(paperPath);
 
   const loadCompose = useCallback(() => {
     setLoading(true);
-    return fetch(`${apiBaseUrl}/api/model/section-compose?path=${encodeURIComponent(paperPath)}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load paper draft (${res.status})`);
-        return (await res.json()) as PaperCompose;
-      })
+    return fetchSectionCompose(paperPath)
       .then((data) => {
         setCompose(data);
         setLoading(false);

@@ -55,6 +55,10 @@ export function updateDefaultProvider(defaultProvider: string): Promise<AgentSet
   });
 }
 
+export function fetchGitSyncStatus(): Promise<GitSyncStatus & { autoSync?: boolean; intervalMs?: number }> {
+  return request("/api/git-sync/status");
+}
+
 export function runGitSyncNow(): Promise<GitSyncStatus & { autoSync?: boolean; intervalMs?: number }> {
   return request("/api/git-sync/run", { method: "POST" });
 }

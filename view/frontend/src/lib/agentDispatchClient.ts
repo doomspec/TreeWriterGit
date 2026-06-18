@@ -124,9 +124,9 @@ async function recordAgentSession(options: {
   provider: string;
   action: AgentDispatchAction;
   command: string;
-}): Promise<void> {
+}): Promise<string | null> {
   try {
-    await request("/api/sessions", {
+    const data = await request<{ path?: string }>("/api/sessions", {
       method: "POST",
       body: JSON.stringify({
         unitPath: options.unitPath,
@@ -135,6 +135,54 @@ async function recordAgentSession(options: {
         command: options.command,
         status: "dispatched",
       }),
+    });
+    return data.path?.split("/").pop() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type AgentSessionFile = {
+  filename: string;
+  at: string;
+  provider: string;
+  action: string;
+  command: string;
+  status: "dispatched" | "complete" | "skipped";
+  notes?: string;
+  body: string;
+};
+
+export async function fetchUnitSessions(unitPath: string): Promise<AgentSessionFile[]> {
+  if (!unitPath) return [];
+  try {
+    const data = await request<{ sessions: AgentSessionFile[] }>(
+      `/api/sessions?unitPath=${encodeURIComponent(unitPath)}`,
+    );
+    return data.sessions;
+  } catch {
+    return [];
+  }
+}
+
+export async function createUnitSession(options: {
+  unitPath: string;
+  provider: string;
+  action: AgentDispatchAction;
+  command: string;
+}): Promise<string | null> {
+  return recordAgentSession(options);
+}
+
+export async function patchUnitSession(options: {
+  unitPath: string;
+  filename: string;
+  status: AgentSessionFile["status"];
+}): Promise<void> {
+  try {
+    await request("/api/sessions", {
+      method: "PATCH",
+      body: JSON.stringify(options),
     });
   } catch {
     // non-fatal

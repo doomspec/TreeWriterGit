@@ -1,4 +1,5 @@
 import { ApiError, getApiBaseUrl, request } from "@/lib/apiClient";
+import type { ModelNode } from "@/lib/modelTree";
 
 export { ApiError, getApiBaseUrl, request };
 
@@ -413,4 +414,46 @@ export async function discardDraft(path: string): Promise<void> {
     method: "POST",
     body: JSON.stringify({ path }),
   });
+}
+
+export type SectionComposeView = {
+  path: string;
+  title: string;
+  kind: string | null;
+  outlineMarkdown: string;
+  draftMarkdown: string;
+  children: Array<{
+    name: string;
+    path: string;
+    title: string;
+    summary: string | null;
+    kind: "unit" | "section" | "figure" | "table" | "equation";
+  }>;
+};
+
+export type ModelGraphNode = {
+  id: string;
+  label: string;
+  type: string;
+  links: number;
+};
+
+export type ModelGraphEdge = {
+  source: string;
+  target: string;
+  kind?: "outline" | "contains";
+};
+
+export function fetchModelTree() {
+  return request<{ tree: ModelNode[] }>("/api/model/tree");
+}
+
+export function fetchSectionCompose(path: string) {
+  return request<SectionComposeView>(`/api/model/section-compose?path=${encodeURIComponent(path)}`);
+}
+
+export function fetchModelGraph(root: string) {
+  return request<{ nodes: ModelGraphNode[]; edges: ModelGraphEdge[] }>(
+    `/api/model/graph?root=${encodeURIComponent(root)}`,
+  );
 }

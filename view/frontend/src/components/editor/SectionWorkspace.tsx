@@ -13,23 +13,9 @@ import {
 } from "@/lib/agentDispatchClient";
 import { useDispatchJob } from "@/lib/useDispatchJob";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
+import { fetchSectionCompose } from "@/modelApi";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
-
-type SectionCompose = {
-  path: string;
-  title: string;
-  kind: string | null;
-  outlineMarkdown: string;
-  draftMarkdown: string;
-  children: Array<{
-    name: string;
-    path: string;
-    title: string;
-    summary: string | null;
-    kind: "unit" | "section" | "figure" | "table" | "equation";
-  }>;
-};
+type SectionCompose = Awaited<ReturnType<typeof fetchSectionCompose>>;
 
 export function SectionWorkspace({
   sectionPath,
@@ -82,11 +68,7 @@ export function SectionWorkspace({
 
   const loadCompose = useCallback(() => {
     setLoading(true);
-    return fetch(`${apiBaseUrl}/api/model/section-compose?path=${encodeURIComponent(sectionPath)}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`Failed to load section view (${res.status})`);
-        return (await res.json()) as SectionCompose;
-      })
+    return fetchSectionCompose(sectionPath)
       .then((data) => {
         setCompose(data);
         setLoading(false);
