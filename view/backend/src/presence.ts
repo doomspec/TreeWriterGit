@@ -74,7 +74,9 @@ export function heartbeatPresence(filePath: string, user: string): boolean {
   return true;
 }
 
-/** Test helper */
-export function resetPresenceForTests(): void {
+export function resetPresenceState(): void {
   activeEditors.clear();
 }
+
+/** @deprecated use resetPresenceState */
+export const resetPresenceForTests = resetPresenceState;

@@ -40,7 +40,7 @@ export function usePaperList(
 
   useEffect(() => {
     void reload();
-  }, [reload, refreshVersion]);
+  }, [refreshVersion, reload]);
 
   return { papers, loading, reload };
 }

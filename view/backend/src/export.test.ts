@@ -173,4 +173,11 @@ describe("resolveCslPath", () => {
     await writeFile(path.join(root, "templates", "plos-one.csl"), "<style/>", "utf8");
     expect(resolveCslPath(root, "PLOS ONE")).toContain("plos-one.csl");
   });
+
+  it("prefers export.csl from journal template over slug", async () => {
+    await mkdir(path.join(root, "templates"), { recursive: true });
+    await writeFile(path.join(root, "templates", "custom.csl"), "<style/>", "utf8");
+    await writeFile(path.join(root, "templates", "nature.csl"), "<style/>", "utf8");
+    expect(resolveCslPath(root, "Nature", "custom.csl")).toContain("custom.csl");
+  });
 });

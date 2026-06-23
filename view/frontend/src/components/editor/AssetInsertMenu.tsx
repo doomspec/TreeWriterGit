@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { BookOpen, Image, Layers, Sigma, Table2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { AssetSearchField } from "@/components/editor/AssetSearchField";
 import {
   defaultEquationInsertMode,
   defaultFigureInsertMode,
@@ -19,6 +20,8 @@ import {
   type ReferenceMetadata,
   type TableMetadata,
 } from "@/lib/paperAssets";
+import { filterPaperAssets, filteredAssetCount, totalAssetCount } from "@/lib/assetSearch";
+import { ensureReferenceIndex, searchReferences } from "@/lib/referenceSearchCache";
 import { cn } from "@/lib/utils";
 
 type AssetInsertMenuProps = {
@@ -34,12 +37,14 @@ function AssetSection({
   title,
   icon: Icon,
   emptyLabel,
+  noMatchLabel,
   count,
   children,
 }: {
   title: string;
   icon: typeof Image;
   emptyLabel: string;
+  noMatchLabel?: string;
   count: number;
   children: React.ReactNode;
 }) {
@@ -48,11 +53,12 @@ function AssetSection({
       <div className="asset-insert-menu__section-title">
         <Icon className="h-3 w-3" aria-hidden="true" />
         {title}
+        {count > 0 ? <span className="ml-auto font-normal normal-case tracking-normal">({count})</span> : null}
       </div>
       {count > 0 ? (
         <ul className="asset-insert-menu__list">{children}</ul>
       ) : (
-        <p className="asset-insert-menu__empty">{emptyLabel}</p>
+        <p className="asset-insert-menu__empty">{noMatchLabel ?? emptyLabel}</p>
       )}
     </div>
   );
@@ -86,7 +92,9 @@ export function AssetInsertMenu({
   onInsert,
 }: AssetInsertMenuProps) {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [assets, setAssets] = useState<PaperAssetsBundle | null>(null);
+  const [referenceResults, setReferenceResults] = useState<ReferenceMetadata[]>([]);
   const [loading, setLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -111,6 +119,34 @@ export function AssetInsertMenu({
     if (!open) return;
     void loadAssets();
   }, [loadAssets, open, refreshVersion]);
+
+  useEffect(() => {
+    if (!open) {
+      setReferenceResults([]);
+      return;
+    }
+    const query = searchQuery.trim();
+    if (!query) {
+      setReferenceResults([]);
+      return;
+    }
+    let cancelled = false;
+    void ensureReferenceIndex(paperPath)
+      .then((references) => {
+        if (!cancelled) setReferenceResults(searchReferences(references, query, 30));
+      })
+      .catch(() => {
+        if (!cancelled) setReferenceResults([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, paperPath, refreshVersion, searchQuery]);
+
+  useEffect(() => {
+    if (open) return;
+    setSearchQuery("");
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -162,10 +198,20 @@ export function AssetInsertMenu({
     setOpen(false);
   };
 
-  const figures = assets?.figures ?? [];
-  const tables = assets?.tables ?? [];
-  const equations = assets?.equations ?? [];
-  const references = assets?.references ?? [];
+  const allAssets: PaperAssetsBundle = assets ?? {
+    figures: [],
+    tables: [],
+    equations: [],
+    referenceCount: 0,
+  };
+  const filteredAssets = filterPaperAssets(allAssets, searchQuery, referenceResults);
+  const figures = filteredAssets.figures;
+  const tables = filteredAssets.tables;
+  const equations = filteredAssets.equations;
+  const references = filteredAssets.references;
+  const totalCount = totalAssetCount(allAssets);
+  const visibleCount = filteredAssetCount(filteredAssets);
+  const isSearching = searchQuery.trim().length > 0;
 
   const panel =
     open && panelPosition ? (
@@ -180,10 +226,21 @@ export function AssetInsertMenu({
           <p className="asset-insert-menu__empty px-3 py-2">Loading assets…</p>
         ) : (
           <>
+            <AssetSearchField
+              value={searchQuery}
+              onChange={setSearchQuery}
+              autoFocus
+              className="border-b border-border/60"
+            />
+            {isSearching && totalCount > 0 && visibleCount === 0 ? (
+              <p className="asset-insert-menu__empty px-3 py-2">No assets match “{searchQuery.trim()}”.</p>
+            ) : null}
+            {!isSearching || allAssets.figures.length > 0 ? (
             <AssetSection
               title="Figures"
               icon={Image}
               emptyLabel="No figures yet — add one in the sidebar"
+              noMatchLabel={isSearching ? "No figures match your search" : undefined}
               count={figures.length}
             >
               {figures.map((fig: FigureMetadata) => (
@@ -195,10 +252,13 @@ export function AssetInsertMenu({
                 />
               ))}
             </AssetSection>
+            ) : null}
+            {!isSearching || allAssets.tables.length > 0 ? (
             <AssetSection
               title="Tables"
               icon={Table2}
               emptyLabel="No tables yet — add one in the sidebar"
+              noMatchLabel={isSearching ? "No tables match your search" : undefined}
               count={tables.length}
             >
               {tables.map((table: TableMetadata) => (
@@ -210,10 +270,13 @@ export function AssetInsertMenu({
                 />
               ))}
             </AssetSection>
+            ) : null}
+            {!isSearching || allAssets.equations.length > 0 ? (
             <AssetSection
               title="Equations"
               icon={Sigma}
               emptyLabel="No equations yet — add one in the sidebar"
+              noMatchLabel={isSearching ? "No equations match your search" : undefined}
               count={equations.length}
             >
               {equations.map((equation: EquationMetadata) => (
@@ -225,13 +288,23 @@ export function AssetInsertMenu({
                 />
               ))}
             </AssetSection>
+            ) : null}
+            {!isSearching || allAssets.referenceCount > 0 ? (
             <AssetSection
               title="References"
               icon={BookOpen}
-              emptyLabel="Import a .bib file in the sidebar"
-              count={references.length}
+              emptyLabel={
+                isSearching
+                  ? "No references match your search"
+                  : allAssets.referenceCount > 0
+                    ? "Type in the search box to find references"
+                    : "Import a .bib file in the sidebar"
+              }
+              noMatchLabel={isSearching ? "No references match your search" : undefined}
+              count={isSearching ? references.length : allAssets.referenceCount}
             >
-              {references.map((ref: ReferenceMetadata) => (
+              {isSearching
+                ? references.map((ref: ReferenceMetadata) => (
                 <AssetPickButton
                   key={ref.path}
                   label={ref.citeKey ? `@${ref.citeKey}` : ref.title}
@@ -241,8 +314,10 @@ export function AssetInsertMenu({
                     pick(referenceInsertSnippet(ref.citeKey));
                   }}
                 />
-              ))}
+              ))
+                : null}
             </AssetSection>
+            ) : null}
           </>
         )}
       </div>
@@ -256,7 +331,7 @@ export function AssetInsertMenu({
         variant={open ? "default" : "ghost"}
         size="sm"
         className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-        title="Insert figure, table, equation, or reference from paper assets"
+        title="Insert figure, table, equation, or reference — or type \\fig{}, \\table{}, \\cite{}, \\eq{}"
         aria-label="Insert asset"
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -264,7 +339,7 @@ export function AssetInsertMenu({
         onClick={() => setOpen((value) => !value)}
       >
         <Layers className="h-3.5 w-3.5" aria-hidden="true" />
-        <span className="hidden sm:inline">Assets</span>
+        <span className={embedded ? "sr-only" : "hidden sm:inline"}>Assets</span>
       </Button>
 
       {panel ? createPortal(panel, document.body) : null}

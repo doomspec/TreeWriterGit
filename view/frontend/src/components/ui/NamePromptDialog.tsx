@@ -58,7 +58,7 @@ export function NamePromptDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/50 p-4 backdrop-blur-[2px]"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onCancel();
@@ -136,7 +136,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/50 p-4 backdrop-blur-[2px]"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onCancel();

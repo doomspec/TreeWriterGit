@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
+import { useTheme } from "@/lib/useTheme";
+
 type MermaidBlockProps = {
   source: string;
   className?: string;
@@ -9,6 +11,7 @@ export function MermaidBlock({ source, className }: MermaidBlockProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const reactId = useId().replace(/:/g, "");
   const [error, setError] = useState<string | null>(null);
+  const { resolved } = useTheme();
 
   useEffect(() => {
     let cancelled = false;
@@ -20,7 +23,7 @@ export function MermaidBlock({ source, className }: MermaidBlockProps) {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize({
           startOnLoad: false,
-          theme: "neutral",
+          theme: resolved === "dark" ? "dark" : "neutral",
           securityLevel: "strict",
         });
         const { svg } = await mermaid.render(`mermaid-${reactId}`, trimmed);
@@ -37,7 +40,7 @@ export function MermaidBlock({ source, className }: MermaidBlockProps) {
     return () => {
       cancelled = true;
     };
-  }, [reactId, source]);
+  }, [reactId, resolved, source]);
 
   if (!source.trim()) return null;
 

@@ -6,11 +6,16 @@ import matter from "gray-matter";
 
 import {
   approveDraftTarget,
+  collectPendingApprovalPaths,
   discardDraftTarget,
   draftsMatchApproved,
   handleDraftFileSaved,
+  handleOutlineFileSaved,
   markDraftAiAssisted,
+  markOutlineAiAssisted,
+  outlinesMatchApproved,
   readDraftEditMeta,
+  readOutlineEditMeta,
 } from "./draftApproval.js";
 import { createNode } from "./modelFs.js";
 
@@ -65,10 +70,11 @@ describe("draftApproval", () => {
   it("markDraftAiAssisted flags AI edits", async () => {
     const draftRel = "papers/demo/unit-a/draft.md";
     await writeFile(path.join(modelRoot, draftRel), "AI text.\n", "utf8");
-    await markDraftAiAssisted(modelRoot, "papers/demo/unit-a", "octocat");
+    await markDraftAiAssisted(modelRoot, "papers/demo/unit-a", "octocat", "Codex");
     const meta = await readDraftEditMeta(modelRoot, "papers/demo/unit-a");
     expect(meta.editedBy).toBe("octocat");
     expect(meta.aiAssisted).toBe(true);
+    expect(meta.aiProvider).toBe("Codex");
   });
 
   it("discard restores draft.md from draft.approved.md", async () => {
@@ -82,5 +88,138 @@ describe("draftApproval", () => {
     const meta = await readDraftEditMeta(modelRoot, "papers/demo/unit-a");
     expect(meta.aiAssisted).toBe(false);
     expect(meta.editedBy).toBeNull();
+  });
+
+  it("autosave marks outline pending when outline diverges from approved", async () => {
+    const outlineRel = "papers/demo/unit-a/outline.md";
+    await writeFile(path.join(modelRoot, outlineRel), "Working outline.\n", "utf8");
+    const updated = await handleOutlineFileSaved(modelRoot, outlineRel);
+    expect(updated.some((p) => p.endsWith("INDEX.md"))).toBe(true);
+    expect(await outlinesMatchApproved(modelRoot, "papers/demo/unit-a")).toBe(false);
+  });
+
+  it("markOutlineAiAssisted flags AI outline edits", async () => {
+    const outlineRel = "papers/demo/unit-a/outline.md";
+    await writeFile(path.join(modelRoot, outlineRel), "AI outline.\n", "utf8");
+    await markOutlineAiAssisted(modelRoot, "papers/demo/unit-a", "octocat", "Claude Code");
+    const meta = await readOutlineEditMeta(modelRoot, "papers/demo/unit-a");
+    expect(meta.editedBy).toBe("octocat");
+    expect(meta.aiAssisted).toBe(true);
+    expect(meta.aiProvider).toBe("Claude Code");
+  });
+
+  it("approve copies outline.approved.md without changing draft status", async () => {
+    const outlineRel = "papers/demo/unit-a/outline.md";
+    await writeFile(path.join(modelRoot, outlineRel), "Final outline.\n", "utf8");
+    await writeFile(path.join(modelRoot, "papers/demo/unit-a/INDEX.md"), matter.stringify("", {
+      kind: "unit",
+      status: "approved",
+    }), "utf8");
+    const result = await approveDraftTarget(modelRoot, outlineRel, "reviewer");
+    expect(result.updated).toContain("papers/demo/unit-a/outline.approved.md");
+    expect(await outlinesMatchApproved(modelRoot, "papers/demo/unit-a")).toBe(true);
+    const index = matter(await readFile(path.join(modelRoot, "papers/demo/unit-a/INDEX.md"), "utf8"));
+    expect(index.data.status).toBe("approved");
+    expect(index.data.outline_approved_by).toBe("reviewer");
+  });
+
+  it("discard restores outline.md from outline.approved.md", async () => {
+    const outlineRel = "papers/demo/unit-a/outline.md";
+    await writeFile(path.join(modelRoot, outlineRel), "Approved outline.\n", "utf8");
+    await approveDraftTarget(modelRoot, outlineRel);
+    await writeFile(path.join(modelRoot, outlineRel), "Experimental outline.\n", "utf8");
+    await handleOutlineFileSaved(modelRoot, outlineRel, { editedBy: "octocat", aiAssisted: true });
+    await discardDraftTarget(modelRoot, outlineRel);
+    expect(await readFile(path.join(modelRoot, outlineRel), "utf8")).toBe("Approved outline.\n");
+    const meta = await readOutlineEditMeta(modelRoot, "papers/demo/unit-a");
+    expect(meta.aiAssisted).toBe(false);
+  });
+
+  it("approveDraftTarget approves all child drafts under a section path", async () => {
+    await createNode(modelRoot, "papers/demo", "intro", "section");
+    await createNode(modelRoot, "papers/demo/intro", "u1", "unit");
+    const draftRel = "papers/demo/intro/u1/draft.md";
+    await writeFile(path.join(modelRoot, draftRel), "Child draft.\n", "utf8");
+    const result = await approveDraftTarget(modelRoot, "papers/demo/intro", "reviewer");
+    expect(result.updated).toContain("papers/demo/intro/u1/draft.approved.md");
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/intro/u1")).toBe(true);
+  });
+
+  it("approveDraftTarget approves a leaf section draft.md with no child folders", async () => {
+    await createNode(modelRoot, "papers/demo", "abstract", "section");
+    const draftRel = "papers/demo/abstract/draft.md";
+    await writeFile(path.join(modelRoot, draftRel), "Abstract paragraph.\n", "utf8");
+    const result = await approveDraftTarget(modelRoot, "papers/demo/abstract", "reviewer");
+    expect(result.updated).toContain("papers/demo/abstract/draft.approved.md");
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/abstract")).toBe(true);
+  });
+
+  it("collectPendingApprovalPaths lists draft and outline files awaiting approval", async () => {
+    const draftRel = "papers/demo/unit-a/draft.md";
+    const outlineRel = "papers/demo/unit-a/outline.md";
+    await writeFile(path.join(modelRoot, draftRel), "Pending draft.\n", "utf8");
+    await writeFile(path.join(modelRoot, outlineRel), "Pending outline.\n", "utf8");
+
+    const paths = await collectPendingApprovalPaths(modelRoot, "papers/demo");
+    expect(paths).toContain(draftRel);
+    expect(paths).toContain(outlineRel);
+
+    await approveDraftTarget(modelRoot, draftRel);
+    await approveDraftTarget(modelRoot, outlineRel);
+    const after = await collectPendingApprovalPaths(modelRoot, "papers/demo");
+    expect(after).not.toContain(draftRel);
+    expect(after).not.toContain(outlineRel);
+  });
+
+  it("propagates draft approval to parent section when all child drafts are approved", async () => {
+    await createNode(modelRoot, "papers/demo", "results", "section");
+    await createNode(modelRoot, "papers/demo/results", "u1", "unit");
+    await createNode(modelRoot, "papers/demo/results", "u2", "unit");
+    const sectionDraftRel = "papers/demo/results/draft.md";
+    const u1DraftRel = "papers/demo/results/u1/draft.md";
+    const u2DraftRel = "papers/demo/results/u2/draft.md";
+    await writeFile(path.join(modelRoot, sectionDraftRel), "\\label{sec:results}\n", "utf8");
+    await writeFile(path.join(modelRoot, u1DraftRel), "First unit draft.\n", "utf8");
+    await writeFile(path.join(modelRoot, u2DraftRel), "Second unit draft.\n", "utf8");
+
+    await approveDraftTarget(modelRoot, u1DraftRel, "reviewer");
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/results/u1")).toBe(true);
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/results")).toBe(false);
+
+    await approveDraftTarget(modelRoot, u2DraftRel, "reviewer");
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/results/u2")).toBe(true);
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/results")).toBe(true);
+  });
+
+  it("propagates outline approval to parent section when all child outlines are approved", async () => {
+    await createNode(modelRoot, "papers/demo", "results", "section");
+    await createNode(modelRoot, "papers/demo/results", "u1", "unit");
+    await createNode(modelRoot, "papers/demo/results", "u2", "unit");
+    const sectionOutlineRel = "papers/demo/results/outline.md";
+    const u1OutlineRel = "papers/demo/results/u1/outline.md";
+    const u2OutlineRel = "papers/demo/results/u2/outline.md";
+    await writeFile(
+      path.join(modelRoot, sectionOutlineRel),
+      "# Results\n\n## Summary\n\nSection summary.\n\n## Outline\n\n- [U1](u1/INDEX.md)\n- [U2](u2/INDEX.md)\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, u1OutlineRel),
+      "# U1\n\n## Summary\n\nFirst summary.\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, u2OutlineRel),
+      "# U2\n\n## Summary\n\nSecond summary.\n",
+      "utf8",
+    );
+
+    await approveDraftTarget(modelRoot, u1OutlineRel, "reviewer");
+    expect(await outlinesMatchApproved(modelRoot, "papers/demo/results/u1")).toBe(true);
+    expect(await outlinesMatchApproved(modelRoot, "papers/demo/results")).toBe(false);
+
+    await approveDraftTarget(modelRoot, u2OutlineRel, "reviewer");
+    expect(await outlinesMatchApproved(modelRoot, "papers/demo/results/u2")).toBe(true);
+    expect(await outlinesMatchApproved(modelRoot, "papers/demo/results")).toBe(true);
   });
 });

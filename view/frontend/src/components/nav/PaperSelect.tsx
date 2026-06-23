@@ -114,7 +114,7 @@ export function PaperSelect({
                 left: menuPosition.left,
                 width: menuPosition.width,
               }}
-              className="fixed z-overlay max-h-48 overflow-auto rounded-md border border-border bg-card py-1 text-card-foreground shadow-xl"
+              className="fixed z-overlay max-h-48 overflow-auto rounded-md border border-border bg-card py-1 text-card-foreground shadow-lg"
             >
               {papers.length === 0 ? (
                 <li className="bg-card px-2.5 py-2 text-xs text-muted-foreground">No papers yet</li>

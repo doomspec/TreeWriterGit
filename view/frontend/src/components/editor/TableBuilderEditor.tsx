@@ -10,10 +10,9 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
+import { PendingApprovalChip } from "@/components/editor/PendingApprovalChip";
 import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
 import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
-import { PendingChangesPanel } from "@/components/editor/PendingChangesPanel";
 import { Button } from "@/components/ui/button";
 import {
   draftSaveMeta,
@@ -21,6 +20,7 @@ import {
   loadDraftApprovalState,
   loadModelFileContent,
 } from "@/lib/draftApproval";
+import { effectiveDiffBaseline } from "@/lib/draftDiff";
 import { cn } from "@/lib/utils";
 import {
   initTableDraft,
@@ -99,6 +99,7 @@ export function TableBuilderEditor({
   const [editMeta, setEditMeta] = useState({
     editedBy: null as string | null,
     aiAssisted: false,
+    aiProvider: null as string | null,
   });
   const [mode, setMode] = useState<"visual" | "raw">("visual");
   const [rawText, setRawText] = useState("");
@@ -163,7 +164,7 @@ export function TableBuilderEditor({
     void loadDraftApprovalState(filePath).then(({ content: baseline, meta }) => {
       if (!cancelled) {
         setApprovedBaseline(baseline);
-        setEditMeta({ editedBy: meta.editedBy, aiAssisted: meta.aiAssisted });
+        setEditMeta({ editedBy: meta.editedBy, aiAssisted: meta.aiAssisted, aiProvider: meta.aiProvider });
       }
     });
     return () => {
@@ -259,6 +260,10 @@ export function TableBuilderEditor({
   }, []);
 
   const previewMarkdown = currentContent;
+  const diffBaseline = useMemo(
+    () => effectiveDiffBaseline(approvedBaseline, loaded),
+    [approvedBaseline, loaded],
+  );
   const saveLabel = draftStatusLabel({
     requiresApproval: true,
     isPendingApproval,
@@ -286,18 +291,8 @@ export function TableBuilderEditor({
   };
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      <DraftApprovalBar
-        pendingSource={isPendingApproval ? pendingSource : null}
-        editedBy={githubHandle || editMeta.editedBy}
-        aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
-        onApprove={() => void handleApprove()}
-        onDiscard={() => void handleDiscard()}
-        approving={saveState === "saving"}
-      />
-      {isPendingApproval ? (
-        <PendingChangesPanel baseline={approvedBaseline} current={currentContent} />
-      ) : null}
+    <div className={cn("flex min-h-0 flex-1", className)}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="ui-pane-header shrink-0">
         <div className="flex items-center gap-2">
           <Table2 className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
@@ -342,7 +337,7 @@ export function TableBuilderEditor({
             className="min-h-[12rem] w-full rounded-md border border-border bg-background p-3 font-mono text-xs leading-5"
             mirrorClassName="p-3 font-mono text-xs leading-5"
             value={rawText}
-            baseline={approvedBaseline}
+            baseline={diffBaseline}
             highlight={isPendingApproval}
             spellCheck={false}
             onChange={(event) => setRawText(event.target.value)}
@@ -472,12 +467,30 @@ export function TableBuilderEditor({
           </div>
         )}
 
+        {isPendingApproval ? (
+          <PendingApprovalChip
+            className="mb-4"
+            pendingSource={pendingSource ?? "human"}
+            editedBy={githubHandle || editMeta.editedBy}
+            aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
+            aiProvider={editMeta.aiProvider}
+            approvedBaseline={approvedBaseline}
+            loadedContent={loaded}
+            current={currentContent}
+            onApprove={() => void handleApprove()}
+            onDiscard={() => void handleDiscard()}
+            approving={saveState === "saving"}
+            approveLabel="Approve"
+          />
+        ) : null}
+
         <div className={cn("mt-6 border-t border-border pt-4", isPendingApproval && "rounded-md ring-1 ring-amber-500/30")}>
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Preview{isPendingApproval ? " — unapproved changes below" : ""}
+            Preview
           </p>
           <MarkdownViewer markdown={previewMarkdown} className="text-sm" />
         </div>
+      </div>
       </div>
     </div>
   );

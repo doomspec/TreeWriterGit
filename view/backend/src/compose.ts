@@ -199,6 +199,10 @@ async function composeDraftBlock(
   return linkedHeadingBlock(depth, childTitle, linkHref, inner.join(""));
 }
 
+function stripLinkedHeadingBlock(block: string): string {
+  return block.replace(/^#{2,4}\s+\[[^\]]+\]\([^)]+\)\s*\r?\n+/m, "").trim();
+}
+
 /** Build composed section outline (subsection summaries) and draft (stitched child drafts). */
 export async function composeSectionView(
   modelRoot: string,
@@ -213,6 +217,7 @@ export async function composeSectionView(
 
   const ownOutline = await readOutlineContent(modelRoot, dirRel);
   const ownSummary = parseOutlineSummary(ownOutline);
+  const ownDraft = await readDraftContent(modelRoot, dirRel, approvedOnly);
 
   const children: SectionChild[] = [];
   const outlineParts: string[] = [`# ${title}\n`];
@@ -223,6 +228,11 @@ export async function composeSectionView(
     if (isPaper) {
       draftParts.push(`${ownSummary}\n\n`);
     }
+  }
+
+  if (ownDraft && !isPaper) {
+    const body = stripLeadingH1(ownDraft);
+    if (body) draftParts.push(`${body}\n\n`);
   }
 
   outlineParts.push(`## ${isPaper ? "Sections" : "Subsections"}\n\n`);
@@ -264,6 +274,14 @@ export async function composeSectionView(
       approvedOnly,
     );
     if (draftBlock) draftParts.push(draftBlock);
+  }
+
+  if (children.length === 1 && children[0]?.kind === "unit" && draftParts.length > 1) {
+    const lastBlock = draftParts[draftParts.length - 1] ?? "";
+    const flat = stripLinkedHeadingBlock(lastBlock);
+    if (flat) {
+      draftParts[draftParts.length - 1] = `${flat}\n\n`;
+    }
   }
 
   return {

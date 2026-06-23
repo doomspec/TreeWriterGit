@@ -7,12 +7,13 @@ export type DiffLine = {
 
 export type InlineSegment = {
   text: string;
-  kind: "equal" | "insert";
+  kind: "equal" | "insert" | "delete";
 };
 
 export type PendingLineHighlight =
   | { kind: "equal"; text: string }
   | { kind: "full"; text: string }
+  | { kind: "delete"; text: string }
   | { kind: "inline"; segments: InlineSegment[] };
 
 export function splitLines(text: string): string[] {
@@ -20,9 +21,64 @@ export function splitLines(text: string): string[] {
   return text.split("\n");
 }
 
-function tokenize(line: string): string[] {
+type DiffToken = {
+  raw: string;
+  key: string;
+};
+
+function normalizeTokenKey(raw: string): string {
+  return raw
+    .replace(/[^\p{L}\p{N}]+$/u, "")
+    .replace(/^[^\p{L}\p{N}]+/u, "")
+    .toLowerCase();
+}
+
+function tokenize(line: string): DiffToken[] {
   if (!line) return [];
-  return line.match(/\S+|\s+/g) ?? [];
+  const parts = line.match(/\S+|\s+/g) ?? [];
+  return parts.map((raw) => ({
+    raw,
+    key: /\s/.test(raw) ? raw : normalizeTokenKey(raw) || raw,
+  }));
+}
+
+function lcsDiffTokens(a: DiffToken[], b: DiffToken[]): DiffLine[] {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+
+  for (let i = m - 1; i >= 0; i -= 1) {
+    for (let j = n - 1; j >= 0; j -= 1) {
+      dp[i][j] =
+        a[i].key === b[j].key ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+
+  const ops: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < m && j < n) {
+    if (a[i].key === b[j].key) {
+      ops.push({ kind: "equal", text: a[i].raw });
+      i += 1;
+      j += 1;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ kind: "delete", text: a[i].raw });
+      i += 1;
+    } else {
+      ops.push({ kind: "insert", text: b[j].raw });
+      j += 1;
+    }
+  }
+  while (i < m) {
+    ops.push({ kind: "delete", text: a[i].raw });
+    i += 1;
+  }
+  while (j < n) {
+    ops.push({ kind: "insert", text: b[j].raw });
+    j += 1;
+  }
+  return ops;
 }
 
 function lcsDiff(a: string[], b: string[]): DiffLine[] {
@@ -63,11 +119,10 @@ function lcsDiff(a: string[], b: string[]): DiffLine[] {
   return ops;
 }
 
-function mergeAfterSegments(ops: DiffLine[]): InlineSegment[] {
+function mergeTrackChangeSegments(ops: DiffLine[]): InlineSegment[] {
   const segments: InlineSegment[] = [];
   for (const op of ops) {
-    if (op.kind === "delete") continue;
-    const kind = op.kind === "equal" ? "equal" : "insert";
+    const kind = op.kind === "equal" ? "equal" : op.kind === "insert" ? "insert" : "delete";
     const last = segments[segments.length - 1];
     if (last && last.kind === kind) {
       last.text += op.text;
@@ -78,9 +133,9 @@ function mergeAfterSegments(ops: DiffLine[]): InlineSegment[] {
   return segments.length > 0 ? segments : [{ text: "", kind: "equal" }];
 }
 
-function diffWordSegments(before: string, after: string): InlineSegment[] {
+export function diffWordSegments(before: string, after: string): InlineSegment[] {
   if (before === after) return [{ text: after, kind: "equal" }];
-  return mergeAfterSegments(lcsDiff(tokenize(before), tokenize(after)));
+  return mergeTrackChangeSegments(lcsDiffTokens(tokenize(before), tokenize(after)));
 }
 
 /** Myers-style LCS line diff between approved (before) and pending (after) text. */
@@ -88,13 +143,7 @@ export function diffLineOps(before: string, after: string): DiffLine[] {
   return lcsDiff(splitLines(before), splitLines(after));
 }
 
-/** Per-line highlight rows for the pending document, with word-level marks on edited lines. */
-export function pendingLineHighlightRows(baseline: string, current: string): PendingLineHighlight[] {
-  if (baseline === current) {
-    return splitLines(current).map((text) => ({ kind: "equal", text }));
-  }
-
-  const ops = diffLineOps(baseline, current);
+function pendingLineHighlightRowsFromOps(ops: DiffLine[], includeDeletedLines: boolean): PendingLineHighlight[] {
   const rows: PendingLineHighlight[] = [];
   for (let index = 0; index < ops.length; index += 1) {
     const op = ops[index];
@@ -102,21 +151,40 @@ export function pendingLineHighlightRows(baseline: string, current: string): Pen
       rows.push({ kind: "equal", text: op.text });
       continue;
     }
-    if (op.kind !== "insert") continue;
-
-    const prev = ops[index - 1];
-    if (prev?.kind === "delete") {
-      rows.push({ kind: "inline", segments: diffWordSegments(prev.text, op.text) });
-    } else {
-      rows.push({ kind: "full", text: op.text });
+    if (op.kind === "delete") {
+      const next = ops[index + 1];
+      if (next?.kind === "insert") {
+        rows.push({ kind: "inline", segments: diffWordSegments(op.text, next.text) });
+        index += 1;
+      } else if (includeDeletedLines) {
+        rows.push({ kind: "delete", text: op.text });
+      }
+      continue;
     }
+    rows.push({ kind: "full", text: op.text });
   }
   return rows;
 }
 
+/** Per-line highlight rows aligned to the current document (for raw editor overlays). */
+export function pendingCurrentLineHighlightRows(baseline: string, current: string): PendingLineHighlight[] {
+  if (baseline === current) {
+    return splitLines(current).map((text) => ({ kind: "equal", text }));
+  }
+  return pendingLineHighlightRowsFromOps(diffLineOps(baseline, current), false);
+}
+
+/** Full track-changes rows including removed lines until approved. */
+export function pendingLineHighlightRows(baseline: string, current: string): PendingLineHighlight[] {
+  if (baseline === current) {
+    return splitLines(current).map((text) => ({ kind: "equal", text }));
+  }
+  return pendingLineHighlightRowsFromOps(diffLineOps(baseline, current), true);
+}
+
 /** One highlight kind per line in the pending (after) document. */
 export function pendingLineHighlights(baseline: string, current: string): ("equal" | "insert")[] {
-  return pendingLineHighlightRows(baseline, current).map((row) =>
+  return pendingCurrentLineHighlightRows(baseline, current).map((row) =>
     row.kind === "equal" ? "equal" : "insert",
   );
 }
@@ -125,10 +193,53 @@ export function hasPendingDiff(baseline: string, current: string): boolean {
   return baseline !== current;
 }
 
+/** Baseline for diff display: approved snapshot, or last saved content when never approved. */
+export function effectiveDiffBaseline(approvedBaseline: string, loadedContent: string): string {
+  return approvedBaseline.length > 0 ? approvedBaseline : loadedContent;
+}
+
+/** True when the editor content differs from the effective approval baseline. */
+export function hasPendingApprovalDiff(
+  approvedBaseline: string,
+  loadedContent: string,
+  current: string,
+): boolean {
+  return effectiveDiffBaseline(approvedBaseline, loadedContent) !== current;
+}
+
+export function pendingChangesRows(
+  approvedBaseline: string,
+  loadedContent: string,
+  current: string,
+): PendingLineHighlight[] {
+  const baseline = effectiveDiffBaseline(approvedBaseline, loadedContent);
+  if (baseline === current) return [];
+  return pendingLineHighlightRows(baseline, current).filter((row) => row.kind !== "equal");
+}
+
 export function countPendingChanges(baseline: string, current: string): { inserts: number; deletes: number } {
   const ops = diffLineOps(baseline, current);
   return {
     inserts: ops.filter((op) => op.kind === "insert").length,
     deletes: ops.filter((op) => op.kind === "delete").length,
   };
+}
+
+export function countPendingDisplayChanges(
+  approvedBaseline: string,
+  loadedContent: string,
+  current: string,
+): { changedLines: number; changedWords: number } {
+  const rows = pendingChangesRows(approvedBaseline, loadedContent, current);
+  let changedLines = 0;
+  let changedWords = 0;
+  for (const row of rows) {
+    changedLines += 1;
+    if (row.kind === "inline") {
+      changedWords += row.segments.filter(
+        (segment) => segment.kind === "insert" || segment.kind === "delete",
+      ).length;
+    }
+  }
+  return { changedLines, changedWords };
 }

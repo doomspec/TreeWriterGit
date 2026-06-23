@@ -1,16 +1,28 @@
-import { useMemo, useRef } from "react";
-
-import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
-import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
+import { BlockMarkdownEditor, type BlockMarkdownEditorHandle } from "@/components/editor/BlockMarkdownEditor";
 import { cn } from "@/lib/utils";
 import type { NavigateTarget } from "@/lib/modelTree";
+import type { DraftPendingSource } from "@/lib/draftApproval";
 
-/** Edit markdown with a live rendered preview above a prose-styled source field. */
+type PendingApprovalProps = {
+  pendingSource: DraftPendingSource | null;
+  editedBy?: string | null;
+  aiAssisted?: boolean;
+  aiProvider?: string | null;
+  loadedContent: string;
+  onApprove: () => void;
+  onDiscard: () => void;
+  approving?: boolean;
+  approveLabel?: string;
+};
+
+/** Edit markdown as rendered prose — block-level read/edit toggle. */
 export function RenderedMarkdownField({
   value,
   onChange,
   onSelect,
+  onBlur,
   onKeyDown,
+  onTextareaSync,
   className,
   placeholder = "Write here…",
   ariaLabel,
@@ -18,15 +30,20 @@ export function RenderedMarkdownField({
   linksClickable = false,
   onNavigate,
   inputRef,
-  showPreview = true,
-  approvedBaseline,
+  editorRef,
+  showPreview: _showPreview = true,
+  approvedBaseline = "",
+  loadedContent = "",
   highlightPending = false,
-  compact = false,
+  pendingApproval = null,
+  compact: _compact = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSelect?: () => void;
-  onKeyDown?: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onBlur?: (event: React.FocusEvent<HTMLTextAreaElement>) => void;
+  onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
+  onTextareaSync?: (textarea: HTMLTextAreaElement) => void;
   className?: string;
   placeholder?: string;
   ariaLabel?: string;
@@ -34,63 +51,35 @@ export function RenderedMarkdownField({
   linksClickable?: boolean;
   onNavigate?: (target: NavigateTarget) => void;
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
-  /** When false, only the prose editor is shown (e.g. tight layouts). */
+  editorRef?: React.RefObject<BlockMarkdownEditorHandle | null>;
   showPreview?: boolean;
-  /** Last approved text — enables line highlighting when `highlightPending`. */
   approvedBaseline?: string;
+  loadedContent?: string;
   highlightPending?: boolean;
-  /** Tighter layout: hide duplicate preview strip above the editor. */
+  pendingApproval?: PendingApprovalProps | null;
   compact?: boolean;
 }) {
-  const localRef = useRef<HTMLTextAreaElement>(null);
-  const textareaRef = inputRef ?? localRef;
-  const baseline = approvedBaseline ?? value;
-
-  const lineCount = useMemo(() => value.split("\n").length, [value]);
-  const minRows = Math.max(6, lineCount + 1);
-  const hasPreview = showPreview && !compact && value.trim().length > 0;
-
   return (
-    <div className={cn("rendered-markdown-field flex w-full flex-col gap-4", className)}>
-      {hasPreview ? (
-        <div className="rendered-markdown-field__preview-wrap shrink-0 border-b border-border/60 pb-4">
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Preview
-          </p>
-          <MarkdownViewer
-            markdown={value}
-            className="rendered-markdown-field__preview"
-            linkContextPath={linkContextPath}
-            linksClickable={linksClickable}
-            onNavigate={onNavigate}
-          />
-        </div>
-      ) : null}
-      <div className="rendered-markdown-field__editor w-full">
-        {!hasPreview ? (
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Edit
-          </p>
-        ) : null}
-        <HighlightingTextarea
-          fillContainer={false}
-          inputRef={textareaRef}
-          className="rendered-markdown-field__input markdown-reading-edit block w-full min-h-[8rem] p-0 font-serif"
-          mirrorClassName="rendered-markdown-field__input markdown-reading-edit block w-full p-0 font-serif"
-          value={value}
-          baseline={baseline}
-          highlight={highlightPending}
-          rows={minRows}
-          spellCheck={true}
-          aria-label={ariaLabel}
-          placeholder={placeholder}
-          onChange={(event) => onChange(event.target.value)}
-          onSelect={onSelect}
-          onKeyUp={onSelect}
-          onClick={onSelect}
-          onKeyDown={onKeyDown}
-        />
-      </div>
+    <div className={cn("rendered-markdown-field w-full", className)}>
+      <BlockMarkdownEditor
+        ref={editorRef}
+        value={value}
+        approvedBaseline={approvedBaseline}
+        loadedContent={loadedContent}
+        highlightPending={highlightPending}
+        pendingApproval={pendingApproval}
+        onChange={onChange}
+        onSelect={onSelect}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
+        onTextareaSync={onTextareaSync}
+        placeholder={placeholder}
+        ariaLabel={ariaLabel}
+        linkContextPath={linkContextPath}
+        linksClickable={linksClickable}
+        onNavigate={onNavigate}
+        inputRef={inputRef}
+      />
     </div>
   );
 }

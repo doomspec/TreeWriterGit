@@ -1,20 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { GripVertical } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { FilePlus, FolderPlus, GripVertical, Plus } from "lucide-react";
 
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
 import { TreeRowActions } from "@/components/nav/TreeRowActions";
+import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
+import { Button } from "@/components/ui/button";
 import { UnapprovedIndicator } from "@/components/nav/UnapprovedIndicator";
 import { cn } from "@/lib/utils";
-import { useDraftPendingPaths } from "@/lib/draftPendingStore";
+import { useDraftPendingPaths, replaceServerDraftPendingPaths } from "@/lib/draftPendingStore";
 import {
   sectionNeedsHighlight,
   unapprovedSectionRowClass,
   unapprovedSectionTitle,
+  UNIT_STATUS_COUNTS_HINT,
 } from "@/lib/unapprovedHighlight";
 import { navigateAfterArchive, useArchiveNodeDialog } from "@/lib/useArchiveNodeDialog";
 import {
+  findNode,
+  canAddManuscriptChildren,
+  isLeafEditorFolder,
   indexPathFor,
   orderedChildFolders,
   parseIndexFrontmatter,
@@ -23,8 +30,11 @@ import {
   type PaperSectionItem,
 } from "@/lib/modelTree";
 import {
+  createNode,
   fetchPaperDetail,
+  moveNode,
   reorderChildren,
+  type NodeKind,
   type PaperDetail,
   type UnitStatusCounts,
 } from "@/modelApi";
@@ -36,8 +46,194 @@ type SectionRow = PaperSectionItem & {
   counts?: UnitStatusCounts;
 };
 
+type CreatePrompt = {
+  parentPath: string;
+  kind: NodeKind;
+};
+
+type RenameTarget = {
+  path: string;
+  label: string;
+};
+
+type CreateMenuOption = {
+  kind: NodeKind;
+  label: string;
+  Icon: typeof FolderPlus;
+};
+
+function sectionTreeDragHandleClass(compact = false): string {
+  return cn(
+    "flex shrink-0 cursor-grab items-center justify-center rounded-l-md text-muted-foreground transition-colors",
+    "hover:bg-muted/80 hover:text-foreground active:cursor-grabbing",
+    compact ? "w-5" : "w-7",
+  );
+}
+
+function sectionTreeNavButtonClass(options: {
+  active: boolean;
+  highlight: boolean;
+  textSize: string;
+  rowPad?: string;
+}): string {
+  const { active, highlight, textSize, rowPad } = options;
+  return cn(
+    "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left transition-colors",
+    textSize,
+    rowPad,
+    highlight
+      ? active
+        ? "bg-amber-500/20 font-medium text-amber-950 hover:bg-amber-500/30 dark:text-amber-50"
+        : "text-amber-900 hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-100 dark:hover:text-amber-50"
+      : active
+        ? "bg-accent/50 font-medium text-foreground hover:bg-primary/15 hover:text-foreground"
+        : "text-muted-foreground hover:bg-accent/45 hover:text-foreground",
+  );
+}
+
+function SectionCreateMenu({
+  parentPath,
+  paperPath,
+  tree,
+  disabled,
+  onCreate,
+}: {
+  parentPath: string;
+  paperPath: string;
+  tree: ModelNode[];
+  disabled?: boolean;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
+
+  const node = findNode(tree, parentPath);
+  const atPaperRoot = parentPath === paperPath;
+  const options: CreateMenuOption[] = atPaperRoot
+    ? [{ kind: "section", label: "Section", Icon: FolderPlus }]
+    : [
+        { kind: "unit", label: "Unit", Icon: FilePlus },
+        { kind: "subsection", label: "Subsection", Icon: FolderPlus },
+      ];
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const button = buttonRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
+
+  if (!canAddManuscriptChildren(node, parentPath, paperPath)) {
+    return null;
+  }
+
+  const wrapperClass = "relative shrink-0";
+
+  const choose = (kind: NodeKind) => {
+    setOpen(false);
+    onCreate(parentPath, kind);
+  };
+
+  return (
+    <div ref={rootRef} className={wrapperClass}>
+      <Button
+        ref={buttonRef}
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 text-muted-foreground hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-400"
+        title="Add to section"
+        aria-label="Add to section"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (options.length === 1) {
+            choose(options[0]!.kind);
+            return;
+          }
+          setOpen((value) => !value);
+        }}
+      >
+        <Plus className="h-3 w-3" aria-hidden="true" />
+      </Button>
+      {open && menuPosition
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              style={{
+                top: menuPosition.top,
+                right: menuPosition.right,
+              }}
+              className="fixed z-overlay min-w-[9.5rem] rounded-md border border-border bg-card py-1 text-card-foreground shadow-lg"
+            >
+              {options.map(({ kind, label, Icon }) => (
+                <button
+                  key={kind}
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 bg-card px-2.5 py-1.5 text-left text-xs hover:bg-accent"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    choose(kind);
+                  }}
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
 function FolderChildrenList({
   parent,
+  paperPath,
   currentPath,
   tree,
   childOrders,
@@ -47,8 +243,11 @@ function FolderChildrenList({
   onNavigate,
   onReorder,
   onDelete,
+  onRename,
+  onCreate,
 }: {
   parent: PaperSectionItem;
+  paperPath: string;
   currentPath: string;
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
@@ -58,12 +257,19 @@ function FolderChildrenList({
   onNavigate: (path: string) => void;
   onReorder: (parentPath: string, order: string[]) => Promise<void>;
   onDelete: (path: string, label: string) => void;
+  onRename: (path: string, label: string) => void;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
 }) {
   const expanded =
     currentPath === parent.path || currentPath.startsWith(`${parent.path}/`);
   if (!expanded) return null;
 
+  const parentNode = findNode(tree, parent.path);
+  if (isLeafEditorFolder(parentNode)) return null;
+
   const children = orderedChildFolders(tree, parent.path, childOrders[parent.path] ?? []);
+
+  if (children.length === 0 && depth !== 0) return null;
 
   return (
     <div
@@ -74,13 +280,14 @@ function FolderChildrenList({
     >
       {children.length === 0 ? (
         <p className="px-2 py-1 text-[10px] text-muted-foreground">
-          No subsections or units yet — open this folder and use the footer + buttons.
+          No subsections or units yet — use + on a folder above to add a subsection or unit.
         </p>
       ) : (
         <ChildOrderList
           parentPath={parent.path}
           parentTitle={parent.title}
           items={children}
+          paperPath={paperPath}
           currentPath={currentPath}
           tree={tree}
           childOrders={childOrders}
@@ -90,6 +297,8 @@ function FolderChildrenList({
           onNavigate={onNavigate}
           onReorder={onReorder}
           onDelete={onDelete}
+          onRename={onRename}
+          onCreate={onCreate}
         />
       )}
     </div>
@@ -100,6 +309,7 @@ function ChildOrderList({
   parentPath,
   parentTitle,
   items,
+  paperPath,
   currentPath,
   tree,
   childOrders,
@@ -109,10 +319,13 @@ function ChildOrderList({
   onNavigate,
   onReorder,
   onDelete,
+  onRename,
+  onCreate,
 }: {
   parentPath: string;
   parentTitle: string;
   items: PaperSectionItem[];
+  paperPath: string;
   currentPath: string;
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
@@ -122,6 +335,8 @@ function ChildOrderList({
   onNavigate: (path: string) => void;
   onReorder: (parentPath: string, order: string[]) => Promise<void>;
   onDelete: (path: string, label: string) => void;
+  onRename: (path: string, label: string) => void;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -150,6 +365,8 @@ function ChildOrderList({
           child.path,
           containerCounts[child.path],
         );
+        const childNode = findNode(tree, child.path);
+        const showCreate = canAddManuscriptChildren(childNode, child.path, paperPath);
 
         return (
           <li key={child.path}>
@@ -179,7 +396,7 @@ function ChildOrderList({
                   e.preventDefault();
                   void handleDrop(index);
                 }}
-                className="flex w-5 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                className={sectionTreeDragHandleClass(true)}
                 title="Drag to reorder"
                 aria-hidden="true"
               >
@@ -187,28 +404,40 @@ function ChildOrderList({
               </div>
               <button
                 type="button"
-                className={cn(
-                  "flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 text-left hover:bg-accent/40",
+                className={sectionTreeNavButtonClass({
+                  active: childActive,
+                  highlight,
                   textSize,
                   rowPad,
-                  childActive ? "bg-accent/50 font-medium text-foreground" : "text-muted-foreground",
-                )}
+                })}
                 onClick={() => onNavigate(child.path)}
               >
-                <span className={cn("flex min-w-0 items-center gap-1.5", highlight && "text-amber-950 dark:text-amber-50")}>
-                  <UnapprovedIndicator pending={pending} unapproved={unapproved} />
-                  <span className={cn("truncate", highlight && "text-amber-950 dark:text-amber-50")}>
-                    {child.title}
-                  </span>
+                <UnapprovedIndicator pending={pending} unapproved={unapproved} />
+                <span className={cn("min-w-0 truncate", highlight && "text-amber-950 dark:text-amber-50")}>
+                  {child.title}
                 </span>
               </button>
-              <TreeRowActions
-                onDelete={() => onDelete(child.path, child.title)}
-                deleteLabel={`Delete ${child.title}`}
-              />
+              <div className="flex shrink-0 items-center gap-1 pr-0.5">
+                {showCreate ? (
+                  <SectionCreateMenu
+                    parentPath={child.path}
+                    paperPath={paperPath}
+                    tree={tree}
+                    disabled={reordering}
+                    onCreate={onCreate}
+                  />
+                ) : null}
+                <TreeRowActions
+                  onRename={() => onRename(child.path, child.title)}
+                  renameLabel={`Rename ${child.title}`}
+                  onDelete={() => onDelete(child.path, child.title)}
+                  deleteLabel={`Delete ${child.title}`}
+                />
+              </div>
             </div>
             <FolderChildrenList
               parent={child}
+              paperPath={paperPath}
               currentPath={currentPath}
               tree={tree}
               childOrders={childOrders}
@@ -218,6 +447,8 @@ function ChildOrderList({
               onNavigate={onNavigate}
               onReorder={onReorder}
               onDelete={onDelete}
+              onRename={onRename}
+              onCreate={onCreate}
             />
           </li>
         );
@@ -228,6 +459,7 @@ function ChildOrderList({
 
 function SubsectionOrderList({
   parent,
+  paperPath,
   currentPath,
   tree,
   childOrders,
@@ -236,8 +468,11 @@ function SubsectionOrderList({
   onNavigate,
   onReorder,
   onDelete,
+  onRename,
+  onCreate,
 }: {
   parent: SectionRow;
+  paperPath: string;
   currentPath: string;
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
@@ -246,10 +481,13 @@ function SubsectionOrderList({
   onNavigate: (path: string) => void;
   onReorder: (parentPath: string, order: string[]) => Promise<void>;
   onDelete: (path: string, label: string) => void;
+  onRename: (path: string, label: string) => void;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
 }) {
   return (
     <FolderChildrenList
       parent={parent}
+      paperPath={paperPath}
       currentPath={currentPath}
       tree={tree}
       childOrders={childOrders}
@@ -258,12 +496,15 @@ function SubsectionOrderList({
       onNavigate={onNavigate}
       onReorder={onReorder}
       onDelete={onDelete}
+      onRename={onRename}
+      onCreate={onCreate}
     />
   );
 }
 
 function SectionOrderList({
   sections,
+  paperPath,
   currentPath,
   tree,
   childOrders,
@@ -273,8 +514,11 @@ function SectionOrderList({
   onReorder,
   onChildReorder,
   onDelete,
+  onRename,
+  onCreate,
 }: {
   sections: SectionRow[];
+  paperPath: string;
   currentPath: string;
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
@@ -284,6 +528,8 @@ function SectionOrderList({
   onReorder: (order: string[]) => Promise<void>;
   onChildReorder: (parentPath: string, order: string[]) => Promise<void>;
   onDelete: (path: string, label: string) => void;
+  onRename: (path: string, label: string) => void;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
 }) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -310,6 +556,7 @@ function SectionOrderList({
     return (
       <SubsectionOrderList
         parent={parent}
+        paperPath={paperPath}
         currentPath={currentPath}
         tree={tree}
         childOrders={childOrders}
@@ -318,6 +565,8 @@ function SectionOrderList({
         onNavigate={onNavigate}
         onReorder={onChildReorder}
         onDelete={onDelete}
+        onRename={onRename}
+        onCreate={onCreate}
       />
     );
   };
@@ -360,7 +609,7 @@ function SectionOrderList({
                   e.preventDefault();
                   void handleDrop(index);
                 }}
-                className="flex w-7 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+                className={sectionTreeDragHandleClass()}
                 title="Drag to reorder"
                 aria-hidden="true"
               >
@@ -368,26 +617,42 @@ function SectionOrderList({
               </div>
               <button
                 type="button"
-                className="flex min-w-0 flex-1 items-center justify-between gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent/30"
+                className={sectionTreeNavButtonClass({
+                  active,
+                  highlight,
+                  textSize: "text-xs",
+                  rowPad: "py-1.5",
+                })}
                 onClick={() => onNavigate(section.path)}
               >
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <UnapprovedIndicator pending={pending} unapproved={unapproved} />
-                  <span className={unapprovedSectionTitle("truncate font-medium", highlight)}>
-                    {section.title}
-                  </span>
+                <UnapprovedIndicator pending={pending} unapproved={unapproved} />
+                <span className={unapprovedSectionTitle("min-w-0 truncate font-medium", highlight)}>
+                  {section.title}
                 </span>
+              </button>
+              <div className="flex shrink-0 items-center gap-1 pr-0.5">
                 {section.counts ? (
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                  <span
+                    className="font-mono text-[10px] text-muted-foreground"
+                    title={UNIT_STATUS_COUNTS_HINT}
+                  >
                     {section.counts.approved}/{section.counts.drafted}/{section.counts.outline}
                   </span>
                 ) : null}
-              </button>
-              <TreeRowActions
-                onDelete={() => onDelete(section.path, section.title)}
-                deleteLabel={`Delete ${section.title}`}
-                className="pr-1"
-              />
+                <SectionCreateMenu
+                  parentPath={section.path}
+                  paperPath={paperPath}
+                  tree={tree}
+                  disabled={reordering}
+                  onCreate={onCreate}
+                />
+                <TreeRowActions
+                  onRename={() => onRename(section.path, section.title)}
+                  renameLabel={`Rename ${section.title}`}
+                  onDelete={() => onDelete(section.path, section.title)}
+                  deleteLabel={`Delete ${section.title}`}
+                />
+              </div>
             </div>
             {renderChildren(section)}
           </li>
@@ -425,9 +690,19 @@ export function PapersPanel({
   const [childOrders, setChildOrders] = useState<Record<string, string[]>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [createPrompt, setCreatePrompt] = useState<CreatePrompt | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
+
+  const requestCreate = useCallback((parentPath: string, kind: NodeKind) => {
+    setCreatePrompt({ parentPath, kind });
+  }, []);
+
+  const requestRename = useCallback((path: string, label: string) => {
+    setRenameTarget({ path, label });
+  }, []);
 
   const loadChildOrder = useCallback(async (path: string): Promise<string[]> => {
     try {
@@ -451,6 +726,27 @@ export function PapersPanel({
     [loadChildOrder],
   );
 
+  const submitCreate = useCallback(
+    async (name: string) => {
+      if (!createPrompt) return;
+      const { parentPath, kind } = createPrompt;
+      setCreatePrompt(null);
+      try {
+        const created = await createNode(parentPath, name, kind);
+        onModelChanged?.();
+        onNavigate(created.path);
+        const order = await loadChildOrder(parentPath);
+        setChildOrders((prev) => ({ ...prev, [parentPath]: order }));
+        if (paperPath && parentPath === paperPath) {
+          await loadSectionOrder(paperPath);
+        }
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [createPrompt, loadChildOrder, loadSectionOrder, onError, onModelChanged, onNavigate, paperPath],
+  );
+
   const reload = useCallback(async () => {
     setDetailLoading(true);
     try {
@@ -459,13 +755,16 @@ export function PapersPanel({
         try {
           const data = await fetchPaperDetail(selectedSlug);
           setDetail(data.paper);
+          replaceServerDraftPendingPaths(data.paper.pendingApprovalPaths ?? []);
         } catch {
           setDetail(null);
+          replaceServerDraftPendingPaths([]);
         }
       } else {
         setDetail(null);
         setSectionOrder([]);
         setChildOrders({});
+        replaceServerDraftPendingPaths([]);
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -478,6 +777,28 @@ export function PapersPanel({
     onModelChanged?.();
     void reload();
   }, [onModelChanged, reload]);
+
+  const submitRename = useCallback(
+    async (nextName: string) => {
+      if (!renameTarget) return;
+      const { path } = renameTarget;
+      setRenameTarget(null);
+      const current = path.split("/").at(-1) ?? "";
+      if (nextName === current) return;
+      const parent = path.split("/").slice(0, -1).join("/");
+      const to = `${parent}/${nextName}`;
+      try {
+        await moveNode(path, to);
+        if (currentPath === path || currentPath.startsWith(`${path}/`)) {
+          onNavigate(currentPath.replace(path, to));
+        }
+        handleModelChanged();
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [currentPath, handleModelChanged, onError, onNavigate, renameTarget],
+  );
 
   const { requestArchive, dialogs: archiveDialogs } = useArchiveNodeDialog({
     onChanged: handleModelChanged,
@@ -497,6 +818,10 @@ export function PapersPanel({
   }, [currentPath, detailLoading, onNavigate, papers, papersLoading, selectedSlug]);
 
   const containerCounts = detail?.containerCounts ?? {};
+
+  const paperHighlight = paperPath
+    ? sectionNeedsHighlight(paperPath, containerCounts[paperPath] ?? detail?.counts)
+    : { highlight: false, pending: false, unapproved: false };
 
   const sections = useMemo((): SectionRow[] => {
     if (!paperPath) return [];
@@ -582,6 +907,7 @@ export function PapersPanel({
           refreshVersion={refreshVersion ?? 0}
           onNavigate={onNavigate}
           onPaperCreated={onPaperCreated}
+          onModelChanged={onModelChanged}
           onError={onError}
         />
       ) : null}
@@ -597,29 +923,61 @@ export function PapersPanel({
       {selectedSlug && paperPath ? (
         <div className="space-y-3">
           <div className="space-y-1">
-            <button
-              type="button"
+            <div
               className={cn(
-                "flex w-full items-center justify-between gap-2 rounded-md border border-border/60 px-2 py-1.5 text-left text-xs hover:bg-accent/40",
-                currentPath === paperPath ? "border-primary/40 bg-accent/50 font-medium" : "bg-background",
+                "flex items-stretch gap-0.5 rounded-md border border-border/60 bg-background",
+                unapprovedSectionRowClass({
+                  highlight: paperHighlight.highlight,
+                  pending: paperHighlight.pending,
+                  active: currentPath === paperPath,
+                }),
+                currentPath === paperPath ? "border-primary/40 bg-accent/50" : undefined,
               )}
-              onClick={() => onNavigate(paperPath)}
             >
-              <span className="truncate">{detail?.title ?? "Paper overview"}</span>
-              <span className="shrink-0 text-[10px] text-muted-foreground">Outline · Draft</span>
-            </button>
+              <button
+                type="button"
+                className={sectionTreeNavButtonClass({
+                  active: currentPath === paperPath,
+                  highlight: paperHighlight.highlight,
+                  textSize: "text-xs",
+                  rowPad: "py-1.5",
+                })}
+                onClick={() => onNavigate(paperPath)}
+              >
+                <UnapprovedIndicator
+                  pending={paperHighlight.pending}
+                  unapproved={paperHighlight.unapproved}
+                />
+                <span className={unapprovedSectionTitle("truncate font-medium", paperHighlight.highlight)}>
+                  {detail?.title ?? "Paper overview"}
+                </span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">Outline · Draft</span>
+              </button>
+              <div className="flex shrink-0 items-center pr-0.5">
+                <SectionCreateMenu
+                  parentPath={paperPath}
+                  paperPath={paperPath}
+                  tree={tree}
+                  disabled={reordering}
+                  onCreate={requestCreate}
+                />
+              </div>
+            </div>
             {!hidePaperHeader ? (
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Sections
               </p>
             ) : null}
             {sections.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No sections yet — open the paper and use the footer + button.
-              </p>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  No sections yet — use + on the paper row above to add a section.
+                </p>
+              </div>
             ) : (
               <SectionOrderList
                 sections={sections}
+                paperPath={paperPath!}
                 currentPath={currentPath}
                 tree={tree}
                 childOrders={childOrders}
@@ -629,11 +987,13 @@ export function PapersPanel({
                 onReorder={handleSectionReorder}
                 onChildReorder={handleChildReorder}
                 onDelete={requestArchive}
+                onRename={requestRename}
+                onCreate={requestCreate}
               />
             )}
             {sections.length > 0 ? (
               <p className="text-[10px] text-muted-foreground">
-                Drag to reorder · hover to remove ·{" "}
+                Drag to reorder · + to add · hover to rename or remove ·{" "}
                 <span className="text-amber-700 dark:text-amber-300">amber = unapproved text</span>
               </p>
             ) : null}
@@ -644,6 +1004,24 @@ export function PapersPanel({
       ) : null}
 
       {archiveDialogs}
+
+      <NamePromptDialog
+        open={createPrompt !== null}
+        title={createPrompt ? `New ${createPrompt.kind}` : "New node"}
+        label="Folder-safe name (lowercase, hyphens ok)"
+        confirmLabel="Create"
+        onConfirm={(name) => void submitCreate(name)}
+        onCancel={() => setCreatePrompt(null)}
+      />
+      <NamePromptDialog
+        open={renameTarget !== null}
+        title="Rename"
+        label="Folder-safe name (lowercase, hyphens ok)"
+        defaultValue={renameTarget?.path.split("/").at(-1) ?? ""}
+        confirmLabel="Rename"
+        onConfirm={(name) => void submitRename(name)}
+        onCancel={() => setRenameTarget(null)}
+      />
     </div>
   );
 }

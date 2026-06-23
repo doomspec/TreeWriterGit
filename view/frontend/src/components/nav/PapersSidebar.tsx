@@ -115,6 +115,7 @@ export function PapersSidebar({
             refreshVersion={refreshVersion}
             onNavigate={onNavigate}
             onPaperCreated={onPaperCreated}
+            onModelChanged={onModelChanged}
             onError={onError}
           />
           <PaperInfoLine

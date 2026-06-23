@@ -196,7 +196,7 @@ export function PaperExportMenu({
               ref={menuRef}
               role="menu"
               style={{ top: menuPosition.top, right: menuPosition.right }}
-              className="fixed z-overlay w-[15.5rem] rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+              className="fixed z-overlay w-[15.5rem] rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg"
             >
               <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Export &amp; Overleaf

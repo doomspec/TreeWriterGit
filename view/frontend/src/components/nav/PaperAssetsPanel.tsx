@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, Image, Plus, Sigma, Table2, Upload } from "lucide-react";
+import { BookOpen, ChevronRight, Image, Plus, Sigma, Table2, Upload } from "lucide-react";
 
 import { TreeRowActions } from "@/components/nav/TreeRowActions";
+import { AssetSearchField } from "@/components/editor/AssetSearchField";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +14,8 @@ import {
   type ReferenceMetadata,
   type TableMetadata,
 } from "@/lib/paperAssets";
+import { filterPaperAssets, filteredAssetCount, totalAssetCount } from "@/lib/assetSearch";
+import { ensureReferenceIndex, invalidateReferenceSearchCache, searchReferences } from "@/lib/referenceSearchCache";
 import { navigateAfterArchive, useArchiveNodeDialog } from "@/lib/useArchiveNodeDialog";
 import type { FigureMetadata } from "@/lib/figures";
 import { cn } from "@/lib/utils";
@@ -25,44 +28,127 @@ function AssetGroup({
   icon: Icon,
   emptyLabel,
   count,
+  countLabel,
+  active,
+  onOpen,
   onAdd,
   addIcon: AddIcon = Plus,
   addTitle,
+  collapsible = false,
+  defaultExpanded = true,
   children,
 }: {
   title: string;
   icon: typeof Image;
   emptyLabel: string;
   count: number;
+  countLabel?: string;
+  active?: boolean;
+  onOpen: () => void;
   onAdd: () => void;
   addIcon?: typeof Plus;
   addTitle?: string;
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
   children: React.ReactNode;
 }) {
-  return (
-    <div className="border-b border-border/60 last:border-b-0">
-      <div className="flex items-center justify-between gap-2 px-3 py-1.5">
-        <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
-          <span>{title}</span>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 shrink-0"
-          title={addTitle ?? `New ${title.toLowerCase().replace(/s$/, "")}`}
-          aria-label={addTitle ?? `New ${title.toLowerCase().replace(/s$/, "")}`}
-          onClick={onAdd}
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const body =
+    count > 0 ? (
+      <ul className="mt-1 space-y-0.5 px-2 pb-2">{children}</ul>
+    ) : (
+      <p className="px-3 pb-2 pt-1 text-[11px] text-muted-foreground">{emptyLabel}</p>
+    );
+
+  if (collapsible) {
+    return (
+      <details
+        className="group/asset border-b border-border/60 px-2 last:border-b-0"
+        open={expanded}
+        onToggle={(event) => setExpanded(event.currentTarget.open)}
+      >
+        <summary
+          className={cn(
+            "mx-1 flex cursor-pointer list-none items-stretch gap-0.5 rounded-md border border-border/60 bg-background [&::-webkit-details-marker]:hidden",
+            active ? "border-primary/40 bg-accent/50" : undefined,
+          )}
         >
-          <AddIcon className="h-3.5 w-3.5" aria-hidden="true" />
-        </Button>
+          <span className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent/40">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/asset:rotate-90" aria-hidden="true" />
+              <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="truncate font-medium">{title}</span>
+            </span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {countLabel ?? (count > 0 ? `${count} item${count === 1 ? "" : "s"}` : "Empty")}
+            </span>
+          </span>
+          <div className="flex shrink-0 items-center pr-0.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              title={addTitle ?? `New ${title.toLowerCase().replace(/s$/, "")}`}
+              aria-label={addTitle ?? `New ${title.toLowerCase().replace(/s$/, "")}`}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onAdd();
+              }}
+            >
+              <AddIcon className="h-3 w-3" aria-hidden="true" />
+            </Button>
+          </div>
+        </summary>
+        {body}
+      </details>
+    );
+  }
+
+  return (
+    <div className="border-b border-border/60 px-2 last:border-b-0">
+      <div
+        className={cn(
+          "mx-1 flex items-stretch gap-0.5 rounded-md border border-border/60 bg-background",
+          active ? "border-primary/40 bg-accent/50" : undefined,
+        )}
+      >
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent/40"
+          onClick={onOpen}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="truncate font-medium">{title}</span>
+          </span>
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {countLabel ?? (count > 0 ? `${count} item${count === 1 ? "" : "s"}` : "Empty")}
+          </span>
+        </button>
+        <div className="flex shrink-0 items-center pr-0.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            title={addTitle ?? `New ${title.toLowerCase().replace(/s$/, "")}`}
+            aria-label={addTitle ?? `New ${title.toLowerCase().replace(/s$/, "")}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAdd();
+            }}
+          >
+            <AddIcon className="h-3 w-3" aria-hidden="true" />
+          </Button>
+        </div>
       </div>
-      {count > 0 ? (
-        <ul className="space-y-0.5 px-2 pb-2">{children}</ul>
-      ) : (
-        <p className="px-3 pb-2 text-[11px] text-muted-foreground">{emptyLabel}</p>
-      )}
+      {body}
     </div>
   );
 }
@@ -124,6 +210,9 @@ export function PaperAssetsPanel({
   onError: (message: string) => void;
 }) {
   const [assets, setAssets] = useState<PaperAssetsBundle | null>(null);
+  const [referenceResults, setReferenceResults] = useState<ReferenceMetadata[]>([]);
+  const [referencesLoading, setReferencesLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importNotice, setImportNotice] = useState<string | null>(null);
@@ -160,6 +249,38 @@ export function PaperAssetsPanel({
   useEffect(() => {
     void loadAssets();
   }, [loadAssets, refreshVersion]);
+
+  useEffect(() => {
+    if (!paperPath) {
+      setReferenceResults([]);
+      return;
+    }
+    const query = searchQuery.trim();
+    if (!query) {
+      setReferenceResults([]);
+      return;
+    }
+    let cancelled = false;
+    setReferencesLoading(true);
+    void ensureReferenceIndex(paperPath)
+      .then((references) => {
+        if (!cancelled) {
+          setReferenceResults(searchReferences(references, query, 50));
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          onError(err instanceof Error ? err.message : String(err));
+          setReferenceResults([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setReferencesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onError, paperPath, refreshVersion, searchQuery]);
 
   const openAsset = (item: FigureMetadata | TableMetadata | EquationMetadata | ReferenceMetadata) => {
     if ("citeKey" in item) {
@@ -216,23 +337,28 @@ export function PaperAssetsPanel({
 
   const handleBibImport = async (file: File) => {
     if (!paperPath) return;
+    if (file.size > 20 * 1024 * 1024) {
+      onError("Bibliography file too large (max 20MB)");
+      return;
+    }
     setImporting(true);
     setImportNotice(null);
     try {
       const bibtex = await file.text();
       const result = await importReferencesFromBibtex(paperPath, bibtex);
       if (result.created.length > 0) {
-        onModelChanged();
+        invalidateReferenceSearchCache(paperPath);
+        handleModelChanged();
       }
       const parts: string[] = [];
-      if (result.created.length > 0) parts.push(`${result.created.length} imported`);
+      if (result.created.length > 0) parts.push(`${result.created.length} reference notes created`);
       if (result.skipped.length > 0) parts.push(`${result.skipped.length} skipped`);
       if (parts.length > 0) {
-        setImportNotice(parts.join(", "));
+        setImportNotice(parts.join(" · "));
       } else if (result.errors.length > 0) {
         onError(result.errors.join("; "));
       } else {
-        onError("No references were imported");
+        onError("No references were imported — check that the file contains @article{…} entries");
       }
       if (result.errors.length > 0 && result.created.length > 0) {
         onError(result.errors.join("; "));
@@ -255,10 +381,36 @@ export function PaperAssetsPanel({
     return <p className="px-3 py-4 text-[11px] text-muted-foreground">Loading assets…</p>;
   }
 
-  const figures = assets?.figures ?? [];
-  const tables = assets?.tables ?? [];
-  const equations = assets?.equations ?? [];
-  const references = assets?.references ?? [];
+  const allAssets: PaperAssetsBundle = assets ?? {
+    figures: [],
+    tables: [],
+    equations: [],
+    referenceCount: 0,
+  };
+  const filteredAssets = filterPaperAssets(allAssets, searchQuery, referenceResults);
+  const figures = filteredAssets.figures;
+  const tables = filteredAssets.tables;
+  const equations = filteredAssets.equations;
+  const references = filteredAssets.references;
+  const isSearching = searchQuery.trim().length > 0;
+  const totalCount = totalAssetCount(allAssets);
+  const visibleCount = filteredAssetCount(filteredAssets);
+
+  const groupCountLabel = (filtered: number, total: number) => {
+    if (!isSearching || total === 0) return undefined;
+    if (filtered === 0) return "No matches";
+    if (filtered === total) return `${filtered} item${filtered === 1 ? "" : "s"}`;
+    return `${filtered} of ${total}`;
+  };
+
+  const isAssetFolderActive = (folder: "figures" | "tables" | "equations") => {
+    const folderPath = `${paperPath}/${folder}`;
+    return currentPath === folderPath || currentPath.startsWith(`${folderPath}/`);
+  };
+
+  const literaturePath = `${paperPath}/notes/literature`;
+  const isReferencesActive =
+    currentPath === literaturePath || currentPath.startsWith(`${literaturePath}/`);
 
   return (
     <>
@@ -274,11 +426,26 @@ export function PaperAssetsPanel({
       />
 
       <div className="min-h-0 overflow-auto py-1">
+        <AssetSearchField
+          value={searchQuery}
+          onChange={setSearchQuery}
+          className="sticky top-0 z-10 border-b border-border/60 bg-sidebar px-2 py-2"
+        />
+        {isSearching && totalCount > 0 && visibleCount === 0 ? (
+          <p className="px-3 py-2 text-[11px] text-muted-foreground">
+            No assets match “{searchQuery.trim()}”.
+          </p>
+        ) : null}
+
+        {!isSearching || allAssets.figures.length > 0 ? (
         <AssetGroup
           title="Figures"
           icon={Image}
-          emptyLabel="No figures yet"
+          emptyLabel={isSearching ? "No figures match your search" : "No figures yet"}
           count={figures.length}
+          countLabel={groupCountLabel(figures.length, allAssets.figures.length)}
+          active={isAssetFolderActive("figures")}
+          onOpen={() => onNavigate(`${paperPath}/figures`)}
           onAdd={() => setCreateKind("figure")}
         >
           {figures.map((figure) => (
@@ -293,12 +460,17 @@ export function PaperAssetsPanel({
             />
           ))}
         </AssetGroup>
+        ) : null}
 
+        {!isSearching || allAssets.tables.length > 0 ? (
         <AssetGroup
           title="Tables"
           icon={Table2}
-          emptyLabel="No tables yet"
+          emptyLabel={isSearching ? "No tables match your search" : "No tables yet"}
           count={tables.length}
+          countLabel={groupCountLabel(tables.length, allAssets.tables.length)}
+          active={isAssetFolderActive("tables")}
+          onOpen={() => onNavigate(`${paperPath}/tables`)}
           onAdd={() => setCreateKind("table")}
         >
           {tables.map((table) => (
@@ -313,12 +485,17 @@ export function PaperAssetsPanel({
             />
           ))}
         </AssetGroup>
+        ) : null}
 
+        {!isSearching || allAssets.equations.length > 0 ? (
         <AssetGroup
           title="Equations"
           icon={Sigma}
-          emptyLabel="No equations yet"
+          emptyLabel={isSearching ? "No equations match your search" : "No equations yet"}
           count={equations.length}
+          countLabel={groupCountLabel(equations.length, allAssets.equations.length)}
+          active={isAssetFolderActive("equations")}
+          onOpen={() => onNavigate(`${paperPath}/equations`)}
           onAdd={() => setCreateKind("equation")}
         >
           {equations.map((equation) => (
@@ -333,30 +510,56 @@ export function PaperAssetsPanel({
             />
           ))}
         </AssetGroup>
+        ) : null}
 
+        {!isSearching || allAssets.referenceCount > 0 ? (
         <AssetGroup
           title="References"
           icon={BookOpen}
-          emptyLabel={importing ? "Importing…" : "Import a .bib file to add references"}
-          count={references.length}
+          emptyLabel={
+            isSearching
+              ? referencesLoading
+                ? "Searching references…"
+                : "No references match your search"
+              : importing
+                ? "Importing…"
+                : allAssets.referenceCount > 0
+                  ? "Type in the search box above to find references"
+                  : "Import a .bib file — creates one literature note per entry"
+          }
+          count={isSearching ? references.length : allAssets.referenceCount}
+          countLabel={
+            isSearching
+              ? groupCountLabel(references.length, allAssets.referenceCount)
+              : allAssets.referenceCount > 0
+                ? `${allAssets.referenceCount} reference${allAssets.referenceCount === 1 ? "" : "s"}`
+                : undefined
+          }
+          active={isReferencesActive}
+          collapsible
+          defaultExpanded={false}
+          onOpen={() => onNavigate(literaturePath)}
           addIcon={Upload}
           addTitle="Import BibTeX (.bib)"
           onAdd={() => bibInputRef.current?.click()}
         >
-          {references.map((ref) => (
-            <AssetRow
-              key={ref.path}
-              label={ref.citeKey ? `@${ref.citeKey}` : ref.title}
-              hint={ref.authors ? `${ref.authors}${ref.year ? ` (${ref.year})` : ""}` : ref.title}
-              active={isActive(ref)}
-              onClick={() => openAsset(ref)}
-              onDelete={() =>
-                requestArchive(ref.path, ref.citeKey ? `@${ref.citeKey}` : ref.title)
-              }
-              deleteLabel={`Remove reference ${ref.citeKey ?? ref.title}`}
-            />
-          ))}
+          {isSearching
+            ? references.map((ref) => (
+                <AssetRow
+                  key={ref.path}
+                  label={ref.citeKey ? `@${ref.citeKey}` : ref.title}
+                  hint={ref.authors ? `${ref.authors}${ref.year ? ` (${ref.year})` : ""}` : ref.title}
+                  active={isActive(ref)}
+                  onClick={() => openAsset(ref)}
+                  onDelete={() =>
+                    requestArchive(ref.path, ref.citeKey ? `@${ref.citeKey}` : ref.title)
+                  }
+                  deleteLabel={`Remove reference ${ref.citeKey ?? ref.title}`}
+                />
+              ))
+            : null}
         </AssetGroup>
+        ) : null}
 
         {importNotice ? (
           <p className="px-3 pb-2 text-[10px] text-muted-foreground">{importNotice}</p>

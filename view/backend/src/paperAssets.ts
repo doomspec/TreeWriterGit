@@ -21,8 +21,23 @@ export type PaperAssetsBundle = {
   figures: Awaited<ReturnType<typeof listPaperFigures>>;
   tables: Awaited<ReturnType<typeof listPaperTables>>;
   equations: Awaited<ReturnType<typeof listPaperEquations>>;
-  references: ReferenceMetadata[];
+  referenceCount: number;
 };
+
+export async function countPaperReferences(modelRoot: string, paperRel: string): Promise<number> {
+  const literatureDir = paperLiteratureDir(paperRel);
+  const abs = path.join(modelRoot, literatureDir);
+  if (!existsSync(abs)) return 0;
+
+  let count = 0;
+  for (const file of await readdir(abs)) {
+    if (!file.endsWith(".md") || file === "INDEX.md" || file === "outline.md" || file === "draft.md") {
+      continue;
+    }
+    count += 1;
+  }
+  return count;
+}
 
 export function paperLiteratureDir(paperRel: string): string {
   return path.posix.join(paperRel, "notes/literature");
@@ -59,11 +74,14 @@ export async function listPaperReferences(
 
   const references: ReferenceMetadata[] = [];
   for (const file of await readdir(abs)) {
-    if (!file.endsWith(".md") || file === "INDEX.md") continue;
+    if (!file.endsWith(".md") || file === "INDEX.md" || file === "outline.md" || file === "draft.md") {
+      continue;
+    }
     const noteRel = path.posix.join(literatureDir, file);
     const raw = await readFile(path.join(modelRoot, noteRel), "utf8");
     const parsed = matter(raw);
     const data = parsed.data as Record<string, unknown>;
+    if (data.type !== "literature" && !data.cite_key) continue;
     references.push({
       path: noteRel,
       title: String(data.title ?? path.posix.basename(file, ".md")),
@@ -86,11 +104,11 @@ export async function listPaperAssets(
   paperRel: string,
 ): Promise<PaperAssetsBundle> {
   await ensurePaperAssetContainers(modelRoot, paperRel);
-  const [figures, tables, equations, references] = await Promise.all([
+  const [figures, tables, equations, referenceCount] = await Promise.all([
     listPaperFigures(modelRoot, paperRel),
     listPaperTables(modelRoot, paperRel),
     listPaperEquations(modelRoot, paperRel),
-    listPaperReferences(modelRoot, paperRel),
+    countPaperReferences(modelRoot, paperRel),
   ]);
-  return { figures, tables, equations, references };
+  return { figures, tables, equations, referenceCount };
 }

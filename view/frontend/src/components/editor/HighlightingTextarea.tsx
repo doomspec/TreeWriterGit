@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useRef } from "react";
+import { Fragment, useCallback, useMemo, useRef } from "react";
 
-import { pendingLineHighlightRows, splitLines } from "@/lib/draftDiff";
+import { pendingCurrentLineHighlightRows, splitLines } from "@/lib/draftDiff";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { cn } from "@/lib/utils";
 
 type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
@@ -28,12 +29,19 @@ export function HighlightingTextarea({
   const mirrorRef = useRef<HTMLPreElement>(null);
 
   const text = typeof value === "string" ? value : String(value ?? "");
-  const showHighlight = highlight && text !== baseline;
+  const debouncedText = useDebouncedValue(text, 120);
+  const showHighlight = highlight && debouncedText !== baseline;
   const lines = useMemo(() => splitLines(text), [text]);
-  const rows = useMemo(
-    () => (showHighlight ? pendingLineHighlightRows(baseline, text) : lines.map((line) => ({ kind: "equal" as const, text: line }))),
-    [baseline, lines, showHighlight, text],
-  );
+  const rows = useMemo(() => {
+    if (!showHighlight) {
+      return lines.map((line) => ({ kind: "equal" as const, text: line }));
+    }
+    const computed = pendingCurrentLineHighlightRows(baseline, debouncedText);
+    if (computed.length !== lines.length) {
+      return lines.map((line) => ({ kind: "equal" as const, text: line }));
+    }
+    return computed;
+  }, [baseline, debouncedText, lines, showHighlight]);
 
   const syncScroll = useCallback(() => {
     const textarea = textareaRef.current;
@@ -59,41 +67,45 @@ export function HighlightingTextarea({
         fillContainer
           ? "absolute inset-0 z-0 overflow-hidden"
           : "highlighting-textarea__mirror--grow z-0",
+        className,
         mirrorClassName,
       )}
       aria-hidden="true"
     >
       {lines.map((line, index) => {
         const row = rows[index] ?? { kind: "equal" as const, text: line };
+        const prefix = index > 0 ? "\n" : "";
         const display = line.length > 0 ? line : "\u00a0";
 
         if (row.kind === "inline") {
           return (
-            <div key={index} className="highlight-line">
+            <Fragment key={index}>
+              {prefix}
               {row.segments.map((segment, segmentIndex) =>
                 segment.text ? (
                   <span
                     key={segmentIndex}
-                    className={segment.kind === "insert" ? "highlight-inline--pending" : undefined}
+                    className={
+                      segment.kind === "insert"
+                        ? "highlight-inline--pending"
+                        : segment.kind === "delete"
+                          ? "highlight-inline--deleted"
+                          : undefined
+                    }
                   >
                     {segment.text}
                   </span>
                 ) : null,
               )}
-            </div>
+            </Fragment>
           );
         }
 
         return (
-          <div
-            key={index}
-            className={cn(
-              "highlight-line",
-              row.kind === "full" && "highlight-line--pending",
-            )}
-          >
-            {display}
-          </div>
+          <Fragment key={index}>
+            {prefix}
+            <span className={row.kind === "full" ? "highlight-line--pending" : undefined}>{display}</span>
+          </Fragment>
         );
       })}
     </pre>
@@ -103,7 +115,9 @@ export function HighlightingTextarea({
     <div
       className={cn(
         "highlighting-textarea",
-        fillContainer ? "relative min-h-0 flex-1" : "highlighting-textarea--grow w-full",
+        fillContainer
+          ? "relative flex min-h-0 min-w-0 w-full flex-1 flex-col"
+          : "highlighting-textarea--grow w-full min-w-0",
       )}
     >
       {mirror}
@@ -112,7 +126,7 @@ export function HighlightingTextarea({
         {...props}
         value={text}
         className={cn(
-          "highlighting-textarea__input w-full resize-none border-0 bg-transparent outline-none focus:ring-0 focus-visible:outline-none",
+          "highlighting-textarea__input box-border w-full min-w-0 max-w-full resize-none border-0 bg-transparent outline-none focus:ring-0 focus-visible:outline-none",
           fillContainer
             ? "relative z-[1] min-h-0 flex-1 overflow-auto"
             : "highlighting-textarea__input--grow z-[1] overflow-hidden",

@@ -13,8 +13,8 @@
 .markdown-reading {
   max-width: 42rem;
   margin-inline: auto;
-  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, serif;
-  font-size: 1.05rem;
+  font-family: var(--reading-font-family);
+  font-size: calc(1.05rem * 0.85 * var(--reading-font-size-scale, 1));
   line-height: 1.65;
   color: hsl(var(--foreground));
 }
@@ -68,21 +68,44 @@
 }
 
 .composed-draft-raw {
-  field-sizing: content;
-  min-height: 100%;
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
 
+/* Raw editors in dual panes: full width; parent scrolls (Safari rejects field-sizing: content here). */
+.markdown-pane .highlighting-textarea,
+.bg-editor .highlighting-textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.markdown-pane .highlighting-textarea__input,
+.bg-editor .highlighting-textarea__input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .highlight-line--pending {
-  background: hsl(45 93% 47% / 0.28);
+  background: hsl(var(--warning) / 0.28);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   border-radius: 2px;
 }
 
 .highlight-inline--pending {
-  background: hsl(45 93% 47% / 0.28);
+  background: hsl(var(--warning) / 0.28);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border-radius: 2px;
+}
+
+.highlight-inline--deleted,
+del.highlight-inline--deleted {
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--destructive) / 0.55);
+  background: hsl(var(--destructive) / 0.1);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   border-radius: 2px;
@@ -90,13 +113,52 @@
 
 .dark .highlight-line--pending,
 .dark .highlight-inline--pending {
-  background: hsl(45 80% 50% / 0.22);
+  background: hsl(var(--warning) / 0.22);
+}
+
+.dark .highlight-inline--deleted,
+.dark del.highlight-inline--deleted {
+  background: hsl(var(--destructive) / 0.16);
+}
+
+.markdown-reading mark.highlight-inline--pending {
+  background: hsl(var(--warning) / 0.32);
+  color: inherit;
+  border-radius: 0.125rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  padding: 0 0.05em;
+}
+
+.dark .markdown-reading mark.highlight-inline--pending {
+  background: hsl(var(--warning) / 0.26);
+}
+
+.markdown-pane mark.highlight-inline--pending,
+.markdown-pane .highlight-inline--pending {
+  background: hsl(var(--warning) / 0.32);
+}
+
+.dark .markdown-pane mark.highlight-inline--pending,
+.dark .markdown-pane .highlight-inline--pending {
+  background: hsl(var(--warning) / 0.26);
+}
+
+.reading-focus-pane mark.highlight-inline--pending,
+.reading-focus-pane .highlight-inline--pending {
+  background: hsl(var(--warning) / 0.34);
+}
+
+.dark .reading-focus-pane mark.highlight-inline--pending,
+.dark .reading-focus-pane .highlight-inline--pending {
+  background: hsl(var(--warning) / 0.28);
 }
 
 .highlighting-textarea__input--overlay {
   color: transparent;
   -webkit-text-fill-color: transparent;
   caret-color: hsl(var(--foreground));
+  scrollbar-gutter: stable;
 }
 
 .highlighting-textarea__input--overlay::selection {
@@ -111,37 +173,84 @@
 
 .highlighting-textarea--grow > .highlighting-textarea__mirror--grow,
 .highlighting-textarea--grow > .highlighting-textarea__input {
-  grid-column: 1;
-  grid-row: 1;
+  grid-area: 1 / 1;
+  width: 100%;
+  min-width: 0;
+}
+
+.highlighting-textarea__mirror,
+.highlighting-textarea__input {
+  box-sizing: border-box;
+  margin: 0;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  tab-size: inherit;
 }
 
 .highlighting-textarea__mirror {
   font: inherit;
-}
-
-.pending-changes-diff__line--insert {
-  background: hsl(45 93% 47% / 0.24);
+  overflow: hidden;
   color: hsl(var(--foreground));
 }
 
-.pending-changes-diff__line--delete {
-  background: hsl(0 72% 51% / 0.14);
+.pending-changes-diff__line--insert {
+  background: hsl(var(--warning) / 0.24);
+  color: hsl(var(--foreground));
+}
+
+.pending-changes-diff__word--insert {
+  background: hsl(var(--warning) / 0.42);
+  border-radius: 0.125rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.pending-changes-diff__word--delete {
   color: hsl(var(--muted-foreground));
   text-decoration: line-through;
-  text-decoration-color: hsl(0 72% 51% / 0.55);
+  text-decoration-color: hsl(var(--destructive) / 0.55);
+  background: hsl(var(--destructive) / 0.12);
+  border-radius: 0.125rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.pending-changes-diff__line--delete {
+  background: hsl(var(--destructive) / 0.14);
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--destructive) / 0.55);
+}
+
+.pending-changes-diff__line--mixed {
+  background: hsl(var(--warning) / 0.16);
+  color: hsl(var(--foreground));
 }
 
 .dark .pending-changes-diff__line--insert {
-  background: hsl(45 80% 50% / 0.18);
+  background: hsl(var(--warning) / 0.18);
 }
 
 .dark .pending-changes-diff__line--delete {
-  background: hsl(0 62% 45% / 0.2);
+  background: hsl(var(--destructive) / 0.2);
+}
+
+.dark .pending-changes-diff__line--mixed {
+  background: hsl(var(--warning) / 0.12);
+}
+
+.dark .pending-changes-diff__word--delete {
+  background: hsl(var(--destructive) / 0.18);
 }
 
 .highlighting-textarea__input--grow {
-  field-sizing: content;
   min-height: 8rem;
+}
+
+@supports (field-sizing: content) {
+  .highlighting-textarea__input--grow {
+    field-sizing: content;
+  }
 }
 
 .rendered-markdown-field__input::selection {
@@ -150,8 +259,8 @@
 
 .markdown-body h1 {
   margin: 0 0 0.875rem;
-  font-family: "Crimson Pro", Georgia, "Palatino Linotype", Palatino, serif;
-  font-size: 1.75rem;
+  font-family: var(--reading-font-family);
+  font-size: calc(1.75rem * 0.85 * var(--reading-font-size-scale, 1));
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -160,8 +269,8 @@
 
 .markdown-body h2 {
   margin: 1.5rem 0 0.625rem;
-  font-family: "Crimson Pro", Georgia, "Palatino Linotype", Palatino, serif;
-  font-size: 1.25rem;
+  font-family: var(--reading-font-family);
+  font-size: calc(1.25rem * 0.85 * var(--reading-font-size-scale, 1));
   font-weight: 650;
   line-height: 1.3;
   color: hsl(var(--foreground));
@@ -170,9 +279,12 @@
 
 .markdown-body h3 {
   margin: 1.25rem 0 0.5rem;
-  font-size: 1.05rem;
+  font-family: var(--reading-font-family);
+  font-size: calc(1.05rem * 0.85 * var(--reading-font-size-scale, 1));
   font-weight: 650;
   line-height: 1.35;
+  color: hsl(var(--foreground));
+  text-wrap: balance;
 }
 
 .markdown-body h2 a,
@@ -194,7 +306,7 @@
 
 .markdown-body h4 {
   margin: 1rem 0 0.375rem;
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * 0.85 * var(--reading-font-size-scale, 1));
   font-weight: 650;
   line-height: 1.35;
   color: hsl(var(--foreground) / 0.9);
@@ -214,8 +326,107 @@
   padding-left: 1.25rem;
 }
 
+.markdown-body ul {
+  list-style-type: disc;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+}
+
+.markdown-body ul ul {
+  list-style-type: circle;
+}
+
+.markdown-body ul ul ul {
+  list-style-type: square;
+}
+
 .markdown-body li {
   margin: 0.2rem 0;
+  display: list-item;
+}
+
+.editable-markdown-field__mirror {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  white-space: pre-wrap;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  resize: none;
+}
+
+.editable-markdown-field__surface {
+  cursor: text;
+  position: relative;
+  z-index: 1;
+}
+
+.editable-markdown-field__surface:focus {
+  outline: none;
+}
+
+.editable-markdown-field__surface a {
+  cursor: pointer;
+}
+
+.block-markdown-editor {
+  max-width: 42rem;
+  margin-inline: auto;
+  padding-bottom: 40vh;
+}
+
+.reading-focus-pane .composed-draft-preview--hide-lead-title .block-markdown-editor__block:first-child:has(h1) {
+  display: none;
+}
+
+.block-markdown-editor__surface {
+  max-width: none;
+  margin-inline: 0;
+}
+
+.block-markdown-editor__block {
+  padding: 0.5rem 0 0.5rem 0.75rem;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+}
+
+.block-markdown-editor__block:hover {
+  border-left-color: hsl(var(--border));
+}
+
+.block-markdown-editor__block a {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary) / 0.35);
+  text-underline-offset: 2px;
+}
+
+.block-markdown-editor__block a:hover {
+  text-decoration-color: hsl(var(--primary) / 0.7);
+}
+
+.block-markdown-editor__block--editing {
+  white-space: pre-wrap;
+  border-left-color: hsl(var(--primary) / 0.4);
+  outline: none;
+  cursor: text;
+  color: hsl(var(--foreground));
+}
+
+.block-markdown-editor__block--editing:focus {
+  outline: none;
+}
+
+.block-markdown-editor--review .block-markdown-editor__block--review:hover {
+  border-left-color: hsl(var(--amber-500) / 0.35);
 }
 
 .markdown-body a {
@@ -224,12 +435,126 @@
   text-underline-offset: 2px;
 }
 
+
 .markdown-body code {
   border-radius: 4px;
   background: hsl(var(--muted));
   padding: 0.1rem 0.25rem;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.88em;
+}
+
+.latex-label-badge,
+.latex-ref-badge {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 0.1em;
+  border-radius: 0.375rem;
+  padding: 0.08rem 0.45rem;
+  vertical-align: baseline;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82em;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.latex-label-badge {
+  background: hsl(var(--muted) / 0.95);
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border) / 0.8);
+}
+
+.latex-label-badge__icon,
+.latex-ref-badge__icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex-shrink: 0;
+  opacity: 0.72;
+}
+
+.latex-label-badge__tag,
+.latex-ref-badge__tag {
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.latex-label-badge__key,
+.latex-ref-badge__key {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.latex-ref-badge {
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary) / 0.18);
+}
+
+.dark .latex-ref-badge {
+  background: hsl(var(--primary) / 0.16);
+}
+
+.text-highlight-badge {
+  margin: 0 0.05em;
+  border-radius: 0.2rem;
+  padding: 0.05em 0.15em;
+  vertical-align: baseline;
+  font: inherit;
+  line-height: inherit;
+}
+
+.text-highlight-yellow {
+  background: rgb(254 240 138 / 0.95);
+}
+
+.text-highlight-green {
+  background: rgb(167 243 208 / 0.95);
+}
+
+.text-highlight-blue {
+  background: rgb(186 230 253 / 0.95);
+}
+
+.text-highlight-pink {
+  background: rgb(254 205 211 / 0.95);
+}
+
+.text-highlight-orange {
+  background: rgb(254 215 170 / 0.95);
+}
+
+.text-highlight-purple {
+  background: rgb(221 214 254 / 0.95);
+}
+
+.dark .text-highlight-yellow {
+  background: rgb(234 179 8 / 0.28);
+}
+
+.dark .text-highlight-green {
+  background: rgb(16 185 129 / 0.28);
+}
+
+.dark .text-highlight-blue {
+  background: rgb(14 165 233 / 0.28);
+}
+
+.dark .text-highlight-pink {
+  background: rgb(244 63 94 / 0.28);
+}
+
+.dark .text-highlight-orange {
+  background: rgb(249 115 22 / 0.28);
+}
+
+.dark .text-highlight-purple {
+  background: rgb(139 92 246 / 0.28);
 }
 
 .markdown-body pre {
@@ -283,4 +608,92 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Text zoom — base scale (0.85) is the default 100%; zoom multiplies on top. */
+.editor-text-zoom-root {
+  --editor-text-base: 0.85;
+  --editor-text-zoom: 1;
+}
+
+.editor-text-zoom-root .markdown-reading,
+.editor-text-zoom-root .markdown-reading-edit,
+.editor-text-zoom-root .markdown-body,
+.editor-text-zoom-root .rendered-markdown-field__input,
+.editor-text-zoom-root .highlighting-textarea__input,
+.editor-text-zoom-root .highlighting-textarea__mirror,
+.editor-text-zoom-root .composed-draft-raw,
+.editor-text-zoom-root .composed-draft-preview {
+  font-size: calc(
+    1.05rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+      var(--editor-text-zoom, 1)
+  );
+}
+
+.editor-text-zoom-root .highlighting-textarea__input.font-mono,
+.editor-text-zoom-root .highlighting-textarea__mirror.font-mono,
+.editor-text-zoom-root .bg-editor .font-mono {
+  font-size: calc(13px * var(--editor-text-base, 0.85) * var(--editor-text-zoom, 1));
+}
+
+.editor-text-zoom-root .markdown-body h1 {
+  font-size: calc(
+    1.75rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+      var(--editor-text-zoom, 1)
+  );
+}
+
+.editor-text-zoom-root .markdown-body h2 {
+  font-size: calc(
+    1.25rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+      var(--editor-text-zoom, 1)
+  );
+}
+
+.editor-text-zoom-root .markdown-body h3 {
+  font-size: calc(
+    1.05rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+      var(--editor-text-zoom, 1)
+  );
+}
+
+.editor-text-zoom-root .markdown-body h4 {
+  font-size: calc(
+    0.95rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+      var(--editor-text-zoom, 1)
+  );
+}
+
+.editor-text-zoom-root .markdown-preview-edit > h1,
+.editor-text-zoom-root .rendered-markdown-field > h1 {
+  font-size: calc(
+    1.5rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+      var(--editor-text-zoom, 1)
+  );
+}
+
+.changes-review-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.changes-review-pane__summary {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+
+.changes-review-pane__diff {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  background: hsl(var(--muted) / 0.25);
+  padding: 0.75rem;
+}
+
+.changes-review-pane__document {
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 1rem;
 }

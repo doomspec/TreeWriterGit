@@ -79,6 +79,136 @@ describe("buildPreview", () => {
     expect(result.outputPath).toBe("intro/problem/draft.md");
   });
 
+  it("draft action: prompt contains manuscript markup conventions", async () => {
+    await makeUnit("intro/problem", "State the research gap.");
+    const result = await buildPreview(modelRoot, repoRoot, "intro/problem", "draft", provider);
+    expect(result.prompt).toContain("MANUSCRIPT MARKUP");
+    expect(result.prompt).toContain("[@smith2024; @jones2020]");
+    expect(result.prompt).toContain("::figure[papers/<paper>/figures/<name>]");
+  });
+
+  it("refresh-index action: prompt omits manuscript markup", async () => {
+    await makeUnit("intro/problem", "State the research gap.");
+    const result = await buildPreview(
+      modelRoot,
+      repoRoot,
+      "intro/problem",
+      "refresh-index",
+      provider,
+    );
+    expect(result.prompt).not.toContain("::figure[papers/<paper>/figures/<name>]");
+  });
+
+  it("sync-outline action: prompt requires concise bullet overview", async () => {
+    await makeUnit("intro/problem", "Old overview.");
+    await writeFile(
+      path.join(modelRoot, "intro/problem/draft.md"),
+      "Cells are counted manually.\n",
+      "utf8",
+    );
+    const result = await buildPreview(modelRoot, repoRoot, "intro/problem", "sync-outline", provider);
+    expect(result.outputPath).toBe("intro/problem/outline.md");
+    expect(result.prompt).toContain("concise bullet list");
+    expect(result.prompt).toContain("Do not write narrative paragraphs");
+    expect(result.prompt).toContain("Cells are counted manually.");
+  });
+
+  it("summarize-outline action: includes downstream child outlines in context", async () => {
+    await mkdir(path.join(modelRoot, "papers/demo/introduction"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/introduction/INDEX.md"),
+      "---\nkind: section\nchild_order: [background]\n---\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/introduction/outline.md"),
+      "# Introduction\n\n## Summary\n\n_Old summary._\n",
+      "utf8",
+    );
+    await makeUnit("papers/demo/introduction/background", "Cells matter for bioprocessing.");
+
+    const result = await buildPreview(
+      modelRoot,
+      repoRoot,
+      "papers/demo/introduction",
+      "summarize-outline",
+      provider,
+    );
+    expect(result.outputPath).toBe("papers/demo/introduction/outline.md");
+    expect(result.prompt).toContain("DOWNSTREAM PARTS");
+    expect(result.prompt).toContain("Cells matter for bioprocessing.");
+    expect(result.prompt).toContain("## Summary");
+  });
+
+  it("summarize-outline action: includes cited references and only cited assets", async () => {
+    await mkdir(path.join(modelRoot, "papers/demo/introduction"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/introduction/INDEX.md"),
+      "---\nkind: section\nchild_order: [background]\n---\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/introduction/outline.md"),
+      "# Introduction\n\n## Summary\n\n_Old summary._\n",
+      "utf8",
+    );
+    await makeUnit("papers/demo/introduction/background", "Cells matter [@smith2024].");
+    await writeFile(
+      path.join(modelRoot, "papers/demo/introduction/background/draft.md"),
+      "VCD estimation uses ::figure[papers/demo/figures/cited-fig].\n",
+      "utf8",
+    );
+
+    await mkdir(path.join(modelRoot, "papers/demo/notes/literature"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/notes/literature/smith2024.md"),
+      '---\ntype: literature\ncite_key: smith2024\ntitle: Smith 2024\n---\n# Smith 2024\n',
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/notes/literature/jones2020.md"),
+      '---\ntype: literature\ncite_key: jones2020\ntitle: Jones 2020\n---\n# Jones 2020\n',
+      "utf8",
+    );
+
+    await mkdir(path.join(modelRoot, "papers/demo/figures/cited-fig"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/figures/cited-fig/INDEX.md"),
+      "---\nkind: figure\ntitle: Cited Fig\n---\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/figures/cited-fig/outline.md"),
+      "# Cited Fig\n",
+      "utf8",
+    );
+    await mkdir(path.join(modelRoot, "papers/demo/figures/uncited-fig"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/figures/uncited-fig/INDEX.md"),
+      "---\nkind: figure\ntitle: Uncited Fig\n---\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/figures/uncited-fig/outline.md"),
+      "# Uncited Fig\n",
+      "utf8",
+    );
+
+    const result = await buildPreview(
+      modelRoot,
+      repoRoot,
+      "papers/demo/introduction",
+      "summarize-outline",
+      provider,
+    );
+    expect(result.prompt).toContain("REFERENCES:");
+    expect(result.prompt).toContain("papers/demo/notes/literature/smith2024.md");
+    expect(result.prompt).not.toContain("papers/demo/notes/literature/jones2020.md");
+    expect(result.prompt).toContain("CITED ASSETS:");
+    expect(result.prompt).toContain("papers/demo/figures/cited-fig/outline.md");
+    expect(result.prompt).not.toContain("papers/demo/figures/uncited-fig/outline.md");
+  });
+
   it("draft action: prompt contains section overview from outline.md", async () => {
     await makeUnit("intro/problem", "State the research gap.");
     const result = await buildPreview(modelRoot, repoRoot, "intro/problem", "draft", provider);
@@ -150,6 +280,26 @@ describe("buildPreview", () => {
     );
     expect(result.command).toContain("codex");
     expect(result.command).not.toContain(">");
+  });
+
+  it("gemini uses headless prompt without stdout redirect", async () => {
+    const geminiProvider = {
+      name: "Gemini",
+      command: "gemini",
+      args: ["-p", "{prompt}", "--approval-mode", "auto_edit"],
+      writesFiles: true,
+    };
+    await makeUnit("intro/problem", "Idea.");
+    const result = await buildPreview(
+      modelRoot,
+      repoRoot,
+      "intro/problem",
+      "draft",
+      geminiProvider,
+    );
+    expect(result.command).toContain("gemini");
+    expect(result.command).toContain("--approval-mode");
+    expect(result.command).not.toMatch(/>\s*'/);
   });
 
   it("writes per-session prompt file under .treewriter-prompts/", async () => {

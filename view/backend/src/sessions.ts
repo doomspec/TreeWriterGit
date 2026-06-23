@@ -4,6 +4,12 @@ import { existsSync } from "node:fs";
 import matter from "gray-matter";
 
 import { ModelFsError, resolveModelPath } from "./modelFs.js";
+import {
+  appendSessionWikiEntry,
+  listSessionWikiEntries,
+  sessionIdFromFilename,
+  updateSessionWikiEntry,
+} from "./sessionWiki.js";
 
 export interface SessionRecord {
   at: string;
@@ -17,6 +23,7 @@ export interface SessionRecord {
 export interface SessionFile extends SessionRecord {
   filename: string;
   body: string;
+  wikiPath?: string;
 }
 
 function validatedUnitPath(modelRoot: string, unitPath: string): string {
@@ -25,7 +32,7 @@ function validatedUnitPath(modelRoot: string, unitPath: string): string {
   return normalized;
 }
 
-function sessionsDir(modelRoot: string, unitPath: string): string {
+function legacySessionsDir(modelRoot: string, unitPath: string): string {
   return path.join(modelRoot, validatedUnitPath(modelRoot, unitPath), ".sessions");
 }
 
@@ -37,11 +44,11 @@ function safeSessionFilename(filename: string): string {
   return base;
 }
 
-export async function listSessions(
+async function listLegacySessions(
   modelRoot: string,
   unitPath: string,
 ): Promise<SessionFile[]> {
-  const dir = sessionsDir(modelRoot, unitPath);
+  const dir = legacySessionsDir(modelRoot, unitPath);
   if (!existsSync(dir)) return [];
   const entries = (await readdir(dir)).filter((f) => f.endsWith(".md")).sort().reverse();
   const sessions: SessionFile[] = [];
@@ -66,31 +73,74 @@ export async function listSessions(
   return sessions;
 }
 
+export async function listSessions(
+  modelRoot: string,
+  unitPath: string,
+): Promise<SessionFile[]> {
+  validatedUnitPath(modelRoot, unitPath);
+
+  const wikiSessions = (await listSessionWikiEntries(modelRoot, unitPath)).map((entry) => ({
+    filename: entry.filename,
+    wikiPath: entry.wikiPath,
+    body: entry.body,
+    at: entry.at,
+    provider: entry.provider,
+    action: entry.action,
+    command: entry.command,
+    status: entry.status,
+    notes: entry.notes,
+  }));
+
+  const legacySessions = await listLegacySessions(modelRoot, unitPath);
+  const seen = new Set(wikiSessions.map((session) => session.filename));
+  const merged: SessionFile[] = [...wikiSessions];
+
+  for (const session of legacySessions) {
+    if (seen.has(session.filename)) continue;
+    merged.push({
+      ...session,
+      wikiPath: session.wikiPath ?? `${unitPath}/notes/sessions/${session.filename}`,
+    });
+  }
+
+  return merged.sort((a, b) => b.at.localeCompare(a.at));
+}
+
 export async function createSession(
   modelRoot: string,
   unitPath: string,
   record: SessionRecord,
 ): Promise<string> {
   const normalized = validatedUnitPath(modelRoot, unitPath);
-  const dir = sessionsDir(modelRoot, normalized);
-  await mkdir(dir, { recursive: true });
-
-  const ts = record.at.replace(/[:.]/g, "-").replace("T", "_").slice(0, 17);
-  const filename = `${ts}.md`;
-  const filePath = path.join(dir, filename);
-
-  const body = `# ${record.action} — ${record.provider}\n\n_Session dispatched at ${record.at}_\n`;
-  const content = matter.stringify(body, {
+  const created = await appendSessionWikiEntry(modelRoot, normalized, {
     at: record.at,
     provider: record.provider,
     action: record.action,
     command: record.command,
     status: record.status,
-    ...(record.notes ? { notes: record.notes } : {}),
+    notes: record.notes,
   });
+  return created.wikiPath;
+}
 
-  await writeFile(filePath, content, "utf8");
-  return `${normalized}/.sessions/${filename}`;
+async function updateLegacySessionStatus(
+  modelRoot: string,
+  unitPath: string,
+  filename: string,
+  status: SessionFile["status"],
+  notes?: string,
+): Promise<boolean> {
+  try {
+    const safeName = safeSessionFilename(filename);
+    const filePath = path.join(legacySessionsDir(modelRoot, unitPath), safeName);
+    const raw = await readFile(filePath, "utf8");
+    const parsed = matter(raw);
+    const data = { ...parsed.data, status, ...(notes !== undefined ? { notes } : {}) };
+    await writeFile(filePath, matter.stringify(parsed.content, data), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function updateSessionStatus(
@@ -100,12 +150,15 @@ export async function updateSessionStatus(
   status: SessionFile["status"],
   notes?: string,
 ): Promise<void> {
-  const safeName = safeSessionFilename(filename);
-  const filePath = path.join(sessionsDir(modelRoot, unitPath), safeName);
-  const raw = await readFile(filePath, "utf8");
-  const parsed = matter(raw);
-  const data = { ...parsed.data, status, ...(notes !== undefined ? { notes } : {}) };
-  await writeFile(filePath, matter.stringify(parsed.content, data), "utf8");
+  validatedUnitPath(modelRoot, unitPath);
+  const sessionId = sessionIdFromFilename(safeSessionFilename(filename));
+  const updated = await updateSessionWikiEntry(modelRoot, unitPath, sessionId, status, notes);
+  if (updated) return;
+
+  const legacyUpdated = await updateLegacySessionStatus(modelRoot, unitPath, filename, status, notes);
+  if (!legacyUpdated) {
+    throw new ModelFsError("Session not found", 404);
+  }
 }
 
 /** Bump unit status to drafted when a draft/revise/expand session completes. */

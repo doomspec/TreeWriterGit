@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Bold,
   ChevronDown,
@@ -17,9 +18,11 @@ import {
 } from "lucide-react";
 
 import { AssetInsertMenu } from "@/components/editor/AssetInsertMenu";
+import { HighlightToolbarButton } from "@/components/editor/HighlightToolbarButton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { MarkdownFormatAction } from "@/lib/markdownFormat";
+import type { TextHighlightColorId } from "@/lib/textHighlight";
 
 type ToolbarItem = {
   action: MarkdownFormatAction | "comment" | "inlineNote";
@@ -52,26 +55,26 @@ const TOOLBAR_ITEMS: ToolbarItem[] = [
   { action: "italic", label: "Italic", title: "Italic (Cmd+I)", icon: Italic },
   {
     action: "h1",
-    label: "H1",
+    label: "Heading 1",
     title: "Heading 1",
     icon: Heading1,
     showInRendered: false,
   },
   {
     action: "h2",
-    label: "H2",
+    label: "Heading 2",
     title: "Heading 2 (like Overleaf §)",
     icon: Heading2,
   },
   {
     action: "h3",
-    label: "H3",
+    label: "Heading 3",
     title: "Heading 3 (like Overleaf § subsection)",
     icon: Heading3,
   },
   {
     action: "paragraph",
-    label: "Paragraph",
+    label: "Normal paragraph",
     title: "Normal paragraph",
     icon: Pilcrow,
   },
@@ -89,18 +92,152 @@ const TOOLBAR_ITEMS: ToolbarItem[] = [
   },
   {
     action: "blockquote",
-    label: "Quote",
+    label: "Blockquote",
     title: "Blockquote",
     icon: Quote,
   },
 ];
+
+function FormatToolsPopover({
+  items,
+  disabled,
+  onFormat,
+  onInsertInlineNote,
+  embedded,
+}: {
+  items: ToolbarItem[];
+  disabled?: boolean;
+  onFormat: (action: MarkdownFormatAction) => void;
+  onInsertInlineNote?: () => void;
+  embedded?: boolean;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPosition(null);
+      return;
+    }
+    const update = () => {
+      const button = buttonRef.current;
+      const menu = menuRef.current;
+      if (!button) return;
+      const rect = button.getBoundingClientRect();
+      const menuWidth = menu?.offsetWidth ?? 180;
+      setPosition({
+        top: rect.bottom + 6,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)),
+      });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <Button
+        ref={buttonRef}
+        type="button"
+        variant={open ? "default" : "ghost"}
+        size="sm"
+        className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+        title="Formatting tools"
+        aria-label="Formatting tools"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Type className="h-3.5 w-3.5" aria-hidden="true" />
+        {!embedded ? <span className="hidden sm:inline">Format</span> : null}
+        <ChevronDown
+          className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")}
+          aria-hidden="true"
+        />
+      </Button>
+      {open && position
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              className="fixed z-overlay w-44 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+              style={{ top: position.top, left: position.left }}
+            >
+              {items.map((item) => {
+                if (item.action === "inlineNote") {
+                  return (
+                    <button
+                      key={item.action}
+                      type="button"
+                      role="menuitem"
+                      disabled={disabled || !onInsertInlineNote}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                      onClick={() => {
+                        onInsertInlineNote?.();
+                        setOpen(false);
+                      }}
+                    >
+                      <item.icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      {item.label}
+                    </button>
+                  );
+                }
+                return (
+                  <button
+                    key={item.action}
+                    type="button"
+                    role="menuitem"
+                    disabled={disabled}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                    onClick={() => {
+                      onFormat(item.action as MarkdownFormatAction);
+                      setOpen(false);
+                    }}
+                  >
+                    <item.icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
 
 export function MarkdownToolbar({
   renderedMode = false,
   commentsOpen = false,
   unresolvedComments = 0,
   disabled = false,
-  defaultToolsOpen = false,
   embedded = false,
   paperPath = null,
   filePath = "",
@@ -108,15 +245,13 @@ export function MarkdownToolbar({
   onFormat,
   onToggleComments,
   onInsertInlineNote,
+  onInsertHighlight,
   onInsertSnippet,
 }: {
   renderedMode?: boolean;
   commentsOpen?: boolean;
   unresolvedComments?: number;
   disabled?: boolean;
-  /** When false, formatting actions stay behind the tools toggle. */
-  defaultToolsOpen?: boolean;
-  /** Render inside pane header without a separate toolbar bar. */
   embedded?: boolean;
   paperPath?: string | null;
   filePath?: string;
@@ -124,78 +259,17 @@ export function MarkdownToolbar({
   onFormat: (action: MarkdownFormatAction) => void;
   onToggleComments: () => void;
   onInsertInlineNote?: () => void;
+  onInsertHighlight?: (color: TextHighlightColorId) => void;
   onInsertSnippet?: (snippet: string) => void;
 }) {
-  const [toolsOpen, setToolsOpen] = useState(defaultToolsOpen);
-
   const visibleItems = TOOLBAR_ITEMS.filter(
     (item) => !renderedMode || item.showInRendered !== false,
   );
   const commentItem = visibleItems.find((item) => item.action === "comment");
-  const formatItems = visibleItems.filter((item) => item.action !== "comment");
-
-  const renderItem = (item: ToolbarItem) => {
-    if (item.action === "comment") {
-      return (
-        <Button
-          key={item.action}
-          type="button"
-          variant={commentsOpen ? "default" : "ghost"}
-          size="sm"
-          className="relative h-7 shrink-0 gap-1 px-2 text-[10px]"
-          title={item.title}
-          aria-label={item.label}
-          aria-pressed={commentsOpen}
-          disabled={disabled}
-          onClick={onToggleComments}
-        >
-          <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="hidden sm:inline">{item.label}</span>
-          {unresolvedComments > 0 ? (
-            <span className="markdown-toolbar__comment-badge absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
-              {unresolvedComments > 99 ? "99+" : unresolvedComments}
-            </span>
-          ) : null}
-        </Button>
-      );
-    }
-
-    if (item.action === "inlineNote") {
-      return (
-        <Button
-          key={item.action}
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-          title={item.title}
-          aria-label={item.label}
-          disabled={disabled || !onInsertInlineNote}
-          onClick={() => onInsertInlineNote?.()}
-        >
-          <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="hidden md:inline">{item.label}</span>
-        </Button>
-      );
-    }
-
-    return (
-      <Button
-        key={item.action}
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-        title={item.title}
-        aria-label={item.label}
-        disabled={disabled}
-        onClick={() => onFormat(item.action as MarkdownFormatAction)}
-      >
-        <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
-        <span className="hidden md:inline">{item.label}</span>
-      </Button>
-    );
-  };
+  const formatItems = visibleItems.filter(
+    (item) => item.action !== "comment" && item.action !== "inlineNote",
+  );
+  const noteItem = visibleItems.find((item) => item.action === "inlineNote");
 
   return (
     <div
@@ -204,9 +278,34 @@ export function MarkdownToolbar({
       )}
       role="toolbar"
       aria-label="Formatting"
+      onMouseDown={(event) => {
+        if (event.target instanceof Element && event.target.closest("button")) {
+          event.preventDefault();
+        }
+      }}
     >
-      <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
-        {commentItem ? renderItem(commentItem) : null}
+      <div className="flex min-w-0 flex-wrap items-center gap-0.5">
+        {commentItem ? (
+          <Button
+            type="button"
+            variant={commentsOpen ? "default" : "ghost"}
+            size="sm"
+            className="relative h-7 shrink-0 gap-1 px-2 text-[10px]"
+            title={commentItem.title}
+            aria-label={commentItem.label}
+            aria-pressed={commentsOpen}
+            disabled={disabled}
+            onClick={onToggleComments}
+          >
+            <commentItem.icon className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="sr-only">{commentItem.label}</span>
+            {unresolvedComments > 0 ? (
+              <span className="markdown-toolbar__comment-badge absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground">
+                {unresolvedComments > 99 ? "99+" : unresolvedComments}
+              </span>
+            ) : null}
+          </Button>
+        ) : null}
         {paperPath && onInsertSnippet ? (
           <AssetInsertMenu
             paperPath={paperPath}
@@ -217,28 +316,32 @@ export function MarkdownToolbar({
             onInsert={onInsertSnippet}
           />
         ) : null}
-        <Button
-          type="button"
-          variant={toolsOpen ? "default" : "ghost"}
-          size="sm"
-          className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-          title={toolsOpen ? "Hide formatting tools" : "Show formatting tools"}
-          aria-label={toolsOpen ? "Hide formatting tools" : "Show formatting tools"}
-          aria-pressed={toolsOpen}
-          aria-expanded={toolsOpen}
+        {noteItem && !embedded ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+            title={noteItem.title}
+            aria-label={noteItem.label}
+            disabled={disabled || !onInsertInlineNote}
+            onClick={() => onInsertInlineNote?.()}
+          >
+            <noteItem.icon className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="hidden md:inline">{noteItem.label}</span>
+          </Button>
+        ) : null}
+        <HighlightToolbarButton disabled={disabled} onInsertHighlight={onInsertHighlight} />
+        <FormatToolsPopover
+          items={[
+            ...(noteItem && embedded ? [noteItem] : []),
+            ...formatItems,
+          ]}
           disabled={disabled}
-          onClick={() => setToolsOpen((open) => !open)}
-        >
-          <Type className="h-3.5 w-3.5" aria-hidden="true" />
-          <ChevronDown
-            className={cn(
-              "h-3 w-3 text-muted-foreground transition-transform",
-              toolsOpen && "rotate-180",
-            )}
-            aria-hidden="true"
-          />
-        </Button>
-        {toolsOpen ? formatItems.map(renderItem) : null}
+          embedded={embedded}
+          onFormat={onFormat}
+          onInsertInlineNote={onInsertInlineNote}
+        />
       </div>
     </div>
   );
@@ -246,12 +349,12 @@ export function MarkdownToolbar({
 
 export function authorColorClass(name: string): string {
   const palette = [
-    "bg-emerald-500/15 text-emerald-800",
-    "bg-sky-500/15 text-sky-800",
-    "bg-violet-500/15 text-violet-800",
-    "bg-amber-500/15 text-amber-900",
-    "bg-rose-500/15 text-rose-800",
-    "bg-teal-500/15 text-teal-800",
+    "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300",
+    "bg-sky-500/15 text-sky-800 dark:text-sky-300",
+    "bg-violet-500/15 text-violet-800 dark:text-violet-300",
+    "bg-amber-500/15 text-amber-900 dark:text-amber-200",
+    "bg-rose-500/15 text-rose-800 dark:text-rose-300",
+    "bg-teal-500/15 text-teal-800 dark:text-teal-300",
   ];
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) {

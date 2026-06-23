@@ -1,21 +1,34 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
-import { countPendingChanges, diffLineOps } from "@/lib/draftDiff";
+import {
+  PendingChangesDiff,
+  usePendingChangesSummary,
+} from "@/components/editor/PendingChangesDiff";
+import { pendingChangesRows } from "@/lib/draftDiff";
 import { cn } from "@/lib/utils";
 
 export function PendingChangesPanel({
-  baseline,
+  approvedBaseline,
+  loadedContent,
   current,
   className,
+  defaultExpanded = false,
 }: {
-  baseline: string;
+  approvedBaseline: string;
+  loadedContent: string;
   current: string;
   className?: string;
+  defaultExpanded?: boolean;
 }) {
-  const ops = useMemo(() => diffLineOps(baseline, current), [baseline, current]);
-  const counts = useMemo(() => countPendingChanges(baseline, current), [baseline, current]);
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const rows = useMemo(
+    () => pendingChangesRows(approvedBaseline, loadedContent, current),
+    [approvedBaseline, current, loadedContent],
+  );
+  const { summary } = usePendingChangesSummary(approvedBaseline, loadedContent, current);
 
-  if (baseline === current) return null;
+  if (rows.length === 0) return null;
 
   return (
     <div
@@ -24,38 +37,32 @@ export function PendingChangesPanel({
         className,
       )}
     >
-      <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
-        <span className="font-medium uppercase tracking-wide text-amber-900/80 dark:text-amber-100/90">
+      <button
+        type="button"
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 text-left text-[10px] text-muted-foreground"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 font-medium uppercase tracking-wide text-amber-900/80 dark:text-amber-100/90">
+          <ChevronDown
+            className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-180")}
+            aria-hidden="true"
+          />
           Unapproved changes
         </span>
-        {counts.inserts > 0 ? (
-          <span className="inline-flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400/70" aria-hidden="true" />
-            {counts.inserts} added/changed
-          </span>
-        ) : null}
-        {counts.deletes > 0 ? (
-          <span className="inline-flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-400/60" aria-hidden="true" />
-            {counts.deletes} removed
-          </span>
-        ) : null}
-      </div>
-      <pre className="pending-changes-diff max-h-36 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5">
-        {ops.map((op, index) => (
-          <div
-            key={index}
-            className={cn(
-              "pending-changes-diff__line rounded-sm px-1",
-              op.kind === "insert" && "pending-changes-diff__line--insert",
-              op.kind === "delete" && "pending-changes-diff__line--delete",
-            )}
-          >
-            <span className="select-none opacity-50">{op.kind === "delete" ? "−" : op.kind === "insert" ? "+" : " "}</span>
-            {op.text.length > 0 ? op.text : "\u00a0"}
-          </div>
-        ))}
-      </pre>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400/70" aria-hidden="true" />
+          {summary} changed
+        </span>
+      </button>
+      {expanded ? (
+        <PendingChangesDiff
+          approvedBaseline={approvedBaseline}
+          loadedContent={loadedContent}
+          current={current}
+          className="mt-1.5 max-h-36 overflow-auto"
+        />
+      ) : null}
     </div>
   );
 }

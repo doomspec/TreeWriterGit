@@ -8,11 +8,15 @@ import matter from "gray-matter";
 import {
   collectContainerCounts,
   countUnitsUnder,
+  deletePaper,
   getPaperDetail,
+  listJournalTemplateDetails,
   listPapers,
   loadJournalTemplate,
+  normalizeSectionOrder,
   scaffoldPaper,
   slugify,
+  updatePaper,
 } from "./papers.js";
 import { ModelFsError } from "./modelFs.js";
 import { buildCombinedMarkdown } from "./export.js";
@@ -110,6 +114,34 @@ describe("slugify", () => {
   });
 });
 
+describe("normalizeSectionOrder", () => {
+  it("slugifies section names", () => {
+    expect(normalizeSectionOrder(["Introduction", "Results and Discussion"])).toEqual([
+      "introduction",
+      "results-and-discussion",
+    ]);
+  });
+
+  it("rejects empty section lists and duplicates", () => {
+    expect(() => normalizeSectionOrder(["", "  "])).toThrowError(ModelFsError);
+    expect(() => normalizeSectionOrder(["intro", "Intro"])).toThrowError(ModelFsError);
+  });
+});
+
+describe("listJournalTemplateDetails", () => {
+  it("returns full template metadata", async () => {
+    await writeTemplate("digital-discovery", {
+      journal: "Digital Discovery",
+      target_words: 6000,
+      section_order: ["abstract", "introduction"],
+    });
+    const templates = await listJournalTemplateDetails(modelRoot);
+    const dd = templates.find((template) => template.journal === "Digital Discovery");
+    expect(dd?.targetWords).toBe(6000);
+    expect(dd?.sectionOrder).toEqual(["abstract", "introduction"]);
+  });
+});
+
 describe("countUnitsUnder status bucketing", () => {
   it("buckets approved / drafted / outline separately", async () => {
     await writeIndex("papers/p", { kind: "paper", section_order: ["sections"] });
@@ -156,11 +188,20 @@ describe("loadJournalTemplate", () => {
       journal: "Nature",
       target_words: 3000,
       section_order: ["introduction", "results", "methods"],
+      export: {
+        documentclass: "article",
+        documentclass_options: ["11pt"],
+        geometry: "margin=2.5cm",
+        pandoc_variables: { linestretch: "1.15" },
+      },
     });
     const tpl = await loadJournalTemplate(modelRoot, "Nature");
     expect(tpl.journal).toBe("Nature");
     expect(tpl.targetWords).toBe(3000);
     expect(tpl.sectionOrder).toEqual(["introduction", "results", "methods"]);
+    expect(tpl.export?.documentclass).toBe("article");
+    expect(tpl.export?.documentclassOptions).toEqual(["11pt"]);
+    expect(tpl.export?.pandocVariables?.linestretch).toBe("1.15");
   });
 
   it("falls back to plos-one when the journal key is absent", async () => {
@@ -199,7 +240,7 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
       await readFile(path.join(modelRoot, "papers/my-study/INDEX.md"), "utf8"),
     );
     expect(paperIndex.data.kind).toBe("paper");
-    // template sections lead the order; scaffold may append standard extras (figures/tables)
+    // template sections lead the order; asset folders live outside section_order
     expect((paperIndex.data.section_order as string[]).slice(0, 3)).toEqual([
       "introduction",
       "methods",
@@ -208,12 +249,42 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
     expect(paperIndex.data.authors).toEqual(["Ada Lovelace"]);
 
     for (const section of ["introduction", "methods", "results"]) {
-      expect(existsSync(path.join(modelRoot, `papers/my-study/sections/${section}/INDEX.md`))).toBe(
-        true,
-      );
+      expect(existsSync(path.join(modelRoot, `papers/my-study/${section}/INDEX.md`))).toBe(true);
     }
     for (const notesDir of ["literature", "data", "feedback"]) {
       expect(existsSync(path.join(modelRoot, `papers/my-study/notes/${notesDir}`))).toBe(true);
+    }
+  });
+
+  it("applies custom settings overrides from the create request", async () => {
+    const { slug } = await scaffoldPaper(modelRoot, {
+      title: "Custom Settings",
+      journal: "PLOS ONE",
+      authors: ["Ada Lovelace"],
+      targetWords: 7500,
+      sectionOrder: ["Abstract", "Intro", "Results"],
+      status: "Drafting",
+      overleafRepoPath: "/tmp/overleaf",
+    });
+    expect(slug).toBe("custom-settings");
+
+    const paperIndex = matter(
+      await readFile(path.join(modelRoot, "papers/custom-settings/INDEX.md"), "utf8"),
+    );
+    expect(paperIndex.data.target_words).toBe(7500);
+    expect((paperIndex.data.section_order as string[]).slice(0, 3)).toEqual([
+      "abstract",
+      "intro",
+      "results",
+    ]);
+    expect(paperIndex.data.section_order).toEqual(["abstract", "intro", "results"]);
+    expect(paperIndex.data.status).toBe("Drafting");
+    expect(paperIndex.data.overleaf_repo_path).toBe("/tmp/overleaf");
+
+    for (const section of ["abstract", "intro", "results"]) {
+      expect(existsSync(path.join(modelRoot, `papers/custom-settings/${section}/INDEX.md`))).toBe(
+        true,
+      );
     }
   });
 
@@ -237,8 +308,8 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
 
   it("returns per-section roll-up in getPaperDetail", async () => {
     await scaffoldPaper(modelRoot, { title: "Detail", journal: "PLOS ONE", authors: [] });
-    await writeUnit("papers/detail/sections/introduction/opening", "drafted");
-    await writeIndex("papers/detail/sections/introduction", {
+    await writeUnit("papers/detail/introduction/opening", "drafted");
+    await writeIndex("papers/detail/introduction", {
       kind: "section",
       child_order: ["opening"],
     });
@@ -252,27 +323,97 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
 
   it("returns containerCounts for sections, subsections, and units", async () => {
     await scaffoldPaper(modelRoot, { title: "Rollup", journal: "PLOS ONE", authors: [] });
-    await writeIndex("papers/rollup/sections/methods", {
+    await writeIndex("papers/rollup/methods", {
       kind: "section",
       child_order: ["prep"],
     });
-    await writeIndex("papers/rollup/sections/methods/prep", {
+    await writeIndex("papers/rollup/methods/prep", {
       kind: "subsection",
       child_order: ["step-a"],
     });
-    await writeUnit("papers/rollup/sections/methods/prep/step-a", "approved");
+    await writeUnit("papers/rollup/methods/prep/step-a", "approved");
 
     const counts = await collectContainerCounts(modelRoot, "papers/rollup");
     expect(counts["papers/rollup"].approved).toBe(1);
-    expect(counts["papers/rollup/sections/methods"].approved).toBe(1);
-    expect(counts["papers/rollup/sections/methods/prep"].approved).toBe(1);
-    expect(counts["papers/rollup/sections/methods/prep/step-a"].approved).toBe(1);
+    expect(counts["papers/rollup/methods"].approved).toBe(1);
+    expect(counts["papers/rollup/methods/prep"].approved).toBe(1);
+    expect(counts["papers/rollup/methods/prep/step-a"].approved).toBe(1);
 
     const detail = await getPaperDetail(modelRoot, "rollup");
-    expect(detail.containerCounts["papers/rollup/sections/methods/prep/step-a"].total).toBe(1);
+    expect(detail.containerCounts["papers/rollup/methods/prep/step-a"].total).toBe(1);
+  });
+
+  it("returns pendingApprovalPaths for unapproved draft and outline files", async () => {
+    await scaffoldPaper(modelRoot, { title: "Pending", journal: "PLOS ONE", authors: [] });
+    await writeUnit("papers/pending/introduction/unit-a", "approved");
+    await writeFile(
+      path.join(modelRoot, "papers/pending/introduction/unit-a/draft.md"),
+      "Changed body.\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/pending/introduction/unit-a/outline.md"),
+      "Changed outline.\n",
+      "utf8",
+    );
+
+    const detail = await getPaperDetail(modelRoot, "pending");
+    expect(detail.pendingApprovalPaths).toContain("papers/pending/introduction/unit-a/draft.md");
+    expect(detail.pendingApprovalPaths).toContain("papers/pending/introduction/unit-a/outline.md");
   });
 
   it("throws 404 for an unknown paper slug", async () => {
     await expect(getPaperDetail(modelRoot, "ghost")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("updatePaper + deletePaper", () => {
+  beforeEach(async () => {
+    await writeTemplate("plos-one", {
+      journal: "PLOS ONE",
+      target_words: 5000,
+      section_order: ["introduction", "methods", "results"],
+    });
+    await scaffoldPaper(modelRoot, {
+      title: "Original Title",
+      journal: "PLOS ONE",
+      authors: ["Ada Lovelace"],
+      slug: "editable",
+    });
+  });
+
+  it("updates paper metadata in INDEX.md", async () => {
+    await updatePaper(modelRoot, {
+      slug: "editable",
+      title: "Updated Title",
+      journal: "PLOS ONE",
+      authors: ["Ada Lovelace", "Bob Jones"],
+      targetWords: 8000,
+      sectionOrder: ["abstract", "introduction"],
+      status: "Drafting",
+      overleafRepoPath: "/tmp/overleaf",
+    });
+
+    const paperIndex = matter(
+      await readFile(path.join(modelRoot, "papers/editable/INDEX.md"), "utf8"),
+    );
+    expect(paperIndex.data.title).toBe("Updated Title");
+    expect(paperIndex.content).toContain("# Updated Title");
+    expect(paperIndex.data.authors).toEqual(["Ada Lovelace", "Bob Jones"]);
+    expect(paperIndex.data.target_words).toBe(8000);
+    expect(paperIndex.data.section_order).toEqual(["abstract", "introduction"]);
+    expect(paperIndex.data.status).toBe("Drafting");
+    expect(paperIndex.data.overleaf_repo_path).toBe("/tmp/overleaf");
+
+    const detail = await getPaperDetail(modelRoot, "editable");
+    expect(detail.title).toBe("Updated Title");
+    expect(detail.authors).toEqual(["Ada Lovelace", "Bob Jones"]);
+    expect(detail.targetWords).toBe(8000);
+  });
+
+  it("deletes a paper recursively", async () => {
+    await deletePaper(modelRoot, "editable");
+    expect(existsSync(path.join(modelRoot, "papers/editable"))).toBe(false);
+    await expect(getPaperDetail(modelRoot, "editable")).rejects.toMatchObject({ status: 404 });
   });
 });

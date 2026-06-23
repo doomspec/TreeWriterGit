@@ -140,6 +140,18 @@ export function parseFigureEmbeds(text: string): string[] {
   return out;
 }
 
+/** Extract ::equation[path] embed targets from markdown. */
+export function parseEquationEmbeds(text: string): string[] {
+  const out: string[] = [];
+  const re = /::equation\[([^\]]+)\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    const target = match[1].trim();
+    if (target) out.push(target);
+  }
+  return out;
+}
+
 /** Extract plain path targets from frontmatter `links:` arrays. */
 export function parseFrontmatterLinkList(links: unknown): string[] {
   if (!Array.isArray(links)) return [];

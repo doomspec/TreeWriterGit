@@ -3,7 +3,9 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
 
-import { ModelFsError, createNode, resolveModelPath, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { ModelFsError, createNode, deleteNode, resolveModelPath, isUnitDir, orderedChildren, readIndexData, resolveChildPath, resolveManuscriptSectionsRoot, PAPER_ASSET_DIRS } from "./modelFs.js";
+import { collectPendingApprovalPaths } from "./draftApproval.js";
+import { parseJournalExportStyle, type JournalExportStyle } from "./journalExportStyle.js";
 
 export type UnitStatus = "outline" | "drafted" | "approved";
 
@@ -31,15 +33,33 @@ export interface PaperSummary {
 }
 
 export interface PaperDetail extends PaperSummary {
+  authors: string[];
+  targetWords: number;
+  sectionOrder: string[];
+  overleafRepoPath: string | null;
   sections: SectionRollup[];
   /** Unit approval rollups for every folder under the paper (sections, subsections, units). */
   containerCounts: Record<string, UnitStatusCounts>;
+  /** draft.md / outline.md paths that differ from approved baselines. */
+  pendingApprovalPaths: string[];
 }
 
 export interface JournalTemplate {
   journal: string;
   targetWords: number;
   sectionOrder: string[];
+  export?: JournalExportStyle;
+}
+
+export interface UpdatePaperInput {
+  slug: string;
+  title: string;
+  journal: string;
+  authors: string[];
+  targetWords?: number;
+  sectionOrder?: string[];
+  status?: string;
+  overleafRepoPath?: string | null;
 }
 
 export interface ScaffoldPaperInput {
@@ -47,6 +67,10 @@ export interface ScaffoldPaperInput {
   journal: string;
   authors: string[];
   slug?: string;
+  targetWords?: number;
+  sectionOrder?: string[];
+  status?: string;
+  overleafRepoPath?: string | null;
 }
 
 const EMPTY_COUNTS: UnitStatusCounts = { approved: 0, drafted: 0, outline: 0, total: 0 };
@@ -68,6 +92,33 @@ export function slugify(title: string): string {
     throw new ModelFsError("Could not derive slug from title", 400);
   }
   return slug;
+}
+
+function normalizeSectionSlug(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!slug || !/^[a-z0-9][a-z0-9-_]*$/.test(slug)) {
+    throw new ModelFsError(`Invalid section name: ${JSON.stringify(name)}`, 400);
+  }
+  return slug;
+}
+
+/** Slugify and dedupe user-provided section folder names. */
+export function normalizeSectionOrder(names: string[]): string[] {
+  const sections = names.map((name) => normalizeSectionSlug(name.trim())).filter(Boolean);
+  if (sections.length === 0) {
+    throw new ModelFsError("At least one section is required", 400);
+  }
+  const seen = new Set<string>();
+  for (const section of sections) {
+    if (seen.has(section)) {
+      throw new ModelFsError(`Duplicate section: ${section}`, 400);
+    }
+    seen.add(section);
+  }
+  return sections;
 }
 
 function journalFileKey(journal: string): string {
@@ -115,7 +166,7 @@ export async function countUnitsUnder(
   return counts;
 }
 
-const CONTAINER_SKIP = new Set(["notes", ".sessions", ".trash", "figures", "tables"]);
+const CONTAINER_SKIP = new Set(["notes", ".sessions", ".trash", ...PAPER_ASSET_DIRS]);
 
 function normalizeUnitStatus(raw: string): UnitStatus {
   if (raw === "approved" || raw === "drafted") return raw;
@@ -167,21 +218,18 @@ async function topLevelSections(modelRoot: string, paperRel: string): Promise<{ 
     ? (paperData.section_order as string[])
     : [];
 
-  const sectionsRoot = `${paperRel}/sections`;
-  if (existsSync(path.join(modelRoot, sectionsRoot))) {
-    const sectionsData = await readIndexData(modelRoot, sectionsRoot);
-    const childOrder = Array.isArray(sectionsData.child_order)
-      ? (sectionsData.child_order as string[])
-      : sectionOrder;
-    const order = childOrder.length > 0 ? childOrder : sectionOrder;
-    return order.map((name) => ({
-      path: `${sectionsRoot}/${name}`,
-      title: titleCase(name),
-    }));
-  }
+  const sectionsRoot = await resolveManuscriptSectionsRoot(modelRoot, paperRel);
+  const sectionsData =
+    sectionsRoot === paperRel ? paperData : await readIndexData(modelRoot, sectionsRoot);
+  const childOrder = Array.isArray(sectionsData.child_order)
+    ? (sectionsData.child_order as string[])
+    : sectionOrder;
+  const order = (childOrder.length > 0 ? childOrder : sectionOrder).filter(
+    (name) => !PAPER_ASSET_DIRS.has(name),
+  );
 
-  return sectionOrder.map((name) => ({
-    path: `${paperRel}/${name}`,
+  return order.map((name) => ({
+    path: `${sectionsRoot}/${name}`,
     title: titleCase(name),
   }));
 }
@@ -207,22 +255,42 @@ export async function loadJournalTemplate(
       journal: String(parsed.data.journal ?? journal),
       targetWords: Number(parsed.data.target_words ?? 5000),
       sectionOrder,
+      export: parseJournalExportStyle(parsed.data.export),
     };
   }
 
   throw new ModelFsError(`No journal template found for ${JSON.stringify(journal)}`, 404);
 }
 
-export async function listJournalTemplates(modelRoot: string): Promise<string[]> {
+async function readJournalTemplateFile(filePath: string, fallbackJournal: string): Promise<JournalTemplate | null> {
+  const parsed = matter(await readFile(filePath, "utf8"));
+  const sectionOrder = Array.isArray(parsed.data.section_order)
+    ? (parsed.data.section_order as string[])
+    : [];
+  if (sectionOrder.length === 0) return null;
+  return {
+    journal: String(parsed.data.journal ?? fallbackJournal),
+    targetWords: Number(parsed.data.target_words ?? 5000),
+    sectionOrder,
+    export: parseJournalExportStyle(parsed.data.export),
+  };
+}
+
+export async function listJournalTemplateDetails(modelRoot: string): Promise<JournalTemplate[]> {
   const templatesDir = path.join(modelRoot, "templates");
   if (!existsSync(templatesDir)) return [];
   const files = await readdir(templatesDir);
-  const names: string[] = [];
+  const templates: JournalTemplate[] = [];
   for (const file of files.filter((f) => f.endsWith(".md"))) {
-    const parsed = matter(await readFile(path.join(templatesDir, file), "utf8"));
-    names.push(String(parsed.data.journal ?? file.replace(/\.md$/, "")));
+    const fallbackJournal = file.replace(/\.md$/, "");
+    const template = await readJournalTemplateFile(path.join(templatesDir, file), fallbackJournal);
+    if (template) templates.push(template);
   }
-  return names.sort();
+  return templates.sort((a, b) => a.journal.localeCompare(b.journal));
+}
+
+export async function listJournalTemplates(modelRoot: string): Promise<string[]> {
+  return (await listJournalTemplateDetails(modelRoot)).map((template) => template.journal);
 }
 
 export async function scaffoldPaper(
@@ -237,6 +305,16 @@ export async function scaffoldPaper(
   }
 
   const template = await loadJournalTemplate(modelRoot, input.journal);
+  const targetWords =
+    input.targetWords != null && Number.isFinite(input.targetWords) && input.targetWords > 0
+      ? Math.round(input.targetWords)
+      : template.targetWords;
+  const sectionOrder =
+    input.sectionOrder && input.sectionOrder.length > 0
+      ? normalizeSectionOrder(input.sectionOrder)
+      : template.sectionOrder;
+  const status = input.status?.trim() || "Planning";
+  const overleafRepoPath = input.overleafRepoPath?.trim() || null;
   await mkdir(paperAbs, { recursive: true });
 
   const paperBody = `# ${input.title}\n\n_Thesis / one-line summary._\n`;
@@ -245,11 +323,11 @@ export async function scaffoldPaper(
     title: input.title,
     slug,
     journal: template.journal,
-    status: "Planning",
+    status,
     authors: input.authors,
-    target_words: template.targetWords,
-    section_order: template.sectionOrder,
-    overleaf_repo_path: null,
+    target_words: targetWords,
+    section_order: sectionOrder,
+    overleaf_repo_path: overleafRepoPath,
     last_export: null,
   };
   await writeFile(
@@ -258,23 +336,11 @@ export async function scaffoldPaper(
     "utf8",
   );
 
-  const sectionsRel = `${paperRel}/sections`;
-  await mkdir(path.join(modelRoot, sectionsRel), { recursive: true });
-  await writeFile(
-    path.join(modelRoot, sectionsRel, "INDEX.md"),
-    matter.stringify(`# Sections\n\n_Ordered top-level sections for this paper._\n`, {
-      kind: "section",
-      title: "Sections",
-      child_order: template.sectionOrder,
-    }),
-    "utf8",
-  );
-
-  for (const sectionName of template.sectionOrder) {
-    await createNode(modelRoot, sectionsRel, sectionName, "section");
+  for (const sectionName of sectionOrder) {
+    await createNode(modelRoot, paperRel, sectionName, "section");
   }
 
-  for (const assetDir of ["figures", "tables", "equations"] as const) {
+  for (const assetDir of PAPER_ASSET_DIRS) {
     await createNode(modelRoot, paperRel, assetDir, "section");
   }
 
@@ -288,7 +354,7 @@ export async function scaffoldPaper(
     );
   }
 
-  const exampleSection = template.sectionOrder[0] ?? "introduction";
+  const exampleSection = sectionOrder[0] ?? "introduction";
   const exampleFigureRel = `${paperRel}/notes/data/fig-example`;
   await writeFile(
     path.join(modelRoot, `${exampleFigureRel}.md`),
@@ -311,6 +377,88 @@ export async function scaffoldPaper(
   );
 
   return { slug, path: paperRel };
+}
+
+function paperSectionOrder(data: Record<string, unknown>): string[] {
+  return Array.isArray(data.section_order)
+    ? (data.section_order as string[]).filter((name) => !PAPER_ASSET_DIRS.has(name))
+    : [];
+}
+
+function updatePaperBodyTitle(content: string, title: string): string {
+  const trimmed = content.trim();
+  if (/^\s*#(?!#)\s/m.test(trimmed)) {
+    return trimmed.replace(/^\s*#(?!#)\s+[^\n\r]+/, `# ${title}`);
+  }
+  return `# ${title}\n\n${trimmed}`.trim() + "\n";
+}
+
+export async function updatePaper(
+  modelRoot: string,
+  input: UpdatePaperInput,
+): Promise<{ slug: string; path: string }> {
+  const slug = input.slug.trim();
+  const paperRel = `papers/${slug}`;
+  const indexPath = path.join(modelRoot, paperRel, "INDEX.md");
+  if (!existsSync(indexPath)) {
+    throw new ModelFsError(`Paper not found: ${slug}`, 404);
+  }
+
+  const template = await loadJournalTemplate(modelRoot, input.journal);
+  const targetWords =
+    input.targetWords != null && Number.isFinite(input.targetWords) && input.targetWords > 0
+      ? Math.round(input.targetWords)
+      : undefined;
+  const sectionOrder =
+    input.sectionOrder && input.sectionOrder.length > 0
+      ? normalizeSectionOrder(input.sectionOrder)
+      : undefined;
+
+  const parsed = matter(await readFile(indexPath, "utf8"));
+  const data = parsed.data as Record<string, unknown>;
+  if (data.kind !== "paper") {
+    throw new ModelFsError(`Not a paper: ${paperRel}`, 400);
+  }
+
+  const nextTitle = input.title.trim();
+  const nextFrontmatter = {
+    ...data,
+    kind: "paper",
+    title: nextTitle,
+    slug,
+    journal: template.journal,
+    status: input.status?.trim() || String(data.status ?? "Planning"),
+    authors: input.authors,
+    target_words: targetWords ?? Number(data.target_words ?? template.targetWords),
+    section_order: sectionOrder ?? paperSectionOrder(data),
+    overleaf_repo_path:
+      input.overleafRepoPath !== undefined
+        ? input.overleafRepoPath?.trim() || null
+        : data.overleaf_repo_path ?? null,
+  };
+
+  await writeFile(
+    indexPath,
+    matter.stringify(updatePaperBodyTitle(parsed.content, nextTitle), nextFrontmatter),
+    "utf8",
+  );
+
+  return { slug, path: paperRel };
+}
+
+export async function deletePaper(modelRoot: string, slug: string): Promise<{ slug: string; path: string }> {
+  const trimmed = slug.trim();
+  const paperRel = `papers/${trimmed}`;
+  const indexPath = path.join(modelRoot, paperRel, "INDEX.md");
+  if (!existsSync(indexPath)) {
+    throw new ModelFsError(`Paper not found: ${trimmed}`, 404);
+  }
+  const data = await readIndexData(modelRoot, paperRel);
+  if (data.kind !== "paper") {
+    throw new ModelFsError(`Not a paper: ${paperRel}`, 400);
+  }
+  await deleteNode(modelRoot, paperRel, true);
+  return { slug: trimmed, path: paperRel };
 }
 
 async function parsePaperSummary(modelRoot: string, paperRel: string): Promise<PaperSummary | null> {
@@ -355,6 +503,14 @@ export async function getPaperDetail(modelRoot: string, slug: string): Promise<P
     throw new ModelFsError(`Paper not found: ${slug}`, 404);
   }
 
+  const indexPath = path.join(modelRoot, paperRel, "INDEX.md");
+  const parsed = matter(await readFile(indexPath, "utf8"));
+  const data = parsed.data as Record<string, unknown>;
+  const authors = Array.isArray(data.authors) ? (data.authors as string[]) : [];
+  const targetWords = Number(data.target_words ?? 5000);
+  const sectionOrder = paperSectionOrder(data);
+  const overleafRepoPath = data.overleaf_repo_path ? String(data.overleaf_repo_path) : null;
+
   const sections: SectionRollup[] = [];
   for (const section of await topLevelSections(modelRoot, paperRel)) {
     if (!existsSync(path.join(modelRoot, section.path))) continue;
@@ -366,8 +522,18 @@ export async function getPaperDetail(modelRoot: string, slug: string): Promise<P
   }
 
   const containerCounts = await collectContainerCounts(modelRoot, paperRel);
+  const pendingApprovalPaths = await collectPendingApprovalPaths(modelRoot, paperRel);
 
-  return { ...summary, sections, containerCounts };
+  return {
+    ...summary,
+    authors,
+    targetWords,
+    sectionOrder,
+    overleafRepoPath,
+    sections,
+    containerCounts,
+    pendingApprovalPaths,
+  };
 }
 
 /** Exported for agent dispatch context gathering. */

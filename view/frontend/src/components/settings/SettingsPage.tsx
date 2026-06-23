@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bot, GitBranch, RefreshCw, User } from "lucide-react";
+import { ArrowLeft, Bot, GitBranch, Monitor, RefreshCw, RotateCcw, User } from "lucide-react";
 
+import { KeyboardShortcutsSection } from "@/components/settings/KeyboardShortcutsSection";
 import { Button } from "@/components/ui/button";
+import { ThemePreferenceSelect } from "@/components/ui/ThemeToggle";
+import {
+  READING_FONT_FAMILIES,
+  READING_FONT_SIZE_MAX,
+  READING_FONT_SIZE_MIN,
+  READING_FONT_SIZE_STEP,
+  formatReadingFontSizeScale,
+  type ReadingFontFamilyId,
+} from "@/lib/readingTypography";
+import { useReadingTypography } from "@/lib/ReadingTypographyProvider";
+import type { ThemePreference } from "@/lib/themePreferences";
 import {
   fetchSettings,
   formatInterval,
@@ -14,6 +26,7 @@ import {
 } from "@/lib/settingsApi";
 import { saveLastAgentProvider } from "@/lib/lastAgentProvider";
 import { getGitHubHandle, getUserName, setGitHubHandle, setUserName } from "@/lib/userIdentity";
+import { resetAppState } from "@/lib/resetAppState";
 import { cn } from "@/lib/utils";
 
 function SettingsSection({
@@ -97,12 +110,16 @@ export function SettingsPage({
   onGitSyncChange,
   viewSyncPaused = false,
   onResolveViewSync,
+  themePreference = "system",
+  onThemePreferenceChange,
 }: {
   onBack: () => void;
   onError: (message: string) => void;
   onGitSyncChange?: (settings: GitSyncSettings) => void;
   viewSyncPaused?: boolean;
   onResolveViewSync?: () => void;
+  themePreference?: ThemePreference;
+  onThemePreferenceChange?: (preference: ThemePreference) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -110,6 +127,7 @@ export function SettingsPage({
   const [agents, setAgents] = useState<AgentSettings | null>(null);
   const [authorName, setAuthorName] = useState(() => getUserName());
   const [githubHandle, setGithubHandleState] = useState(() => getGitHubHandle());
+  const { fontFamily, fontSizeScale, setFontFamily, setFontSizeScale } = useReadingTypography();
   const onGitSyncChangeRef = useRef(onGitSyncChange);
   const hasLoadedRef = useRef(false);
 
@@ -195,6 +213,20 @@ export function SettingsPage({
     setGithubHandleState(getGitHubHandle());
   };
 
+  const handleResetAppState = async () => {
+    const confirmed = window.confirm(
+      "Reset TreeWriter app state?\n\nThis clears saved layout, editor scroll positions, terminal session, and server memory caches. Your manuscript files are not deleted.",
+    );
+    if (!confirmed) return;
+    setSaving("reset");
+    try {
+      await resetAppState(true);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      setSaving(null);
+    }
+  };
+
   const syncStatus = gitSync?.status;
   const syncStatusLabel = syncStatus?.conflictDetected
     ? "Conflict"
@@ -224,6 +256,54 @@ export function SettingsPage({
             <p className="text-sm text-muted-foreground">Loading settings…</p>
           ) : (
             <>
+              <SettingsSection title="Appearance" icon={Monitor}>
+                <SettingRow
+                  label="Color theme"
+                  hint="Light, dark, or match your system preference"
+                >
+                  <ThemePreferenceSelect
+                    preference={themePreference}
+                    onChange={(next) => onThemePreferenceChange?.(next)}
+                  />
+                </SettingRow>
+                <SettingRow
+                  label="Rendered font"
+                  hint="Font family for outline, draft, and preview panes"
+                >
+                  <select
+                    className="h-8 min-w-[10rem] rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={fontFamily}
+                    onChange={(event) => setFontFamily(event.target.value as ReadingFontFamilyId)}
+                  >
+                    {(Object.keys(READING_FONT_FAMILIES) as ReadingFontFamilyId[]).map((id) => (
+                      <option key={id} value={id}>
+                        {READING_FONT_FAMILIES[id].label}
+                      </option>
+                    ))}
+                  </select>
+                </SettingRow>
+                <SettingRow
+                  label="Rendered font size"
+                  hint="Global reading size; per-pane zoom still applies on top"
+                >
+                  <div className="flex min-w-[12rem] items-center gap-2">
+                    <input
+                      type="range"
+                      min={READING_FONT_SIZE_MIN}
+                      max={READING_FONT_SIZE_MAX}
+                      step={READING_FONT_SIZE_STEP}
+                      value={fontSizeScale}
+                      aria-label="Rendered font size"
+                      className="h-2 w-full accent-primary"
+                      onChange={(event) => setFontSizeScale(Number(event.target.value))}
+                    />
+                    <span className="w-10 shrink-0 text-right font-mono text-xs text-muted-foreground">
+                      {formatReadingFontSizeScale(fontSizeScale)}
+                    </span>
+                  </div>
+                </SettingRow>
+              </SettingsSection>
+
               <SettingsSection title="Git sync" icon={GitBranch}>
                 <SettingRow
                   label="Automatic sync"
@@ -382,6 +462,30 @@ export function SettingsPage({
                   </div>
                 </SettingRow>
               </SettingsSection>
+
+              <SettingsSection title="Troubleshooting" icon={RotateCcw}>
+                <SettingRow
+                  label="Reset app state"
+                  hint="Clears browser localStorage and server memory caches, then reloads. Use if the UI is sluggish or stuck."
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1"
+                    disabled={saving === "reset"}
+                    onClick={() => void handleResetAppState()}
+                  >
+                    <RotateCcw
+                      className={cn("h-3.5 w-3.5", saving === "reset" && "animate-spin")}
+                      aria-hidden="true"
+                    />
+                    Reset & reload
+                  </Button>
+                </SettingRow>
+              </SettingsSection>
+
+              <KeyboardShortcutsSection />
             </>
           )}
         </div>

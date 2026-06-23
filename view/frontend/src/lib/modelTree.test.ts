@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canAddManuscriptChildren,
   papersBreadcrumbSegments,
   childCardsForFolder,
   displayFileLabel,
@@ -186,6 +187,37 @@ describe("isIndexStale", () => {
   });
 });
 
+describe("canAddManuscriptChildren", () => {
+  const paperPath = "papers/demo";
+
+  it("allows paper root and top-level sections", () => {
+    const intro: ModelNode = {
+      name: "introduction",
+      path: "papers/demo/introduction",
+      type: "directory",
+      children: [
+        { name: "outline.md", path: "papers/demo/introduction/outline.md", type: "file" },
+        { name: "draft.md", path: "papers/demo/introduction/draft.md", type: "file" },
+      ],
+    };
+    expect(canAddManuscriptChildren(null, paperPath, paperPath)).toBe(true);
+    expect(canAddManuscriptChildren(intro, intro.path, paperPath)).toBe(true);
+  });
+
+  it("blocks asset folders and leaf units", () => {
+    const unit: ModelNode = {
+      name: "background",
+      path: "papers/demo/introduction/background",
+      type: "directory",
+      children: [
+        { name: "outline.md", path: "papers/demo/introduction/background/outline.md", type: "file" },
+        { name: "draft.md", path: "papers/demo/introduction/background/draft.md", type: "file" },
+      ],
+    };
+    expect(canAddManuscriptChildren(unit, unit.path, paperPath)).toBe(false);
+    expect(canAddManuscriptChildren(null, "papers/demo/figures", paperPath)).toBe(false);
+  });
+});
 describe("isPaperRootPath", () => {
   it("matches paper slug folders only", () => {
     expect(isPaperRootPath("papers/roboculture")).toBe(true);
@@ -201,9 +233,21 @@ describe("isUnitFolder", () => {
       name: "intro",
       path: "papers/a/intro",
       type: "directory",
+      kind: "unit",
       children: [{ name: "outline.md", path: "papers/a/intro/outline.md", type: "file" }],
     };
     expect(isUnitFolder(node)).toBe(true);
+  });
+
+  it("false for subsection kind even with only outline.md", () => {
+    const node: ModelNode = {
+      name: "problem",
+      path: "papers/a/introduction/problem",
+      type: "directory",
+      kind: "subsection",
+      children: [{ name: "outline.md", path: "papers/a/introduction/problem/outline.md", type: "file" }],
+    };
+    expect(isUnitFolder(node)).toBe(false);
   });
 
   it("true when draft.md is present without child directories", () => {
@@ -221,6 +265,7 @@ describe("isUnitFolder", () => {
       name: "introduction",
       path: "papers/a/introduction",
       type: "directory",
+      kind: "section",
       children: [
         { name: "outline.md", path: "papers/a/introduction/outline.md", type: "file" },
         { name: "background", path: "papers/a/introduction/background", type: "directory" },
@@ -273,6 +318,55 @@ describe("sectionsForPaper", () => {
   it("orders sections by section_order", () => {
     const sections = sectionsForPaper(tree, "papers/roboculture", ["introduction", "results"]);
     expect(sections.map((s) => s.name)).toEqual(["introduction", "results"]);
+  });
+
+  it("excludes asset folders from the section list", () => {
+    const treeWithAssets: ModelNode[] = [
+      {
+        name: "demo",
+        path: "papers/demo",
+        type: "directory",
+        children: [
+          { name: "introduction", path: "papers/demo/introduction", type: "directory" },
+          { name: "figures", path: "papers/demo/figures", type: "directory" },
+          { name: "tables", path: "papers/demo/tables", type: "directory" },
+          { name: "equations", path: "papers/demo/equations", type: "directory" },
+        ],
+      },
+    ];
+    const sections = sectionsForPaper(treeWithAssets, "papers/demo", [
+      "introduction",
+      "figures",
+      "tables",
+      "equations",
+    ]);
+    expect(sections.map((s) => s.name)).toEqual(["introduction"]);
+  });
+
+  it("reads legacy sections/ wrapper when manuscript folders are nested", () => {
+    const legacyTree: ModelNode[] = [
+      {
+        name: "demo",
+        path: "papers/demo",
+        type: "directory",
+        children: [
+          {
+            name: "sections",
+            path: "papers/demo/sections",
+            type: "directory",
+            children: [
+              { name: "abstract", path: "papers/demo/sections/abstract", type: "directory" },
+              { name: "introduction", path: "papers/demo/sections/introduction", type: "directory" },
+            ],
+          },
+        ],
+      },
+    ];
+    const sections = sectionsForPaper(legacyTree, "papers/demo", ["abstract", "introduction"]);
+    expect(sections.map((s) => s.path)).toEqual([
+      "papers/demo/sections/abstract",
+      "papers/demo/sections/introduction",
+    ]);
   });
 });
 

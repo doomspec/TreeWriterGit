@@ -148,6 +148,8 @@ export function literatureNoteFromBibEntry(entry: ParsedBibEntry): string {
     type: "literature",
     title,
     cite_key: citeKey,
+    entry_type: entry.type,
+    relevance: [],
   };
   if (authors) frontmatter.authors = authors;
   if (year !== null) frontmatter.year = year;
@@ -164,6 +166,8 @@ export function literatureNoteFromBibEntry(entry: ParsedBibEntry): string {
 
   return matter.stringify(body, frontmatter);
 }
+
+const RESERVED_NOTE_FILES = new Set(["index.md", "outline.md", "draft.md"]);
 
 export async function importBibtexReferences(
   modelRoot: string,
@@ -190,6 +194,10 @@ export async function importBibtexReferences(
 
   for (const entry of entries) {
     const citeKey = sanitizeCiteKey(entry.citeKey);
+    if (RESERVED_NOTE_FILES.has(`${citeKey}.md`.toLowerCase())) {
+      skipped.push(citeKey);
+      continue;
+    }
     if (seenKeys.has(citeKey)) {
       skipped.push(citeKey);
       continue;

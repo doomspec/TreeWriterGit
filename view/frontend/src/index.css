@@ -2,6 +2,7 @@
 @import "./styles/components.css";
 @import "./styles/layout.css";
 @import "./styles/markdown.css";
+@import "katex/dist/katex.min.css";
 
 @tailwind base;
 @tailwind components;

@@ -153,6 +153,79 @@ Contribution draft text.
     expect(backgroundDraft.trim()).toBe("Background draft text.");
   });
 
+  it("syncs flat prose to a single unit child without linked headings", async () => {
+    await mkdir(path.join(modelRoot, "papers/demo/solo"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/solo/INDEX.md"),
+      matter.stringify("\n", { kind: "section", title: "Solo", child_order: ["background"] }),
+      "utf8",
+    );
+    await mkdir(path.join(modelRoot, "papers/demo/solo/background"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/solo/background/INDEX.md"),
+      matter.stringify("\n", { kind: "unit", title: "Background", status: "outline", links: [] }),
+      "utf8",
+    );
+
+    const updated = await syncSectionDraftToChildren(
+      modelRoot,
+      "papers/demo/solo",
+      `# Solo
+
+Accurate estimation of viable cell density only once.
+`,
+    );
+    expect(updated).toEqual(["papers/demo/solo/background/draft.md"]);
+    const backgroundDraft = await readFile(
+      path.join(modelRoot, "papers/demo/solo/background/draft.md"),
+      "utf8",
+    );
+    expect(backgroundDraft.trim()).toBe("Accurate estimation of viable cell density only once.");
+  });
+
+  it("strips duplicate preamble before linked child blocks", async () => {
+    const prose = "Shared paragraph text.";
+    const updated = await syncSectionDraftToChildren(
+      modelRoot,
+      "papers/demo/introduction",
+      `# Introduction
+
+${prose}
+
+## [Background](background/INDEX.md)
+
+${prose}
+`,
+    );
+    expect(updated).toEqual(["papers/demo/introduction/background/draft.md"]);
+    const backgroundDraft = await readFile(
+      path.join(modelRoot, "papers/demo/introduction/background/draft.md"),
+      "utf8",
+    );
+    expect(backgroundDraft.trim()).toBe(prose);
+  });
+
+  it("syncs leaf section draft to its own draft.md when it has no children", async () => {
+    await mkdir(path.join(modelRoot, "papers/demo/abstract"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/abstract/INDEX.md"),
+      matter.stringify("\n", { kind: "section", title: "Abstract", child_order: [] }),
+      "utf8",
+    );
+
+    const updated = await syncSectionDraftToChildren(
+      modelRoot,
+      "papers/demo/abstract",
+      `# Abstract
+
+Final abstract paragraph text.
+`,
+    );
+    expect(updated).toEqual(["papers/demo/abstract/draft.md"]);
+    const draft = await readFile(path.join(modelRoot, "papers/demo/abstract/draft.md"), "utf8");
+    expect(draft.trim()).toBe("Final abstract paragraph text.");
+  });
+
   it("recursively syncs nested subsection units", async () => {
     await mkdir(path.join(modelRoot, "papers/demo/introduction/methods/setup"), { recursive: true });
     await writeFile(

@@ -141,11 +141,18 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
     }
   }
 
+  function resetAllSessions() {
+    for (const id of [...sessions.keys()]) {
+      destroySession(id);
+    }
+  }
+
   return {
     resolveSession,
     attach,
     detach,
     destroySession,
+    resetAllSessions,
     handleInput,
     handleResize,
     /** Test helper */

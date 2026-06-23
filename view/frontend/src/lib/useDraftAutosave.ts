@@ -5,6 +5,7 @@ import {
   discardDraftAtPath,
   type DraftPendingSource,
 } from "@/lib/draftApproval";
+import { hasPendingApprovalDiff } from "@/lib/draftDiff";
 import { useRegisterDraftPending } from "@/lib/draftPendingStore";
 import { getGitHubHandle } from "@/lib/userIdentity";
 
@@ -50,7 +51,7 @@ export function useDraftAutosave({
   reloadAfterDiscard?: () => Promise<string>;
   onError?: (message: string) => void;
   onSaved?: () => void;
-  onApproved?: () => void;
+  onApproved?: () => void | Promise<void>;
   onDiscarded?: (restored: string) => void;
   requiresApproval?: boolean;
   debounceMs?: number;
@@ -63,7 +64,8 @@ export function useDraftAutosave({
   pendingSourceRef.current = pendingSource;
 
   const isDirty = content !== loadedContent;
-  const isPendingApproval = requiresApproval && content !== approvedBaseline;
+  const isPendingApproval =
+    requiresApproval && hasPendingApprovalDiff(approvedBaseline, loadedContent, content);
 
   useRegisterDraftPending(targetPath, isPendingApproval);
 
@@ -104,7 +106,7 @@ export function useDraftAutosave({
       setPendingSource(null);
       setSaveState("saved");
       onSaved?.();
-      onApproved?.();
+      await onApproved?.();
       window.setTimeout(() => setSaveState("idle"), IDLE_AFTER_SAVE_MS);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

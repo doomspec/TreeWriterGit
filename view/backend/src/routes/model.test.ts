@@ -86,4 +86,19 @@ describe("registerModelRoutes", () => {
     const tree = await readModelTree(modelRoot);
     expect(tree.some((node) => node.name === "outline.md")).toBe(true);
   });
+
+  it("readModelTree includes folder kind from INDEX.md", async () => {
+    await mkdir(path.join(modelRoot, "papers/demo/intro"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/intro/INDEX.md"),
+      "---\nkind: unit\ntitle: Intro\n---\n",
+      "utf8",
+    );
+    const tree = await readModelTree(modelRoot);
+    const intro = tree
+      .find((node) => node.name === "papers")
+      ?.children?.find((node) => node.name === "demo")
+      ?.children?.find((node) => node.name === "intro");
+    expect(intro?.kind).toBe("unit");
+  });
 });

@@ -21,7 +21,7 @@ import {
   type GraphNodeType,
   type GraphScope,
 } from "@/lib/graphLocal";
-import { applyFitTransform } from "@/lib/graphFit";
+import { applyFitTransform, computeFitTransform } from "@/lib/graphFit";
 import { fetchModelGraph, type ModelGraphEdge, type ModelGraphNode } from "@/modelApi";
 
 interface RawNode {
@@ -53,6 +53,24 @@ function graphColor(type: GraphNodeType): string {
   return `hsl(var(${GRAPH_COLOR_VAR[type]}))`;
 }
 
+const NODE_TYPE_LABEL: Record<GraphNodeType, string> = {
+  paper: "Paper",
+  section: "Section",
+  unit: "Unit",
+  figure: "Figure",
+  note: "Note",
+  doc: "Document",
+  missing: "Missing link",
+};
+
+function edgeKindLabel(kind?: "outline" | "contains"): string {
+  return kind === "contains" ? "Contains" : "Outline link";
+}
+
+function edgeHoverKey(sourceId: string, targetId: string): string {
+  return `${sourceId}\0${targetId}`;
+}
+
 function endpointId(value: string | number | SimNode): string {
   return typeof value === "object" ? value.id : String(value);
 }
@@ -67,6 +85,7 @@ export function GraphPanel({
   onGraphScopeChange,
   active = true,
   refreshVersion = 0,
+  minimal = false,
 }: {
   /** Directory passed to GET /api/model/graph?root= (paper root, not leaf unit). */
   fetchRoot: string;
@@ -81,6 +100,8 @@ export function GraphPanel({
   active?: boolean;
   /** Bump to refetch graph after model changes. */
   refreshVersion?: number;
+  /** Hide chrome — graph canvas only (reading focus inline). */
+  minimal?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -93,6 +114,7 @@ export function GraphPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
   const [scope, setScopeInternal] = useState<GraphScope>(graphScopeProp ?? "local");
   const [depth, setDepth] = useState(1);
 
@@ -110,19 +132,32 @@ export function GraphPanel({
     const el = containerRef.current;
     if (!el) return;
 
+    let rafId: number | undefined;
+    let debounceId: number | undefined;
+
     const updateSize = () => {
       const { width, height } = el.getBoundingClientRect();
-      if (width > 0 && height > 0) {
-        setSize({ w: Math.round(width), h: Math.round(height) });
-      }
+      const w = Math.round(width);
+      const h = Math.round(height);
+      if (w <= 0 || h <= 0) return;
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
     };
 
-    updateSize();
-    const raf = window.requestAnimationFrame(updateSize);
-    const ro = new ResizeObserver(() => updateSize());
+    const scheduleUpdateSize = () => {
+      if (rafId !== undefined) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = undefined;
+        window.clearTimeout(debounceId);
+        debounceId = window.setTimeout(updateSize, 120);
+      });
+    };
+
+    scheduleUpdateSize();
+    const ro = new ResizeObserver(scheduleUpdateSize);
     ro.observe(el);
     return () => {
-      window.cancelAnimationFrame(raf);
+      if (rafId !== undefined) window.cancelAnimationFrame(rafId);
+      window.clearTimeout(debounceId);
       ro.disconnect();
     };
   }, [active]);
@@ -169,7 +204,7 @@ export function GraphPanel({
   );
 
   useEffect(() => {
-    if (loading || filtered.nodes.length === 0) {
+    if (!active || loading || filtered.nodes.length === 0) {
       setSimNodes([]);
       setSimEdges([]);
       return;
@@ -208,26 +243,35 @@ export function GraphPanel({
       .force(
         "y",
         forceY<SimNode>(cy).strength((d) => (d.isFocus ? 0.35 : 0.04)),
-      );
+      )
+      .stop();
 
-    simulation.on("tick", () => {
-      setSimNodes([...nodes]);
-      setSimEdges([...edges]);
-    });
-
-    for (let i = 0; i < 180; i += 1) simulation.tick();
+    const warmupTicks = minimal ? 24 : 48;
+    for (let i = 0; i < warmupTicks; i += 1) simulation.tick();
     setSimNodes([...nodes]);
     setSimEdges([...edges]);
 
     return () => {
       simulation.stop();
     };
-  }, [filtered, loading, size.h, size.w]);
+  }, [active, filtered, loading, minimal, size.h, size.w]);
 
   useEffect(() => {
     const svg = svgRef.current;
     const layer = zoomLayerRef.current;
     if (!svg || !layer || simNodes.length === 0) return;
+
+    const fitLayer = () => {
+      const transform = computeFitTransform(layer.getBBox(), size.w, size.h);
+      if (transform) {
+        select(layer).attr("transform", transform.toString());
+      }
+    };
+
+    if (minimal) {
+      const rafId = requestAnimationFrame(fitLayer);
+      return () => cancelAnimationFrame(rafId);
+    }
 
     const behavior = zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.25, 3])
@@ -236,14 +280,15 @@ export function GraphPanel({
       });
 
     const selection = select(svg).call(behavior);
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       applyFitTransform(svg, behavior, layer, size.w, size.h);
     });
 
     return () => {
+      cancelAnimationFrame(rafId);
       selection.on(".zoom", null);
     };
-  }, [filtered.focusId, filtered.nodes.length, scope, depth, simNodes.length, size.h, size.w]);
+  }, [filtered.focusId, filtered.nodes.length, minimal, scope, depth, simNodes.length, size.h, size.w]);
 
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -256,7 +301,33 @@ export function GraphPanel({
     return map;
   }, [simEdges]);
 
+  const nodeById = useMemo(() => new Map(simNodes.map((node) => [node.id, node])), [simNodes]);
+
+  const hoverCaption = useMemo(() => {
+    if (!minimal) return null;
+    if (hoveredEdge) {
+      const [sourceId, targetId] = hoveredEdge.split("\0");
+      const source = nodeById.get(sourceId);
+      const target = nodeById.get(targetId);
+      if (!source || !target) return null;
+      return `${source.label} → ${target.label} · ${edgeKindLabel(
+        simEdges.find(
+          (edge) =>
+            endpointId(edge.source as never) === sourceId &&
+            endpointId(edge.target as never) === targetId,
+        )?.kind,
+      )}`;
+    }
+    if (hovered) {
+      const node = nodeById.get(hovered);
+      if (!node) return null;
+      return `${node.label} · ${NODE_TYPE_LABEL[node.type]}`;
+    }
+    return null;
+  }, [hovered, hoveredEdge, minimal, nodeById, simEdges]);
+
   if (!fetchRoot) {
+    if (minimal) return null;
     return (
       <div className={cn("flex flex-col bg-background", embedded ? "min-h-0 h-full" : "absolute inset-0 z-10")}>
         <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-muted-foreground">
@@ -267,7 +338,14 @@ export function GraphPanel({
   }
 
   return (
-    <div className={cn("flex flex-col bg-background", embedded ? "min-h-0 h-full" : "absolute inset-0 z-10")}>
+    <div
+      className={cn(
+        "flex flex-col",
+        minimal ? "reading-focus-inline-graph__panel h-full min-h-0 bg-reading" : "bg-background",
+        !minimal && (embedded ? "min-h-0 h-full" : "absolute inset-0 z-10"),
+      )}
+    >
+      {!minimal ? (
       <div className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
         <div>
           <h2 className="text-xs font-semibold uppercase text-muted-foreground">
@@ -318,19 +396,25 @@ export function GraphPanel({
           ) : null}
         </div>
       </div>
-      {error ? (
+      ) : null}
+      {error && !minimal ? (
         <div className="p-4 text-xs text-destructive">{error}</div>
       ) : (
         <div ref={containerRef} className="graph-canvas-host min-h-0 flex-1">
-          {loading ? (
+          {hoverCaption ? (
+            <div className="graph-hover-caption" role="status" aria-live="polite">
+              {hoverCaption}
+            </div>
+          ) : null}
+          {loading && !minimal ? (
             <div className="flex h-full min-h-[200px] items-center justify-center text-xs text-muted-foreground">
               Loading graph…
             </div>
-          ) : simNodes.length === 0 ? (
+          ) : simNodes.length === 0 && !minimal ? (
             <div className="flex h-full min-h-[200px] items-center justify-center text-xs text-muted-foreground">
               No nodes in view
             </div>
-          ) : (
+          ) : simNodes.length > 0 ? (
             <svg
               ref={svgRef}
               width={size.w}
@@ -345,32 +429,55 @@ export function GraphPanel({
                   const s = edge.source as SimNode;
                   const t = edge.target as SimNode;
                   if (typeof s !== "object" || typeof t !== "object") return null;
+                  const edgeKey = edgeHoverKey(s.id, t.id);
+                  const edgeHovered = hoveredEdge === edgeKey;
                   const highlight =
+                    edgeHovered ||
                     !hovered ||
                     hovered === s.id ||
                     hovered === t.id ||
                     (neighbors.get(hovered)?.has(s.id) && neighbors.get(hovered)?.has(t.id));
+                  const edgeTitle = `${s.label} → ${t.label} · ${edgeKindLabel(edge.kind)}`;
                   return (
-                    <line
-                      key={index}
-                      x1={s.x}
-                      y1={s.y}
-                      x2={t.x}
-                      y2={t.y}
-                      stroke="currentColor"
-                      className={edge.kind === "contains" ? "text-muted-foreground" : "text-primary"}
-                      strokeOpacity={highlight ? 0.55 : 0.2}
-                      strokeWidth={edge.kind === "contains" ? 1 : highlight ? 1.75 : 1}
-                      strokeDasharray={edge.kind === "contains" ? "4 3" : undefined}
-                    />
+                    <g key={index}>
+                      <line
+                        x1={s.x}
+                        y1={s.y}
+                        x2={t.x}
+                        y2={t.y}
+                        stroke="currentColor"
+                        className={edge.kind === "contains" ? "text-muted-foreground" : "text-primary"}
+                        strokeOpacity={highlight ? 0.55 : 0.2}
+                        strokeWidth={edge.kind === "contains" ? 1 : highlight ? 1.75 : 1}
+                        strokeDasharray={edge.kind === "contains" ? "4 3" : undefined}
+                        pointerEvents="none"
+                      />
+                      <line
+                        x1={s.x}
+                        y1={s.y}
+                        x2={t.x}
+                        y2={t.y}
+                        stroke="transparent"
+                        strokeWidth={14}
+                        pointerEvents="stroke"
+                        onMouseEnter={() => {
+                          setHoveredEdge(edgeKey);
+                          setHovered(null);
+                        }}
+                        onMouseLeave={() => setHoveredEdge(null)}
+                      >
+                        <title>{edgeTitle}</title>
+                      </line>
+                    </g>
                   );
                 })}
                 {simNodes.map((node) => {
                   const radius = (node.isFocus ? 10 : 7) + Math.min(node.links, 4);
-                  const showLabel = shouldShowLabel(node.id, hovered);
+                  const showLabel = !minimal && shouldShowLabel(node.id, hovered);
                   const dimmed = hovered !== null && hovered !== node.id && !neighbors.get(hovered)?.has(node.id);
                   const label =
                     node.label.length > 28 ? `${node.label.slice(0, 26).trimEnd()}…` : node.label;
+                  const nodeTitle = `${node.label} · ${NODE_TYPE_LABEL[node.type]}`;
                   return (
                     <g
                       key={node.id}
@@ -378,10 +485,16 @@ export function GraphPanel({
                       style={{ cursor: "pointer", opacity: dimmed ? 0.35 : 1 }}
                       role="button"
                       tabIndex={0}
-                      aria-label={`${node.label}, ${node.type}`}
-                      onMouseEnter={() => setHovered(node.id)}
+                      aria-label={nodeTitle}
+                      onMouseEnter={() => {
+                        setHovered(node.id);
+                        setHoveredEdge(null);
+                      }}
                       onMouseLeave={() => setHovered(null)}
-                      onFocus={() => setHovered(node.id)}
+                      onFocus={() => {
+                        setHovered(node.id);
+                        setHoveredEdge(null);
+                      }}
                       onBlur={() => setHovered(null)}
                       onClick={() => onSelectNode(node.id)}
                       onKeyDown={(event) => {
@@ -391,6 +504,7 @@ export function GraphPanel({
                         }
                       }}
                     >
+                      <title>{nodeTitle}</title>
                       {node.isFocus ? (
                         <circle
                           r={radius + 4}
@@ -403,7 +517,7 @@ export function GraphPanel({
                       <circle
                         r={radius}
                         fill={graphColor(node.type)}
-                        stroke="white"
+                        stroke="hsl(var(--card))"
                         strokeWidth={node.type === "missing" ? 0 : 1.5}
                         strokeDasharray={node.type === "missing" ? "2 2" : undefined}
                       />
@@ -435,7 +549,7 @@ export function GraphPanel({
                 })}
               </g>
             </svg>
-          )}
+          ) : null}
         </div>
       )}
     </div>

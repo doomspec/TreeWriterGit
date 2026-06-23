@@ -4,7 +4,7 @@
 
 ## Theme
 
-Light, restrained product UI with teal research accent. Warm neutral surfaces (not cream/sand default). Terminal uses a dedicated dark surface token — intentional contrast island.
+Light, restrained product UI with teal research accent. **Cool neutral surfaces** (210° hue, low chroma) — not cream/sand AI defaults. Dark mode uses **scholarly teal-tinted slate**, not generic coding black. Terminal uses a dedicated dark surface token — intentional contrast island.
 
 ## Color roles
 
@@ -12,9 +12,11 @@ Light, restrained product UI with teal research accent. Warm neutral surfaces (n
 |-------|------|
 | `--primary` | Teal — links, active tab, focus ring, primary actions |
 | `--foreground` | Body ink — headings and UI labels |
-| `--muted-foreground` | Secondary labels (≥4.5:1 on `--background`) |
+| `--muted-foreground` | Secondary labels (≥4.5:1 on `--background`; light ~38% L, dark ~66% L) |
 | `--sidebar-bg` / `--workspace-bg` / `--editor-bg` | Three-tier surface hierarchy |
-| `--success` / `--warning` | Dispatch status, positive git sync |
+| `--overlay` | Modal and drawer backdrops (theme-aware, not raw black) |
+| `--shadow-sm/md/lg` | Elevation — stronger in dark mode for legible popovers |
+| `--success` / `--warning` | Dispatch status, git sync, diff highlights, attached assets |
 | `--terminal-bg` | Agent terminal only |
 
 ## Typography
@@ -33,11 +35,14 @@ Light, restrained product UI with teal research accent. Warm neutral surfaces (n
 - `text-xs` (12px) — default compact UI
 - `text-sm` (14px) — header title, buttons
 
+Headings in rendered markdown use `text-wrap: balance` for cleaner line breaks.
+
 ## Layout
 
-- **App shell**: 44px header, 32px footer, 3-column grid (sidebar | workspace | agent)
-- **Breakpoints**: 1280 / 1024 / 720 (grid), 900 (dual pane), 1100 (editor split)
+- **App shell**: 44px header, 36px footer, 3-column grid (sidebar | workspace | agent)
+- **Breakpoints**: 375 (tight chrome) · 720 (stacked sidebar) · 768 (bottom panel) · 900 (dual pane) · 1100 (editor split) · 1280 (full grid)
 - **Reading column**: max 42rem centered in preview modes
+- **Body min-width**: 320px
 
 ## Components
 
@@ -45,6 +50,7 @@ Light, restrained product UI with teal research accent. Warm neutral surfaces (n
 - **ui-badge** — status pills (git, terminal, session)
 - **ui-nav-row** — sidebar tree / list rows with hover + active states
 - **ui-tab** — sidebar tab strip
+- **ui-surface-popover** — menus and autocomplete with theme shadow
 
 ## Motion
 

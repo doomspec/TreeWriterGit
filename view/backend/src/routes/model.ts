@@ -2,17 +2,20 @@ import path from "node:path";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import type { Express } from "express";
 
-import { importBibtexReferences } from "../bibtexImport.js";
 import { composeSectionView } from "../compose.js";
 import {
   approveDraftTarget,
   discardDraftTarget,
+  findPendingAiProviderUnder,
   handleDraftFileSaved,
+  handleOutlineFileSaved,
+  isApprovalTrackedFilePath,
   isDraftFilePath,
+  isOutlineFilePath,
   normalizeGitHubHandle,
-  readApprovedDraftContent,
-  readDraftEditMeta,
-  unitDirFromDraftFile,
+  readApprovedContentForFile,
+  readEditMetaForFile,
+  unitDirFromApprovalFile,
 } from "../draftApproval.js";
 import {
   assetContentType,
@@ -34,7 +37,7 @@ import {
   type NodeKind,
 } from "../modelFs.js";
 import { readModelTree } from "../modelTree.js";
-import { listPaperAssets } from "../paperAssets.js";
+import { listPaperAssets, listPaperReferences } from "../paperAssets.js";
 import { searchModel, validateSearchQuery } from "../search.js";
 import { syncSectionDraftToChildren } from "../sectionSync.js";
 import {
@@ -110,6 +113,10 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
       const content = String(request.body?.content ?? "");
       const editedBy = normalizeGitHubHandle(request.body?.editedBy);
       const aiAssisted = request.body?.aiAssisted === true;
+      const aiProvider =
+        typeof request.body?.aiProvider === "string" && request.body.aiProvider.trim()
+          ? request.body.aiProvider.trim()
+          : null;
       const absolutePath = resolveModelPath(deps.modelRoot, relativePath);
       const fileStat = await stat(absolutePath);
 
@@ -125,6 +132,15 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
         for (const sidePath of await handleDraftFileSaved(deps.modelRoot, relativePath, {
           editedBy,
           aiAssisted,
+          aiProvider,
+        })) {
+          deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
+        }
+      } else if (isOutlineFilePath(relativePath)) {
+        for (const sidePath of await handleOutlineFileSaved(deps.modelRoot, relativePath, {
+          editedBy,
+          aiAssisted,
+          aiProvider,
         })) {
           deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
         }
@@ -145,12 +161,25 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
       const content = String(request.body?.content ?? "");
       const editedBy = normalizeGitHubHandle(request.body?.editedBy);
       const aiAssisted = request.body?.aiAssisted === true;
+      const aiProvider =
+        typeof request.body?.aiProvider === "string" && request.body.aiProvider.trim()
+          ? request.body.aiProvider.trim()
+          : null;
       const created = await createFile(deps.modelRoot, relativePath, content);
       deps.broadcastModelEvent({ type: "model-changed", path: created });
       if (isDraftFilePath(created)) {
         for (const sidePath of await handleDraftFileSaved(deps.modelRoot, created, {
           editedBy,
           aiAssisted,
+          aiProvider,
+        })) {
+          deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
+        }
+      } else if (isOutlineFilePath(created)) {
+        for (const sidePath of await handleOutlineFileSaved(deps.modelRoot, created, {
+          editedBy,
+          aiAssisted,
+          aiProvider,
         })) {
           deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
         }
@@ -292,7 +321,16 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
       }
       resolveModelPath(deps.modelRoot, pathParam);
       const approvedOnly = String(request.query.approvedOnly ?? "") === "true";
-      response.json(await composeSectionView(deps.modelRoot, pathParam, { approvedOnly }));
+      if (approvedOnly) {
+        response.json(await composeSectionView(deps.modelRoot, pathParam, { approvedOnly: true }));
+        return;
+      }
+      const [view, approvedView, pendingAiProvider] = await Promise.all([
+        composeSectionView(deps.modelRoot, pathParam, { approvedOnly: false }),
+        composeSectionView(deps.modelRoot, pathParam, { approvedOnly: true }),
+        findPendingAiProviderUnder(deps.modelRoot, pathParam),
+      ]);
+      response.json({ ...view, approvedDraftMarkdown: approvedView.draftMarkdown, pendingAiProvider });
     } catch (error) {
       next(error);
     }
@@ -305,11 +343,14 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
         response.status(400).json({ error: "path query parameter is required" });
         return;
       }
-      const unitRel = isDraftFilePath(pathParam) ? unitDirFromDraftFile(pathParam) : pathParam.replace(/\/+$/, "");
-      resolveModelPath(deps.modelRoot, unitRel);
+      if (!isApprovalTrackedFilePath(pathParam)) {
+        response.status(400).json({ error: "path must be draft.md or outline.md" });
+        return;
+      }
+      resolveModelPath(deps.modelRoot, unitDirFromApprovalFile(pathParam));
       const [content, meta] = await Promise.all([
-        readApprovedDraftContent(deps.modelRoot, unitRel),
-        readDraftEditMeta(deps.modelRoot, unitRel),
+        readApprovedContentForFile(deps.modelRoot, pathParam),
+        readEditMetaForFile(deps.modelRoot, pathParam),
       ]);
       response.json({ content, meta });
     } catch (error) {
@@ -325,7 +366,7 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
         response.status(400).json({ error: "path is required" });
         return;
       }
-      resolveModelPath(deps.modelRoot, pathParam.replace(/\/draft\.md$/, "").replace(/\/+$/, ""));
+      resolveModelPath(deps.modelRoot, pathParam);
       const result = await approveDraftTarget(deps.modelRoot, pathParam, approvedBy);
       for (const rel of result.updated) {
         deps.broadcastModelEvent({ type: "model-changed", path: rel });
@@ -343,7 +384,7 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
         response.status(400).json({ error: "path is required" });
         return;
       }
-      resolveModelPath(deps.modelRoot, pathParam.replace(/\/draft\.md$/, "").replace(/\/+$/, ""));
+      resolveModelPath(deps.modelRoot, pathParam);
       const result = await discardDraftTarget(deps.modelRoot, pathParam);
       for (const rel of result.updated) {
         deps.broadcastModelEvent({ type: "model-changed", path: rel });
@@ -360,6 +401,10 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
       const draftMarkdown = String(request.body?.draftMarkdown ?? "");
       const editedBy = normalizeGitHubHandle(request.body?.editedBy);
       const aiAssisted = request.body?.aiAssisted === true;
+      const aiProvider =
+        typeof request.body?.aiProvider === "string" && request.body.aiProvider.trim()
+          ? request.body.aiProvider.trim()
+          : null;
       if (!pathParam) {
         response.status(400).json({ error: "path is required" });
         return;
@@ -374,7 +419,7 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
       for (const rel of updated) {
         if (isDraftFilePath(rel)) {
           sideEffects.push(
-            ...(await handleDraftFileSaved(deps.modelRoot, rel, { editedBy, aiAssisted })),
+            ...(await handleDraftFileSaved(deps.modelRoot, rel, { editedBy, aiAssisted, aiProvider })),
           );
         }
       }
@@ -480,24 +525,15 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
     }
   });
 
-  app.post("/api/model/references/import", async (request, response, next) => {
+  app.get("/api/model/references/index", async (request, response, next) => {
     try {
-      const paperPath = String(request.body?.paper ?? "").trim();
-      const bibtex = String(request.body?.bibtex ?? "");
+      const paperPath = String(request.query.paper ?? "").trim();
       if (!paperPath) {
-        response.status(400).json({ error: "paper is required" });
-        return;
-      }
-      if (!bibtex.trim()) {
-        response.status(400).json({ error: "bibtex is required" });
+        response.status(400).json({ error: "paper query parameter is required" });
         return;
       }
       resolveModelPath(deps.modelRoot, paperPath);
-      const result = await importBibtexReferences(deps.modelRoot, paperPath, bibtex);
-      if (result.created.length > 0) {
-        deps.broadcastModelEvent({ type: "model-changed", path: `${paperPath}/notes/literature` });
-      }
-      response.status(201).json(result);
+      response.json({ references: await listPaperReferences(deps.modelRoot, paperPath) });
     } catch (error) {
       next(error);
     }

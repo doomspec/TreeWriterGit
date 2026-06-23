@@ -1,5 +1,5 @@
 import path from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 
@@ -15,6 +15,8 @@ export type TrashedItem = {
   originalParent: string;
   label: string;
   deletedAt: string;
+  /** Extra paths moved together (e.g. figure note .md + .mmd source). */
+  bundle?: Array<{ originalPath: string; trashPath: string }>;
 };
 
 type TrashManifest = {
@@ -72,6 +74,50 @@ function uniqueTrashPath(modelRoot: string, paperRel: string, withinPaper: strin
   return candidate;
 }
 
+function figureNoteBundlePaths(modelRoot: string, mdRel: string): string[] {
+  const dir = path.posix.dirname(mdRel);
+  const stem = path.posix.basename(mdRel, ".md");
+  const dirAbs = resolveModelPath(modelRoot, dir);
+  if (!existsSync(dirAbs)) return [mdRel];
+  return readdirSync(dirAbs)
+    .filter((name) => name === `${stem}.md` || name.startsWith(`${stem}.`))
+    .map((name) => path.posix.join(dir, name));
+}
+
+function resolveArchiveTargets(
+  modelRoot: string,
+  paperRel: string,
+  normalized: string,
+): Array<{ originalPath: string; trashPath: string }> {
+  const abs = resolveModelPath(modelRoot, normalized);
+  if (existsSync(abs)) {
+    const withinPaper = normalized.slice(paperRel.length + 1);
+    return [{ originalPath: normalized, trashPath: uniqueTrashPath(modelRoot, paperRel, withinPaper) }];
+  }
+
+  const mdRel = normalized.endsWith(".md") ? normalized : `${normalized}.md`;
+  if (!existsSync(resolveModelPath(modelRoot, mdRel))) {
+    throw new ModelFsError(`Not found: ${normalized}`, 404);
+  }
+
+  return figureNoteBundlePaths(modelRoot, mdRel).map((originalPath) => {
+    const withinPaper = originalPath.slice(paperRel.length + 1);
+    return {
+      originalPath,
+      trashPath: uniqueTrashPath(modelRoot, paperRel, withinPaper),
+    };
+  });
+}
+
+async function moveArchiveTargets(
+  modelRoot: string,
+  targets: Array<{ originalPath: string; trashPath: string }>,
+): Promise<void> {
+  for (const target of targets) {
+    await moveNode(modelRoot, target.originalPath, target.trashPath);
+  }
+}
+
 /** Move a paper node or literature note into the paper trash (soft delete). */
 export async function archiveNode(modelRoot: string, relativePath: string): Promise<TrashedItem> {
   const normalized = relativePath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
@@ -82,27 +128,33 @@ export async function archiveNode(modelRoot: string, relativePath: string): Prom
   if (normalized === paperRel || normalized.startsWith(`${paperRel}/${TRASH_FOLDER}`)) {
     throw new ModelFsError("Cannot archive the paper root or trash folder", 400);
   }
-  if (!existsSync(resolveModelPath(modelRoot, normalized))) {
+
+  const targets = resolveArchiveTargets(modelRoot, paperRel, normalized);
+  const primary = targets[0];
+  if (!primary) {
     throw new ModelFsError(`Not found: ${normalized}`, 404);
   }
 
-  const withinPaper = normalized.slice(paperRel.length + 1);
-  const trashPath = uniqueTrashPath(modelRoot, paperRel, withinPaper);
-  const originalParent = path.posix.dirname(normalized).replace(/^\.$/, "") || paperRel;
+  await moveArchiveTargets(modelRoot, targets);
 
-  await moveNode(modelRoot, normalized, trashPath);
+  const canonicalOriginal =
+    primary.originalPath.endsWith(".md")
+      ? primary.originalPath.replace(/\.md$/, "")
+      : primary.originalPath;
+  const originalParent = path.posix.dirname(canonicalOriginal).replace(/^\.$/, "") || paperRel;
 
   const item: TrashedItem = {
     id: randomUUID(),
-    trashPath,
-    originalPath: normalized,
+    trashPath: primary.trashPath,
+    originalPath: canonicalOriginal,
     originalParent,
-    label: labelFromPath(normalized),
+    label: labelFromPath(canonicalOriginal),
     deletedAt: new Date().toISOString(),
+    bundle: targets,
   };
 
   const manifest = await readManifest(modelRoot, paperRel);
-  manifest.items = manifest.items.filter((entry) => entry.trashPath !== trashPath);
+  manifest.items = manifest.items.filter((entry) => entry.trashPath !== primary.trashPath);
   manifest.items.unshift(item);
   await writeManifest(modelRoot, paperRel, manifest);
   return item;
@@ -138,7 +190,19 @@ export async function restoreTrashedItem(
   }
 
   await mkdir(resolveModelPath(modelRoot, item.originalParent), { recursive: true });
-  await moveNode(modelRoot, item.trashPath, item.originalPath);
+  const restoreTargets = item.bundle?.length
+    ? item.bundle
+    : [{ originalPath: item.originalPath, trashPath: item.trashPath }];
+  for (const entry of restoreTargets) {
+    if (!existsSync(resolveModelPath(modelRoot, entry.trashPath))) continue;
+    if (existsSync(resolveModelPath(modelRoot, entry.originalPath))) {
+      throw new ModelFsError(`Cannot restore: ${entry.originalPath} already exists`, 409);
+    }
+    await mkdir(resolveModelPath(modelRoot, path.posix.dirname(entry.originalPath)), {
+      recursive: true,
+    });
+    await moveNode(modelRoot, entry.trashPath, entry.originalPath);
+  }
 
   manifest.items = manifest.items.filter((entry) => entry.id !== itemId);
   await writeManifest(modelRoot, normalized, manifest);
@@ -157,7 +221,13 @@ export async function purgeTrashedItem(
     throw new ModelFsError("Removed item not found", 404);
   }
 
-  if (existsSync(resolveModelPath(modelRoot, item.trashPath))) {
+  if (item.bundle) {
+    for (const entry of item.bundle) {
+      if (existsSync(resolveModelPath(modelRoot, entry.trashPath))) {
+        await deleteNode(modelRoot, entry.trashPath, true);
+      }
+    }
+  } else if (existsSync(resolveModelPath(modelRoot, item.trashPath))) {
     await deleteNode(modelRoot, item.trashPath, true);
   }
 

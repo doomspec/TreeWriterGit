@@ -104,6 +104,40 @@ describe("composeSectionView", () => {
     expect(view.children[0]?.title).toBe("Background");
   });
 
+  it("includes a leaf section's own draft when it has no children", async () => {
+    const prose =
+      "Routine cell culture depends on counting viable cell density (VCD), the live cells per millilitre.";
+    await writeSection(
+      "papers/demo/abstract",
+      { kind: "section", title: "Abstract", child_order: [] },
+      `# Abstract\n\n## Summary\n\nHourglass abstract structure.\n`,
+      `${prose}\n`,
+    );
+
+    const view = await composeSectionView(root, "papers/demo/abstract");
+    expect(view.children).toHaveLength(0);
+    expect(view.draftMarkdown).toContain(prose);
+    expect(view.draftMarkdown).not.toContain("Hourglass abstract structure.");
+  });
+
+  it("does not duplicate single unit draft in section compose", async () => {
+    await writeSection("intro", { kind: "section", title: "Introduction", child_order: ["background"] });
+    const prose =
+      "Accurate estimation of viable cell density (VCD), determined by the product of total cell concentration and viability.";
+    await writeSection(
+      "intro/background",
+      { kind: "unit", title: "Background" },
+      `# Background\n\nOverview bullets.\n`,
+      `${prose}\n`,
+    );
+
+    const view = await composeSectionView(root, "intro");
+    const body = view.draftMarkdown.replace(/^#\s+.+\n+/, "");
+    expect(body.match(/Accurate estimation/g)?.length ?? 0).toBe(1);
+    expect(body).not.toContain("## [Background]");
+    expect(body.trim()).toBe(prose);
+  });
+
   it("composes paper draft from ordered sections and skips asset folders", async () => {
     await writeSection(
       "papers/demo",
@@ -137,6 +171,12 @@ describe("composeSectionView", () => {
     );
     await mkdir(path.join(root, "papers/demo/figures"), { recursive: true });
     await writeSection("papers/demo/figures/fig1", { kind: "figure", title: "Figure 1" });
+    await mkdir(path.join(root, "papers/demo/equations"), { recursive: true });
+    await writeSection("papers/demo/equations/eq1", {
+      kind: "equation",
+      title: "Equation 1",
+      equation_source: "source.tex",
+    });
 
     const view = await composeSectionView(root, "papers/demo");
     expect(view.title).toBe("Demo Paper");
@@ -147,6 +187,7 @@ describe("composeSectionView", () => {
     expect(view.draftMarkdown).toContain("## [Results](results/INDEX.md)");
     expect(view.draftMarkdown).toContain("Result prose.");
     expect(view.draftMarkdown).not.toContain("figures");
+    expect(view.draftMarkdown).not.toContain("equations");
     expect(view.children.map((c) => c.name)).toEqual(["introduction", "results"]);
   });
 });

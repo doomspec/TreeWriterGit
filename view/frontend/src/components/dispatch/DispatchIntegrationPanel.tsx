@@ -1,0 +1,126 @@
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { buildAgentIntegrationPrompt, buildDispatchGuideText } from "@/lib/agentIntegrationPrompt";
+import { cn } from "@/lib/utils";
+
+type IntegrationTab = "system-prompt" | "dispatch-guide";
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function DispatchIntegrationPanel({
+  currentPath,
+  previewPrompt,
+  previewCommand,
+  className,
+}: {
+  currentPath: string;
+  previewPrompt?: string | null;
+  previewCommand?: string | null;
+  className?: string;
+}) {
+  const [tab, setTab] = useState<IntegrationTab>("system-prompt");
+  const [copied, setCopied] = useState(false);
+
+  const systemPrompt = useMemo(
+    () => buildAgentIntegrationPrompt(currentPath || undefined),
+    [currentPath],
+  );
+
+  const dispatchGuide = useMemo(() => buildDispatchGuideText(), []);
+
+  const activeText =
+    tab === "system-prompt"
+      ? systemPrompt
+      : previewPrompt?.trim() || previewCommand?.trim() || dispatchGuide;
+
+  const activeLabel =
+    tab === "system-prompt"
+      ? "System prompt"
+      : previewPrompt?.trim()
+        ? "Latest dispatch prompt"
+        : "Dispatch guide";
+
+  useEffect(() => {
+    setCopied(false);
+  }, [tab, activeText]);
+
+  const handleCopy = () => {
+    void copyText(activeText).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
+      <div className="flex shrink-0 gap-4 border-b border-border px-4">
+        {(
+          [
+            ["system-prompt", "System prompt"],
+            ["dispatch-guide", previewPrompt?.trim() ? "Latest prompt" : "Dispatch guide"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={cn(
+              "-mb-px border-b-2 px-1 py-2.5 text-xs font-medium transition-colors",
+              tab === value
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setTab(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">{activeLabel}</span>
+          <Button type="button" size="sm" className="h-7 gap-1.5 px-2.5 text-[11px]" onClick={handleCopy}>
+            {copied ? (
+              <>
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                Copied
+              </>
+            ) : (
+              <>
+                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                Copy
+              </>
+            )}
+          </Button>
+        </div>
+
+        <textarea
+          readOnly
+          className="min-h-0 flex-1 resize-none rounded-md border border-border bg-muted/20 px-3 py-2.5 font-mono text-[11px] leading-relaxed text-foreground"
+          value={activeText}
+          aria-label={activeLabel}
+        />
+
+        {currentPath ? (
+          <p className="shrink-0 text-[11px] text-muted-foreground">
+            Context path: <span className="font-mono">{currentPath}</span>
+          </p>
+        ) : (
+          <p className="shrink-0 text-[11px] text-muted-foreground">
+            Navigate to a unit folder to include its path in the system prompt.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

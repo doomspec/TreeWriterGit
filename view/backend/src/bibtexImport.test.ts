@@ -43,6 +43,7 @@ describe("literatureNoteFromBibEntry", () => {
     const [entry] = parseBibtex(SAMPLE_BIB);
     const note = literatureNoteFromBibEntry(entry);
     expect(note).toContain("cite_key: smith2024");
+    expect(note).toContain("entry_type: article");
     expect(note).toContain("A Great Paper");
     expect(note).toContain("This paper shows important results.");
   });

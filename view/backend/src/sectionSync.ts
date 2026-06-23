@@ -2,7 +2,7 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
-import { orderedChildren, readIndexData, reorderChildren, isEquationDir, isFigureDir, isTableDir, isUnitDir } from "./modelFs.js";
+import { orderedChildren, readIndexData, reorderChildren, isEquationDir, isFigureDir, isTableDir, isUnitDir, resolveChildPath } from "./modelFs.js";
 import { displayChildTitle } from "./compose.js";
 
 async function isSectionContainerDir(modelRoot: string, relPath: string): Promise<boolean> {
@@ -111,6 +111,38 @@ export function parseLinkedHeadingBlocks(markdown: string): LinkedBlock[] {
   return blocks;
 }
 
+function normalizeProse(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** True when free text before the first linked heading repeats the first block body. */
+export function isDuplicateComposedPreamble(preamble: string, firstBlockBody: string): boolean {
+  const a = normalizeProse(preamble);
+  const b = normalizeProse(firstBlockBody);
+  if (!a || !b) return false;
+  return a === b || b.includes(a) || a.includes(b);
+}
+
+/** Drop orphan prose that duplicates the first linked child block. */
+export function stripDuplicateComposedPreamble(markdown: string, sectionTitle = "Section"): string {
+  const { preamble, remainder } = extractPreambleBeforeLinkedHeadings(markdown);
+  if (!preamble || !remainder) return markdown;
+  const blocks = parseLinkedHeadingBlocks(`# ${sectionTitle}\n\n${remainder}`);
+  if (blocks.length === 0) return markdown;
+  if (!isDuplicateComposedPreamble(preamble, blocks[0].body)) return markdown;
+  return `# ${sectionTitle}\n\n${remainder}\n`.trimEnd() + "\n";
+}
+
+/** Normalize composed section draft body for editing (no document H1). */
+export function normalizeComposedDraftBody(body: string, sectionTitle = "Section"): string {
+  const trimmed = body.trim();
+  if (!trimmed) return "";
+  const withTitle = trimmed.startsWith("# ") ? trimmed : `# ${sectionTitle}\n\n${trimmed}\n`;
+  return stripDuplicateComposedPreamble(withTitle, sectionTitle)
+    .replace(/^#\s+[^\n]+\n+/, "")
+    .trimEnd();
+}
+
 function upsertSummarySection(markdown: string, summary: string): string {
   const body = stripFrontmatter(markdown);
   const h1Match = body.match(/^\s*#(?!#)\s+[^\n]+\n?/);
@@ -214,10 +246,19 @@ export async function syncSectionDraftToChildren(
   hrefRoot: string = sectionRel,
 ): Promise<string[]> {
   const children = await orderedChildren(modelRoot, sectionRel);
-  if (children.length === 0) return [];
-
   const indexData = await readIndexData(modelRoot, sectionRel);
   const sectionTitle = String(indexData.title ?? path.posix.basename(sectionRel));
+
+  if (children.length === 0) {
+    let workingMarkdown = draftMarkdown;
+    if (indexData.kind !== "paper") {
+      workingMarkdown = stripDuplicateComposedPreamble(workingMarkdown, sectionTitle);
+    }
+    const body = stripLeadingH1(workingMarkdown);
+    if (!body.trim()) return [];
+    return [await writeChildDraft(modelRoot, sectionRel, body)];
+  }
+
   const updated = new Set<string>();
 
   let workingMarkdown = draftMarkdown;
@@ -229,10 +270,26 @@ export async function syncSectionDraftToChildren(
     workingMarkdown = remainder
       ? `# ${sectionTitle}\n\n${remainder}\n`
       : draftMarkdown;
+  } else {
+    workingMarkdown = stripDuplicateComposedPreamble(workingMarkdown, sectionTitle);
   }
 
-  const blocks = parseLinkedHeadingBlocks(workingMarkdown);
-  if (blocks.length === 0) return [...updated];
+  let blocks = parseLinkedHeadingBlocks(workingMarkdown);
+  if (blocks.length === 0) {
+    const unitChildren: string[] = [];
+    for (const childName of children) {
+      const childRel = resolveChildPath(modelRoot, sectionRel, childName);
+      if (!childRel) continue;
+      if (await isUnitDir(modelRoot, childRel)) unitChildren.push(childRel);
+    }
+    if (unitChildren.length === 1) {
+      const body = stripLeadingH1(workingMarkdown);
+      if (body) {
+        updated.add(await writeChildDraft(modelRoot, unitChildren[0], body));
+      }
+    }
+    return [...updated];
+  }
   for (const block of blocks) {
     const childRel = resolveChildHref(hrefRoot, block.href);
     if (!childRel) continue;

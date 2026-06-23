@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import matter from "gray-matter";
 
-import { getCachedGraph, graphCacheSize, invalidateGraphCache } from "./graphCache.js";
+import { getCachedGraph, graphCacheSize, invalidateGraphCache, invalidateGraphCacheForChange } from "./graphCache.js";
 
 let modelRoot: string;
 
@@ -38,5 +38,15 @@ describe("graphCache", () => {
     expect(graphCacheSize()).toBe(1);
     invalidateGraphCache();
     expect(graphCacheSize()).toBe(0);
+  });
+
+  it("invalidateGraphCacheForChange drops only the affected paper graph", async () => {
+    await getCachedGraph(modelRoot, "");
+    await getCachedGraph(modelRoot, "papers/demo");
+    expect(graphCacheSize()).toBe(2);
+    invalidateGraphCacheForChange("papers/demo/intro/INDEX.md");
+    expect(graphCacheSize()).toBe(1);
+    await getCachedGraph(modelRoot, "papers/demo");
+    expect(graphCacheSize()).toBe(2);
   });
 });

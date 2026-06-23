@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pencil, Search } from "lucide-react";
 
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
+import {
+  ReadingFocusExtra,
+} from "@/components/editor/ReadingFocusNavBar";
 import { SearchResults } from "@/components/layout/SearchResults";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
+import { normalizeComposedDraftBody } from "@/lib/sectionCompose";
+import { useReadingFocus } from "@/lib/readingFocus";
+import type { DualPaneActive, DualPaneView } from "@/lib/workspacePreferences";
 import { fetchSectionCompose, type SearchHit } from "@/modelApi";
 
 export function PaperWorkspace({
@@ -17,6 +23,10 @@ export function PaperWorkspace({
   onError,
   dualPaneSplit,
   onDualPaneSplitChange,
+  paneView,
+  onPaneViewChange,
+  activePane,
+  onActivePaneChange,
   onDispatchComplete,
   onSendToTerminal,
   onBeforeDispatch,
@@ -31,6 +41,10 @@ export function PaperWorkspace({
   onError: (message: string) => void;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
+  paneView: DualPaneView;
+  onPaneViewChange: (view: DualPaneView) => void;
+  activePane: DualPaneActive;
+  onActivePaneChange: (pane: DualPaneActive) => void;
   onDispatchComplete?: () => void;
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
@@ -40,25 +54,37 @@ export function PaperWorkspace({
 }) {
   const [compose, setCompose] = useState<Awaited<ReturnType<typeof fetchSectionCompose>> | null>(null);
   const [loading, setLoading] = useState(true);
+  const hasComposeRef = useRef(false);
+  const readingFocus = useReadingFocus();
   const outlinePath = outlinePathFor(paperPath);
 
-  const loadCompose = useCallback(() => {
+  const loadCompose = useCallback(
+    (background = false) => {
+      if (!background) setLoading(true);
+      return fetchSectionCompose(paperPath)
+        .then((data) => {
+          setCompose(data);
+          hasComposeRef.current = true;
+          setLoading(false);
+        })
+        .catch((err) => {
+          if (!hasComposeRef.current) setCompose(null);
+          setLoading(false);
+          onError(err instanceof Error ? err.message : String(err));
+        });
+    },
+    [onError, paperPath],
+  );
+
+  useEffect(() => {
+    hasComposeRef.current = false;
+    setCompose(null);
     setLoading(true);
-    return fetchSectionCompose(paperPath)
-      .then((data) => {
-        setCompose(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setCompose(null);
-        setLoading(false);
-        onError(err instanceof Error ? err.message : String(err));
-      });
-  }, [onError, paperPath]);
+  }, [paperPath]);
 
   useEffect(() => {
     let cancelled = false;
-    void loadCompose().then(() => {
+    void loadCompose(hasComposeRef.current).then(() => {
       if (cancelled) return;
     });
     return () => {
@@ -84,6 +110,69 @@ export function PaperWorkspace({
       </div>
     );
   }
+
+  const outlinePane = (
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+      tabIndex={-1}
+      onFocusCapture={() => onActivePaneChange("outline")}
+      onMouseDown={() => onActivePaneChange("outline")}
+    >
+      <MarkdownEditor
+        key={outlinePath}
+        filePath={outlinePath}
+        refreshVersion={refreshVersion}
+        layout="preview"
+        compact
+        showFocusGraph
+        paneLabel="Paper outline"
+        defaultPaneMode="rendered"
+        className="min-h-0 flex-1"
+        onError={onError}
+        linkContextPath={paperPath}
+        onNavigate={handleLinkNavigate}
+        onSendToTerminal={onSendToTerminal}
+        onBeforeDispatch={onBeforeDispatch}
+        onDispatchComplete={() => {
+          void loadCompose(true);
+          onDispatchComplete?.();
+        }}
+        paperPath={paperPath}
+        enableDispatch={false}
+      />
+    </div>
+  );
+
+  const draftPane = (
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+      tabIndex={-1}
+      onFocusCapture={() => onActivePaneChange("draft")}
+      onMouseDown={() => onActivePaneChange("draft")}
+    >
+      <ComposedDraftEditor
+        containerPath={paperPath}
+        title={compose.title}
+        markdown={normalizeComposedDraftBody(
+          compose.draftMarkdown.replace(/^#\s+.+\n+/, ""),
+          compose.title,
+        )}
+        approvedDraftMarkdown={compose.approvedDraftMarkdown}
+        pendingAiProvider={compose.pendingAiProvider ?? null}
+        refreshVersion={refreshVersion}
+        showFocusGraph={paneView === "draft"}
+        linkContextPath={paperPath}
+        onNavigate={handleLinkNavigate}
+        onError={onError}
+        onSynced={() => {
+          void loadCompose(true);
+          onDispatchComplete?.();
+        }}
+        paneLabel="Paper draft"
+        subtitle="Composed from sections · edits sync to units"
+      />
+    </div>
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -126,46 +215,29 @@ export function PaperWorkspace({
         ) : null}
       </div>
 
-      <ResizableDualPane
-        splitPercent={dualPaneSplit}
-        onSplitChange={onDualPaneSplitChange}
-        left={
-          <MarkdownEditor
-            key={outlinePath}
-            filePath={outlinePath}
-            refreshVersion={refreshVersion}
-            layout="preview"
-            compact
-            paneLabel="Paper outline"
-            defaultPaneMode="rendered"
-            className="min-h-0 flex-1"
-            onError={onError}
-            linkContextPath={paperPath}
-            onNavigate={handleLinkNavigate}
-            onSendToTerminal={onSendToTerminal}
-            onBeforeDispatch={onBeforeDispatch}
-            onDispatchComplete={() => {
-              void loadCompose();
-              onDispatchComplete?.();
-            }}
-            paperPath={paperPath}
+      <ReadingFocusExtra focusedPane={paneView} onPaneChange={onPaneViewChange} />
+      {readingFocus.active ? (
+        paneView === "split" ? (
+          <ResizableDualPane
+            className="reading-focus-dual-pane"
+            splitPercent={dualPaneSplit}
+            onSplitChange={onDualPaneSplitChange}
+            left={outlinePane}
+            right={draftPane}
           />
-        }
-        right={
-          <ComposedDraftEditor
-            containerPath={paperPath}
-            title={compose.title}
-            markdown={compose.draftMarkdown.replace(/^#\s+.+\n+/, "")}
-            refreshVersion={refreshVersion}
-            linkContextPath={paperPath}
-            onNavigate={handleLinkNavigate}
-            onError={onError}
-            onSynced={onDispatchComplete}
-            paneLabel="Paper draft"
-            subtitle="Composed from sections · edits sync to units"
-          />
-        }
-      />
+        ) : paneView === "outline" ? (
+          outlinePane
+        ) : (
+          draftPane
+        )
+      ) : (
+        <ResizableDualPane
+          splitPercent={dualPaneSplit}
+          onSplitChange={onDualPaneSplitChange}
+          left={outlinePane}
+          right={draftPane}
+        />
+      )}
     </div>
   );
 }

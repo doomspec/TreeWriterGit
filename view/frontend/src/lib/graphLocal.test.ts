@@ -51,9 +51,27 @@ describe("shouldShowLabel", () => {
 });
 
 describe("filterLocalGraph", () => {
-  it("returns full graph in global mode", () => {
+  it("drops unconnected nodes in global mode", () => {
     const result = filterLocalGraph(nodes, edges, "papers/a/intro/claim", 2, "global");
-    expect(result.nodes.length).toBe(5);
+    expect(result.nodes.map((n) => n.id).sort()).toEqual(
+      ["papers/a", "papers/a/intro", "papers/a/intro/claim", "papers/a/results"].sort(),
+    );
+    expect(result.nodes.some((n) => n.id === "papers/b")).toBe(false);
+  });
+
+  it("drops orphan literature notes in global mode", () => {
+    const withNotes: GraphNode[] = [
+      ...nodes.filter((n) => n.id !== "papers/b"),
+      { id: "papers/a/notes/lit/ref-a", label: "Ref A", type: "note", links: 0 },
+      { id: "papers/a/notes/lit/ref-b", label: "Ref B", type: "note", links: 1 },
+    ];
+    const noteEdges: GraphEdge[] = [
+      ...edges,
+      { source: "papers/a/intro", target: "papers/a/notes/lit/ref-b", kind: "outline" },
+    ];
+    const result = filterLocalGraph(withNotes, noteEdges, "papers/a", 2, "global");
+    expect(result.nodes.some((n) => n.id === "papers/a/notes/lit/ref-a")).toBe(false);
+    expect(result.nodes.some((n) => n.id === "papers/a/notes/lit/ref-b")).toBe(true);
   });
 
   it("keeps focus, neighbors within depth, and ancestor chain", () => {

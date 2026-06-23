@@ -2,9 +2,9 @@ import { cn } from "@/lib/utils";
 
 export type WorkspaceModeTab = "explorer" | "papers";
 
-const TABS: { id: WorkspaceModeTab; label: string }[] = [
-  { id: "explorer", label: "Explorer" },
-  { id: "papers", label: "Papers" },
+const TABS: { id: WorkspaceModeTab; label: string; shortLabel: string }[] = [
+  { id: "explorer", label: "Explorer", shortLabel: "Exp" },
+  { id: "papers", label: "Papers", shortLabel: "Papers" },
 ];
 
 export function WorkspaceModeTabs({
@@ -17,18 +17,19 @@ export function WorkspaceModeTabs({
   className?: string;
 }) {
   return (
-    <div className={cn("flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5", className)}>
+    <div className={cn("flex min-w-0 shrink items-center gap-0.5 rounded-md border border-border p-0.5", className)}>
       {TABS.map((tab) => (
         <button
           key={tab.id}
           type="button"
           className={cn(
-            "ui-tab px-3 py-1",
+            "ui-tab min-w-0 px-2 py-1 sm:px-3",
             activeTab === tab.id ? "ui-tab-active" : "ui-tab-inactive",
           )}
           onClick={() => onTabChange(tab.id)}
         >
-          {tab.label}
+          <span className="truncate sm:hidden">{tab.shortLabel}</span>
+          <span className="hidden truncate sm:inline">{tab.label}</span>
         </button>
       ))}
     </div>

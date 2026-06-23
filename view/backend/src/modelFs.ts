@@ -5,6 +5,9 @@ import matter from "gray-matter";
 
 export type NodeKind = "section" | "subsection" | "unit" | "figure" | "table" | "equation";
 
+/** Top-level paper folders managed in Assets, not the section outline. */
+export const PAPER_ASSET_DIRS = new Set(["figures", "tables", "equations"]);
+
 export class ModelFsError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -48,7 +51,7 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-const SKIP_CHILDREN = new Set(["notes", ".sessions", ".trash", "figures", "tables"]);
+const SKIP_CHILDREN = new Set(["notes", ".sessions", ".trash", ...PAPER_ASSET_DIRS]);
 
 export async function readIndexData(
   modelRoot: string,
@@ -60,6 +63,29 @@ export async function readIndexData(
   } catch {
     return {};
   }
+}
+
+/** Where top-level manuscript sections live: paper root, or legacy `sections/` wrapper. */
+export async function resolveManuscriptSectionsRoot(
+  modelRoot: string,
+  paperRel: string,
+): Promise<string> {
+  const paperData = await readIndexData(modelRoot, paperRel);
+  const sectionOrder = Array.isArray(paperData.section_order)
+    ? (paperData.section_order as string[])
+    : [];
+  for (const name of sectionOrder) {
+    if (PAPER_ASSET_DIRS.has(name)) continue;
+    if (existsSync(path.join(modelRoot, paperRel, name, "INDEX.md"))) {
+      return paperRel;
+    }
+  }
+
+  const wrapperRel = `${paperRel}/sections`;
+  if (existsSync(path.join(modelRoot, wrapperRel, "INDEX.md"))) {
+    return wrapperRel;
+  }
+  return paperRel;
 }
 
 export function resolveChildPath(
@@ -224,7 +250,7 @@ export function indexSkeleton(name: string, kind: NodeKind): string {
 export function outlineDocSkeleton(name: string, kind: NodeKind): string {
   const title = titleCase(name);
   if (kind === "unit") {
-    return `# ${title}\n\nOverview: _what this paragraph covers in the manuscript — main point, evidence, and citations._\n`;
+    return `# ${title}\n\nOverview:\n- _Main point, evidence, and citations — one bullet per claim._\n`;
   }
   if (kind === "figure") {
     return `# ${title}\n\n## Summary\n\n_Describe panels, axes, data sources, and what the reader should take away._\n`;
@@ -266,6 +292,10 @@ async function patchNodeOrder(
   await writeFile(indexAbs, matter.stringify(parsed.content, data), "utf8");
 }
 
+export function isNotesContainerRel(relPath: string): boolean {
+  return /\/notes\/(literature|data|feedback)$/.test(relPath.replace(/\\/g, "/"));
+}
+
 /** Create outline.md from INDEX.md body when missing (lazy migration). */
 export async function materializeOutline(modelRoot: string, outlineRel: string): Promise<string> {
   const normalized = outlineRel.split(path.sep).join("/");
@@ -278,6 +308,13 @@ export async function materializeOutline(modelRoot: string, outlineRel: string):
   }
   const dir = path.posix.dirname(normalized);
   const parentRel = dir === "." ? "" : dir;
+  if (isNotesContainerRel(parentRel)) {
+    throw new ModelFsError(`Notes containers do not use outline.md: ${normalized}`, 404);
+  }
+  const parentAbs = resolveModelPath(modelRoot, parentRel || ".");
+  if (!existsSync(parentAbs)) {
+    throw new ModelFsError(`Folder not found for ${normalized}`, 404);
+  }
   const indexRel = parentRel ? `${parentRel}/INDEX.md` : "INDEX.md";
   const indexAbs = resolveModelPath(modelRoot, indexRel);
   if (!existsSync(indexAbs)) {
@@ -320,6 +357,9 @@ export async function materializeDraft(modelRoot: string, draftRel: string): Pro
   }
   const dir = path.posix.dirname(normalized);
   const parentRel = dir === "." ? "" : dir;
+  if (isNotesContainerRel(parentRel)) {
+    throw new ModelFsError(`Notes containers do not use draft.md: ${normalized}`, 404);
+  }
   const outlineRel = parentRel ? `${parentRel}/outline.md` : "outline.md";
   const outlineAbs = resolveModelPath(modelRoot, outlineRel);
   if (!existsSync(outlineAbs)) {
@@ -383,9 +423,14 @@ export async function createNode(
   if (kind === "equation") {
     await writeFile(path.join(abs, "source.tex"), "E = mc^2\n", "utf8");
   }
-  await patchNodeOrder(modelRoot, parentRel, (order) =>
-    order.includes(name) ? order : [...order, name],
-  );
+  const parentData = parentRel ? await readIndexData(modelRoot, parentRel) : {};
+  const skipParentOrder =
+    parentData.kind === "paper" && PAPER_ASSET_DIRS.has(name) && kind === "section";
+  if (!skipParentOrder) {
+    await patchNodeOrder(modelRoot, parentRel, (order) =>
+      order.includes(name) ? order : [...order, name],
+    );
+  }
   return nodeRel;
 }
 
@@ -437,6 +482,55 @@ export async function moveNode(modelRoot: string, from: string, to: string): Pro
   await patchNodeOrder(modelRoot, toParent, (order) =>
     order.includes(path.posix.basename(to)) ? order : [...order, path.posix.basename(to)],
   );
+
+  const oldName = path.posix.basename(from);
+  const newName = path.posix.basename(to);
+  if (oldName !== newName) {
+    await syncRenamedNodeTitles(modelRoot, to, oldName);
+  }
+}
+
+/** Keep INDEX title and outline heading aligned when a folder is renamed. */
+async function syncRenamedNodeTitles(
+  modelRoot: string,
+  nodeRel: string,
+  oldBasename: string,
+): Promise<void> {
+  const indexAbs = path.join(modelRoot, nodeRel, "INDEX.md");
+  if (!existsSync(indexAbs)) return;
+
+  const newTitle = titleCase(path.posix.basename(nodeRel));
+  const oldDerivedTitle = titleCase(oldBasename);
+
+  const parsed = matter(await readFile(indexAbs, "utf8"));
+  const previousTitle =
+    typeof parsed.data.title === "string" && parsed.data.title.trim()
+      ? String(parsed.data.title).trim()
+      : oldDerivedTitle;
+  parsed.data.title = newTitle;
+  await writeFile(indexAbs, matter.stringify(parsed.content, parsed.data), "utf8");
+
+  const outlineAbs = path.join(modelRoot, nodeRel, "outline.md");
+  if (!existsSync(outlineAbs)) return;
+
+  const outlineRaw = await readFile(outlineAbs, "utf8");
+  const headingMatch = outlineRaw.match(/^(\s*#(?!#)\s+)(.+?)(\s*(?:\r?\n|$))/);
+  if (!headingMatch) return;
+
+  const headingText = headingMatch[2]?.trim() ?? "";
+  if (
+    headingText === oldDerivedTitle ||
+    headingText === previousTitle ||
+    headingText === newTitle
+  ) {
+    const updated = outlineRaw.replace(
+      /^(\s*#(?!#)\s+)(.+?)(\s*(?:\r?\n|$))/,
+      `$1${newTitle}$3`,
+    );
+    if (updated !== outlineRaw) {
+      await writeFile(outlineAbs, updated, "utf8");
+    }
+  }
 }
 
 export async function reorderChildren(

@@ -94,4 +94,6 @@ Use `GIT_SYNC_ENABLED=false` to disable it or `GIT_SYNC_INTERVAL_MS=30000` to ch
 
 LaTeX export requires [pandoc](https://pandoc.org/) (`brew install pandoc`). PDF export also needs a LaTeX engine — prefer [Tectonic](https://tectonic-typesetting.github.io/) (`brew install tectonic`, ~100MB) over full MacTeX. If no engine is installed, **Export PDF** automatically downloads `.tex` instead.
 
+Per-journal export styling lives in `model/templates/{journal}.md` under an `export:` frontmatter block (document class, geometry, CSL, pandoc variables). Drop venue `.csl` files into `model/templates/` to match.
+
 Exports are written to `.treewriter-exports/` at the repo root (gitignored).

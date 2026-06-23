@@ -34,6 +34,11 @@ describe("preprocessInlineNotesForMarkdown", () => {
     const input = "Text \\iy{suggestion} here.";
     expect(preprocessInlineNotesForMarkdown(input)).toBe("Text `⟦iy:suggestion⟧` here.");
   });
+
+  it("does not treat LaTeX labels as author notes", () => {
+    const input = "\\label{sec:expert_concordance}";
+    expect(preprocessInlineNotesForMarkdown(input)).toBe(input);
+  });
 });
 
 describe("parseInlineNoteCodeSpan", () => {

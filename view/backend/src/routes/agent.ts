@@ -12,9 +12,12 @@ import {
 } from "../agentDispatch.js";
 import {
   isDraftFilePath,
+  isOutlineFilePath,
   markDraftAiAssisted,
+  markOutlineAiAssisted,
   normalizeGitHubHandle,
   unitDirFromDraftFile,
+  unitDirFromOutlineFile,
 } from "../draftApproval.js";
 import { resolveModelPath } from "../modelFs.js";
 import {
@@ -154,6 +157,16 @@ export function registerAgentRoutes(app: Express, deps: ServerDeps) {
             deps.modelRoot,
             unitRel,
             normalizeGitHubHandle(triggeredBy),
+            result.providerName,
+          )) {
+            deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
+          }
+        } else if (isOutlineFilePath(result.outputPath)) {
+          for (const sidePath of await markOutlineAiAssisted(
+            deps.modelRoot,
+            unitRel,
+            normalizeGitHubHandle(triggeredBy),
+            result.providerName,
           )) {
             deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
           }
@@ -212,6 +225,17 @@ export function registerAgentRoutes(app: Express, deps: ServerDeps) {
           deps.modelRoot,
           unitRel,
           normalizeGitHubHandle(triggeredBy),
+          result.providerName,
+        )) {
+          deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
+        }
+      } else if (isOutlineFilePath(result.outputPath)) {
+        const unitRel = unitDirFromOutlineFile(result.outputPath);
+        for (const sidePath of await markOutlineAiAssisted(
+          deps.modelRoot,
+          unitRel,
+          normalizeGitHubHandle(triggeredBy),
+          result.providerName,
         )) {
           deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
         }

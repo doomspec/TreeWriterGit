@@ -2,18 +2,35 @@ import { useEffect, useState } from "react";
 
 const PENDING_EVENT = "treewriter:draft-pending";
 
-const pendingPaths = new Set<string>();
+const serverPendingPaths = new Set<string>();
+const editorPendingPaths = new Set<string>();
+let pendingPaths = new Set<string>();
 
 function normalizePath(pathValue: string): string {
   return pathValue.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
+function recomputePendingPaths(): void {
+  pendingPaths = new Set([...serverPendingPaths, ...editorPendingPaths]);
+  window.dispatchEvent(new CustomEvent(PENDING_EVENT));
+}
+
 export function setDraftPending(pathValue: string, isPending: boolean): void {
   const normalized = normalizePath(pathValue);
   if (!normalized) return;
-  if (isPending) pendingPaths.add(normalized);
-  else pendingPaths.delete(normalized);
-  window.dispatchEvent(new CustomEvent(PENDING_EVENT));
+  if (isPending) editorPendingPaths.add(normalized);
+  else editorPendingPaths.delete(normalized);
+  recomputePendingPaths();
+}
+
+/** Replace server-derived pending paths (from paper detail scan). */
+export function replaceServerDraftPendingPaths(paths: string[]): void {
+  serverPendingPaths.clear();
+  for (const pathValue of paths) {
+    const normalized = normalizePath(pathValue);
+    if (normalized) serverPendingPaths.add(normalized);
+  }
+  recomputePendingPaths();
 }
 
 export function getDraftPendingPaths(): ReadonlySet<string> {

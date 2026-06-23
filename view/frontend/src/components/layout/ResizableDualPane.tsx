@@ -62,7 +62,7 @@ export function ResizableDualPane({
         } as React.CSSProperties
       }
     >
-      <div className="resizable-dual-pane__left min-h-0">{left}</div>
+      <div className="resizable-dual-pane__left editor-pane min-h-0">{left}</div>
       <div
         role="separator"
         aria-orientation="vertical"
@@ -91,7 +91,7 @@ export function ResizableDualPane({
           }
         }}
       />
-      <div className="resizable-dual-pane__right min-h-0">{right}</div>
+      <div className="resizable-dual-pane__right editor-pane min-h-0">{right}</div>
     </div>
   );
 }

@@ -63,7 +63,7 @@ export function useGitSyncState(options: UseGitSyncStateOptions = {}) {
   }, [loadGitSyncStatus]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => loadGitSyncStatus().catch(() => {}), 10_000);
+    const timer = window.setInterval(() => loadGitSyncStatus().catch(() => {}), 30_000);
     return () => window.clearInterval(timer);
   }, [loadGitSyncStatus]);
 

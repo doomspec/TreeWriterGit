@@ -6,8 +6,12 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import matter from "gray-matter";
 
+import { extractCiteKeys } from "./export.js";
+import { parseEquationEmbeds, parseFigureEmbeds, parseWikilinks } from "./graph.js";
 import { isUnitDir, orderedChildren, readIndexData, resolveChildPath, shellQuote } from "./modelFs.js";
 import { stripInlineNotes } from "./inlineNotes.js";
+import { MANUSCRIPT_MARKUP, shouldIncludeManuscriptMarkup } from "./manuscriptMarkup.js";
+import { paperLiteratureDir } from "./paperAssets.js";
 
 const execFileAsync = promisify(execFile);
 const DISPATCH_RUN_SCRIPT = path.join(
@@ -30,6 +34,12 @@ export interface ProviderConfig {
 const DEFAULT_PROVIDERS: AiProvider[] = [
   { name: "Claude Code", command: "claude", args: ["-p", "{prompt}"], writesFiles: true },
   { name: "Aider", command: "aider", args: ["--message", "{prompt}", "{files}"], writesFiles: true },
+  {
+    name: "Gemini",
+    command: "gemini",
+    args: ["-p", "{prompt}", "--approval-mode", "auto_edit"],
+    writesFiles: true,
+  },
 ];
 
 /** CLIs that refuse to run when stdout is redirected (e.g. codex interactive mode). */
@@ -87,6 +97,7 @@ export type DispatchAction =
   | "custom"
   | "refresh-index"
   | "sync-outline"
+  | "summarize-outline"
   | "generate-figure";
 
 // Template variables: {idea}, {draft}, {context}, {outputPath}, {outlinePath}, {customPrompt}
@@ -154,7 +165,40 @@ CURRENT OVERVIEW:
 CURRENT DRAFT (manuscript text):
 {draft}
 
-Write an updated outline.md to {outlinePath}. Summarize what the draft actually says — main point, claims, and citations to preserve. The overview guides future draft revisions.`,
+Write an updated outline.md to {outlinePath}.
+
+FORMAT (strict):
+- Keep \`# Title\` as the first line.
+- For unit nodes: use \`Overview:\` followed by a concise bullet list (4–6 bullets max, one line each).
+- Each bullet states one claim or idea in ≤20 words; attach relevant \`[@citation_key]\` when the draft cites sources.
+- Do not write narrative paragraphs, meta-commentary ("This paragraph defines…"), or long prose summaries.
+- Preserve citation keys exactly as \`[@key]\` or \`[@a; @b]\` — do not invent keys.
+- For container sections (not a single paragraph unit): use \`## Summary\` and optional \`## Outline\` with markdown links to children.
+
+The overview guides future draft revisions — be brief and scannable.`,
+
+  "summarize-outline": `Update this section's overview (outline.md) by synthesizing all downstream child content.
+
+CURRENT SECTION OVERVIEW:
+{idea}
+
+DOWNSTREAM PARTS (direct children, nested subsections, and units):
+{context}
+
+The context may also include:
+- \`REFERENCES:\` — literature notes for \`[@cite_key]\` tokens used in downstream text (not the full bibliography)
+- \`CITED ASSETS:\` — only figures, tables, and equations referenced in downstream text (do not infer uncited assets)
+
+Write an updated outline.md to {outlinePath}.
+
+FORMAT (strict):
+- Keep \`# Title\` as the first line (the section title).
+- Add \`## Summary\` with 4–8 concise bullets that synthesize themes from all downstream outlines and drafts.
+- Each bullet is one line, ≤25 words; preserve \`[@citation_key]\` when sources appear downstream.
+- Add \`## Outline\` listing every direct child as a markdown link, e.g. \`- [Background](background/INDEX.md)\`.
+- Do not paste full child outlines — synthesize at this section level only.
+- Do not write narrative paragraphs or meta-commentary.
+- Do not write to INDEX.md — that file holds technical metadata only.`,
 
   "generate-figure": `Generate or update a scientific figure as Mermaid source for this figure unit.
 
@@ -240,6 +284,7 @@ function actionNeedsDraft(action: DispatchAction): boolean {
     action !== "draft" &&
     action !== "custom" &&
     action !== "refresh-index" &&
+    action !== "summarize-outline" &&
     action !== "generate-figure"
   );
 }
@@ -353,12 +398,31 @@ export async function listContextCandidates(
   }
 
   const paperRel = paperRelFromUnitPath(unitPath);
-  if (paperRel) {
+  if (paperRel && action !== "summarize-outline") {
+    const unitManuscript = [`${unitPath}/outline.md`, `${unitPath}/draft.md`];
+    for (const relPath of await collectCitedLiteratureNotePaths(modelRoot, paperRel, unitManuscript)) {
+      candidates.push({
+        path: relPath,
+        label: relPath.split("/").pop()?.replace(/\.md$/, "") ?? relPath,
+        category: "literature",
+        defaultIncluded: true,
+      });
+    }
     candidates.push(
-      ...(await listNoteContextFiles(modelRoot, paperRel, "literature", "literature", true)),
       ...(await listDataFigureContextFiles(modelRoot, paperRel, unitPath)),
       ...(await listNoteContextFiles(modelRoot, paperRel, "feedback", "feedback", false)),
     );
+  }
+
+  if (action === "summarize-outline") {
+    for (const entry of await listSummarizeOutlineContextPaths(modelRoot, unitPath)) {
+      candidates.push({
+        path: entry.path,
+        label: entry.label,
+        category: entry.category,
+        defaultIncluded: true,
+      });
+    }
   }
 
   const seen = new Set<string>();
@@ -378,6 +442,245 @@ export async function collectUnitPaths(modelRoot: string, rootRel: string): Prom
     units.push(...(await collectUnitPaths(modelRoot, childRel)));
   }
   return units;
+}
+
+/** Outline and draft paths for every descendant unit/subsection under a section. */
+export async function collectDescendantManuscriptPaths(
+  modelRoot: string,
+  rootRel: string,
+): Promise<string[]> {
+  const paths: string[] = [];
+  for (const child of await orderedChildren(modelRoot, rootRel)) {
+    const childRel = resolveChildPath(modelRoot, rootRel, child);
+    if (!childRel) continue;
+    paths.push(`${childRel}/outline.md`);
+    if (await isUnitDir(modelRoot, childRel)) {
+      paths.push(`${childRel}/draft.md`);
+      continue;
+    }
+    paths.push(...(await collectDescendantManuscriptPaths(modelRoot, childRel)));
+  }
+  return paths;
+}
+
+const ASSET_FOLDER_PATTERN = /\/(figures|tables|equations)\/[^/]+$/;
+
+function isPaperAssetFolderRel(relPath: string): boolean {
+  return ASSET_FOLDER_PATTERN.test(relPath.replace(/\\/g, "/"));
+}
+
+function normalizeManuscriptTarget(target: string): string {
+  return target
+    .split("#")[0]
+    ?.trim()
+    .replace(/\\/g, "/")
+    .replace(/\/?INDEX\.md$/, "")
+    .replace(/\/outline\.md$/, "")
+    .replace(/\/draft\.md$/, "") ?? "";
+}
+
+function resolveManuscriptTargetRel(
+  modelRoot: string,
+  paperRel: string,
+  sourceDir: string,
+  target: string,
+): string | null {
+  const clean = normalizeManuscriptTarget(target);
+  if (!clean || clean.startsWith("http")) return null;
+
+  const candidates = new Set<string>();
+  candidates.add(clean);
+  if (sourceDir) {
+    candidates.add(`${sourceDir}/${clean}`);
+    candidates.add(path.posix.normalize(`${sourceDir}/${clean}`));
+  }
+  if (paperRel) {
+    candidates.add(`${paperRel}/${clean}`);
+    candidates.add(path.posix.normalize(`${paperRel}/${clean}`));
+  }
+
+  for (const candidate of candidates) {
+    const normalized = candidate.replace(/\\/g, "/");
+    const indexAbs = path.join(modelRoot, normalized, "INDEX.md");
+    const dirAbs = path.join(modelRoot, normalized);
+    if (existsSync(indexAbs) || existsSync(dirAbs)) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+async function listLiteratureNotePaths(modelRoot: string, paperRel: string): Promise<string[]> {
+  const literatureDir = path.join(modelRoot, paperLiteratureDir(paperRel));
+  if (!existsSync(literatureDir)) return [];
+  const entries = await readdir(literatureDir);
+  return entries
+    .filter((name) => name.endsWith(".md") && name !== "INDEX.md" && name !== "outline.md" && name !== "draft.md")
+    .map((name) => `${paperLiteratureDir(paperRel)}/${name}`)
+    .sort();
+}
+
+async function readManuscriptFile(modelRoot: string, relPath: string): Promise<string> {
+  try {
+    return await readFile(path.join(modelRoot, relPath), "utf8");
+  } catch {
+    return "";
+  }
+}
+
+async function collectCitedLiteratureNotePaths(
+  modelRoot: string,
+  paperRel: string,
+  manuscriptPaths: string[],
+): Promise<string[]> {
+  let combined = "";
+  for (const relPath of manuscriptPaths) {
+    combined += `${await readManuscriptFile(modelRoot, relPath)}\n`;
+  }
+  const citeKeys = new Set(extractCiteKeys(combined));
+  if (citeKeys.size === 0) return [];
+
+  const matched: string[] = [];
+  for (const relPath of await listLiteratureNotePaths(modelRoot, paperRel)) {
+    const raw = await readManuscriptFile(modelRoot, relPath);
+    if (!raw) continue;
+    const parsed = matter(raw);
+    const key = String(parsed.data.cite_key ?? path.posix.basename(relPath, ".md"));
+    if (citeKeys.has(key)) matched.push(relPath);
+  }
+  return matched;
+}
+
+async function collectCitedAssetFolderPaths(
+  modelRoot: string,
+  paperRel: string,
+  manuscriptPaths: string[],
+): Promise<string[]> {
+  const assetFolders = new Set<string>();
+  for (const relPath of manuscriptPaths) {
+    const raw = await readManuscriptFile(modelRoot, relPath);
+    if (!raw) continue;
+    const sourceDir = path.posix.dirname(relPath);
+    const targets = [
+      ...parseFigureEmbeds(raw),
+      ...parseEquationEmbeds(raw),
+      ...parseWikilinks(raw),
+    ];
+    for (const target of targets) {
+      const resolved = resolveManuscriptTargetRel(modelRoot, paperRel, sourceDir, target);
+      if (resolved && isPaperAssetFolderRel(resolved)) {
+        assetFolders.add(resolved);
+      }
+    }
+  }
+  return [...assetFolders].sort();
+}
+
+function assetContextFilePaths(assetFolderRel: string): string[] {
+  return [`${assetFolderRel}/outline.md`, `${assetFolderRel}/draft.md`];
+}
+
+/** Context file paths for summarize-outline: downstream prose, cited references, cited assets only. */
+export async function listSummarizeOutlineContextPaths(
+  modelRoot: string,
+  sectionPath: string,
+): Promise<{ path: string; category: ContextCandidate["category"]; label: string }[]> {
+  const paperRel = paperRelFromUnitPath(sectionPath);
+  const manuscriptPaths = await collectDescendantManuscriptPaths(modelRoot, sectionPath);
+  const out: { path: string; category: ContextCandidate["category"]; label: string }[] = [];
+
+  for (const relPath of manuscriptPaths) {
+    out.push({
+      path: relPath,
+      label: relPath.replace(/\/(outline|draft)\.md$/, ""),
+      category: relPath.endsWith("/draft.md") ? "unit" : "link",
+    });
+  }
+
+  if (paperRel) {
+    for (const relPath of await collectCitedLiteratureNotePaths(modelRoot, paperRel, manuscriptPaths)) {
+      out.push({
+        path: relPath,
+        label: relPath.split("/").pop()?.replace(/\.md$/, "") ?? relPath,
+        category: "literature",
+      });
+    }
+
+    const citedAssets = await collectCitedAssetFolderPaths(modelRoot, paperRel, manuscriptPaths);
+    for (const assetFolder of citedAssets) {
+      for (const relPath of assetContextFilePaths(assetFolder)) {
+        out.push({
+          path: relPath,
+          label: assetFolder.split("/").pop() ?? assetFolder,
+          category: "data",
+        });
+      }
+    }
+  }
+
+  const seen = new Set<string>();
+  return out.filter((entry) => {
+    if (seen.has(entry.path)) return false;
+    seen.add(entry.path);
+    return true;
+  });
+}
+
+async function gatherSummarizeOutlineContext(
+  modelRoot: string,
+  sectionPath: string,
+  contextPaths?: string[],
+): Promise<string> {
+  const entries =
+    contextPaths && contextPaths.length > 0
+      ? contextPaths.map((pathValue) => ({
+          path: pathValue,
+          category:
+            pathValue.includes("/notes/literature/")
+              ? ("literature" as const)
+              : pathValue.includes("/figures/") ||
+                  pathValue.includes("/tables/") ||
+                  pathValue.includes("/equations/")
+                ? ("data" as const)
+                : pathValue.endsWith("/draft.md")
+                  ? ("unit" as const)
+                  : ("link" as const),
+        }))
+      : (await listSummarizeOutlineContextPaths(modelRoot, sectionPath)).map((entry) => ({
+          path: entry.path,
+          category: entry.category,
+        }));
+
+  const sections: { heading: string; paths: string[] }[] = [
+    { heading: "DOWNSTREAM PARTS", paths: [] },
+    { heading: "REFERENCES", paths: [] },
+    { heading: "CITED ASSETS", paths: [] },
+  ];
+
+  for (const entry of entries) {
+    if (entry.category === "literature") {
+      sections[1].paths.push(entry.path);
+    } else if (entry.category === "data") {
+      sections[2].paths.push(entry.path);
+    } else {
+      sections[0].paths.push(entry.path);
+    }
+  }
+
+  const blocks: string[] = [];
+  for (const section of sections) {
+    if (section.paths.length === 0) continue;
+    const parts: string[] = [];
+    for (const relPath of section.paths) {
+      const snippet = await readContextSnippet(modelRoot, relPath);
+      if (snippet) parts.push(`[${relPath}]\n${snippet}`);
+    }
+    if (parts.length > 0) {
+      blocks.push(`${section.heading}:\n${parts.join("\n\n")}`);
+    }
+  }
+
+  return blocks.join("\n\n");
 }
 
 export interface PreviewResult {
@@ -407,7 +710,7 @@ export async function buildPreview(
   const indexData = await readIndexData(modelRoot, unitPath);
   const figureSourceRel = `${unitPath}/${String(indexData.figure_source ?? "source.mmd")}`;
   const outputRelPath =
-    action === "refresh-index" || action === "sync-outline"
+    action === "refresh-index" || action === "sync-outline" || action === "summarize-outline"
       ? outlineRelPath
       : action === "generate-figure"
         ? figureSourceRel
@@ -420,11 +723,13 @@ export async function buildPreview(
   let context: string;
   if (contextPaths && contextPaths.length > 0) {
     context = await gatherContextFromPaths(modelRoot, contextPaths);
+  } else if (action === "summarize-outline") {
+    context = await gatherSummarizeOutlineContext(modelRoot, unitPath, contextPaths);
   } else {
     context = await gatherContext(modelRoot, links);
   }
 
-  const prompt = TEMPLATES[action]
+  let prompt = TEMPLATES[action]
     .replace("{idea}", idea || "(no overview defined)")
     .replace("{draft}", draft || "(no draft yet)")
     .replace("{context}", context)
@@ -435,6 +740,10 @@ export async function buildPreview(
     .replace("{customPrompt}", customPrompt ?? "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  if (shouldIncludeManuscriptMarkup(action, outputRelPath)) {
+    prompt = `${prompt}\n\n${MANUSCRIPT_MARKUP}`;
+  }
 
   const id = sessionId ?? promptSessionId();
   const promptsDir = path.join(repoRoot, ".treewriter-prompts");

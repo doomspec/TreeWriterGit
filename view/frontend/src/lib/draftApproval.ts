@@ -1,5 +1,6 @@
-import { isDraftPath, parentPath } from "@/lib/modelTree";
+import { isDraftPath, isOutlineDocPath, parentPath } from "@/lib/modelTree";
 import { getGitHubHandle } from "@/lib/userIdentity";
+import { loadLastAgentProvider } from "@/lib/lastAgentProvider";
 import {
   approveDraft,
   discardDraft,
@@ -15,14 +16,26 @@ export type DraftPendingSource = "human" | "ai";
 export type { DraftEditMeta };
 
 export const DRAFT_APPROVED_DOC = "draft.approved.md";
+export const OUTLINE_APPROVED_DOC = "outline.approved.md";
 
 export function requiresDraftApproval(filePath: string): boolean {
-  return isDraftPath(filePath);
+  return isDraftPath(filePath) || isOutlineDocPath(filePath);
 }
 
 export function approvedDraftPathFor(filePath: string): string {
   const unitDir = isDraftPath(filePath) ? parentPath(filePath) : filePath;
   return `${unitDir}/${DRAFT_APPROVED_DOC}`;
+}
+
+export function approvedOutlinePathFor(filePath: string): string {
+  const unitDir = isOutlineDocPath(filePath) ? parentPath(filePath) : filePath;
+  return `${unitDir}/${OUTLINE_APPROVED_DOC}`;
+}
+
+export function approvedBaselinePathFor(filePath: string): string {
+  if (isOutlineDocPath(filePath)) return approvedOutlinePathFor(filePath);
+  if (isDraftPath(filePath)) return approvedDraftPathFor(filePath);
+  return approvedDraftPathFor(filePath);
 }
 
 export function unitDirFromDraftFile(filePath: string): string {
@@ -31,9 +44,11 @@ export function unitDirFromDraftFile(filePath: string): string {
 
 export function draftSaveMeta(pendingSource: DraftPendingSource | null): SaveModelFileOptions {
   const editedBy = getGitHubHandle() || null;
+  const aiAssisted = pendingSource === "ai";
   return {
     editedBy,
-    aiAssisted: pendingSource === "ai",
+    aiAssisted,
+    aiProvider: aiAssisted ? loadLastAgentProvider() : null,
   };
 }
 
@@ -94,6 +109,20 @@ export function draftStatusLabel(options: {
 export function formatGitHubHandle(handle: string | null | undefined): string | null {
   if (!handle?.trim()) return null;
   return `@${normalizeGitHubHandle(handle)}`;
+}
+
+/** Label for pending approval — AI provider name when AI-assisted, else GitHub handle. */
+export function formatPendingAuthorLabel(options: {
+  pendingSource?: DraftPendingSource | null;
+  editedBy?: string | null;
+  aiAssisted?: boolean;
+  aiProvider?: string | null;
+}): string {
+  const isAi = options.pendingSource === "ai" || options.aiAssisted;
+  if (isAi) {
+    return options.aiProvider?.trim() || loadLastAgentProvider() || "AI";
+  }
+  return formatGitHubHandle(options.editedBy) ?? "Editor";
 }
 
 function normalizeGitHubHandle(raw: string): string {

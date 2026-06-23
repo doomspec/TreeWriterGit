@@ -48,7 +48,7 @@ export function DispatchAiButton({
         variant="outline"
         size="sm"
         className={cn("h-6 gap-1 px-2 text-[10px]", className)}
-        title={`${actionLabel} (⌘⇧R)`}
+        title={`Run ${actionLabel} (⌘⇧R)`}
         disabled={disabled ?? dispatching}
         aria-busy={dispatching}
         onClick={onClick}

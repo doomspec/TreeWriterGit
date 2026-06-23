@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { promisify } from "node:util";
 
-import { toRelative } from "./modelFs.js";
+import { readIndexData, toRelative } from "./modelFs.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,6 +11,8 @@ export type ModelNode = {
   name: string;
   path: string;
   type: "directory" | "file";
+  /** From INDEX.md frontmatter when present. */
+  kind?: string;
   children?: ModelNode[];
 };
 
@@ -30,10 +32,13 @@ export async function readModelTree(modelRoot: string, directory = modelRoot): P
         const relativePath = toRelative(modelRoot, absolutePath);
 
         if (entry.isDirectory()) {
+          const indexData = await readIndexData(modelRoot, relativePath);
+          const kind = typeof indexData.kind === "string" ? indexData.kind : undefined;
           return {
             name: entry.name,
             path: relativePath,
             type: "directory" as const,
+            kind,
             children: await readModelTree(modelRoot, absolutePath),
           };
         }

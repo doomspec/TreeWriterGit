@@ -190,10 +190,44 @@ export function useDispatchJob({
     [persistence],
   );
 
+  const runSectionDispatch = useCallback(
+    async (options: {
+      sectionPath: string;
+      action: AgentDispatchAction;
+      provider?: string;
+      customPrompt?: string;
+      contextPaths?: string[];
+    }) => {
+      if (!persistence) return;
+      extrasRef.current = {
+        provider: options.provider,
+        customPrompt: options.customPrompt,
+      };
+      setDispatching(true);
+      try {
+        await runAgentDispatchWithProgress(
+          {
+            unitPath: options.sectionPath,
+            action: options.action,
+            provider: options.provider,
+            customPrompt: options.customPrompt,
+            contextPaths: options.contextPaths,
+          },
+          (state) => reportProgressRef.current(state),
+          persistence,
+        );
+      } finally {
+        setDispatching(false);
+      }
+    },
+    [persistence],
+  );
+
   return {
     progress,
     dispatching,
     runUnitDispatch,
     runSectionFanOut,
+    runSectionDispatch,
   };
 }

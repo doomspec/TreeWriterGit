@@ -4,10 +4,16 @@ import remarkGfm from "remark-gfm";
 
 import { FigureCard, FigureLink } from "@/components/editor/FigureCard";
 import { EquationCard, EquationLink } from "@/components/editor/EquationCard";
+import { LatexLabelBadge } from "@/components/editor/LatexLabelBadge";
+import { LatexRefBadge } from "@/components/editor/LatexRefBadge";
 import { InlineNoteBadge } from "@/components/editor/InlineNoteBadge";
+import { TextHighlightBadge } from "@/components/editor/TextHighlightBadge";
 import { MermaidBlock } from "@/components/editor/MermaidBlock";
 import { resolveAssetSrc } from "@/lib/figures";
 import { parseInlineNoteCodeSpan, preprocessInlineNotesForMarkdown } from "@/lib/inlineNotes";
+import { parseTextHighlightCodeSpan, preprocessTextHighlightsForMarkdown } from "@/lib/textHighlight";
+import { preprocessLatexForMarkdownPreview } from "@/lib/latexPreview";
+import { parseLabelCodeSpan, parseRefCodeSpan, preprocessLatexTokensForMarkdown } from "@/lib/latexTokens";
 import {
   EQUATION_BLOCK_LANG,
   FIGURE_BLOCK_LANG,
@@ -31,7 +37,14 @@ export function MarkdownViewer({
   linksClickable?: boolean;
 }) {
   const processed = useMemo(
-    () => preprocessInlineNotesForMarkdown(preprocessMarkdownLinks(markdown)),
+    () =>
+      preprocessInlineNotesForMarkdown(
+        preprocessTextHighlightsForMarkdown(
+          preprocessLatexTokensForMarkdown(
+            preprocessLatexForMarkdownPreview(preprocessMarkdownLinks(markdown)),
+          ),
+        ),
+      ),
     [markdown],
   );
 
@@ -65,6 +78,18 @@ export function MarkdownViewer({
         }
         if (codeClassName === "language-mermaid") {
           return <MermaidBlock source={raw} className="my-4 overflow-x-auto" />;
+        }
+        const labelKey = !codeClassName ? parseLabelCodeSpan(raw) : null;
+        if (labelKey) {
+          return <LatexLabelBadge labelKey={labelKey} />;
+        }
+        const refKey = !codeClassName ? parseRefCodeSpan(raw) : null;
+        if (refKey) {
+          return <LatexRefBadge refKey={refKey} />;
+        }
+        const highlight = !codeClassName ? parseTextHighlightCodeSpan(raw) : null;
+        if (highlight) {
+          return <TextHighlightBadge color={highlight.color} text={highlight.text} />;
         }
         const note = !codeClassName ? parseInlineNoteCodeSpan(raw) : null;
         if (note) {

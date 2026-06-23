@@ -70,6 +70,12 @@ const config: Config = {
         editor: "hsl(var(--editor-bg))",
         reading: "hsl(var(--reading-bg))",
         terminal: "hsl(var(--terminal-bg))",
+        overlay: "hsl(var(--overlay) / <alpha-value>)",
+      },
+      boxShadow: {
+        sm: "var(--shadow-sm)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -3,6 +3,10 @@ import type { UnitStatusCounts } from "@/modelApi";
 import { containerHasDraftPending } from "@/lib/draftPendingStore";
 import { cn } from "@/lib/utils";
 
+/** Shown on hover for approved/drafted/outline roll-up numbers in the section tree. */
+export const UNIT_STATUS_COUNTS_HINT =
+  "Units in this section: approved / drafted / outline-only";
+
 export function hasUnapprovedUnits(counts?: UnitStatusCounts): boolean {
   if (!counts || counts.total === 0) return false;
   return counts.approved < counts.total;
@@ -25,10 +29,11 @@ export function unapprovedSectionRowClass(options: {
 }): string {
   const { highlight, pending, active, compact } = options;
   return cn(
-    highlight && !active && "border-amber-500/45 bg-amber-500/10",
-    highlight && active && "border-amber-500/50 bg-amber-500/15",
+    highlight && !active && (compact ? "bg-amber-500/10" : "border-amber-500/45 bg-amber-500/10"),
+    highlight && active && (compact ? "bg-amber-500/15" : "border-amber-500/50 bg-amber-500/15"),
     pending && "ring-1 ring-amber-500/55 ring-inset",
-    compact ? undefined : highlight && "border-amber-500/40",
+    highlight && !compact && "border-amber-500/40",
+    highlight && compact && "border border-amber-500/35",
   );
 }
 

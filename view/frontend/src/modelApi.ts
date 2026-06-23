@@ -101,8 +101,19 @@ export interface SectionRollup {
 }
 
 export interface PaperDetail extends PaperSummary {
+  authors: string[];
+  targetWords: number;
+  sectionOrder: string[];
+  overleafRepoPath: string | null;
   sections: SectionRollup[];
   containerCounts: Record<string, UnitStatusCounts>;
+  pendingApprovalPaths: string[];
+}
+
+export interface JournalTemplate {
+  journal: string;
+  targetWords: number;
+  sectionOrder: string[];
 }
 
 export function fetchPapers() {
@@ -114,7 +125,7 @@ export function fetchPaperDetail(slug: string) {
 }
 
 export function fetchJournalTemplates() {
-  return request<{ journals: string[] }>("/api/paper/templates");
+  return request<{ journals: string[]; templates: JournalTemplate[] }>("/api/paper/templates");
 }
 
 export function createPaper(body: {
@@ -122,11 +133,38 @@ export function createPaper(body: {
   journal: string;
   authors: string[];
   slug?: string;
+  targetWords?: number;
+  sectionOrder?: string[];
+  status?: string;
+  overleafRepoPath?: string | null;
 }) {
   return request<{ ok: true; slug: string; path: string }>("/api/paper", {
     method: "POST",
     body: JSON.stringify(body)
   });
+}
+
+export function updatePaper(body: {
+  slug: string;
+  title: string;
+  journal: string;
+  authors: string[];
+  targetWords?: number;
+  sectionOrder?: string[];
+  status?: string;
+  overleafRepoPath?: string | null;
+}) {
+  return request<{ ok: true; slug: string; path: string }>("/api/paper", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deletePaper(slug: string) {
+  return request<{ ok: true; slug: string; path: string }>(
+    `/api/paper?slug=${encodeURIComponent(slug)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function exportPaper(body: {
@@ -316,6 +354,7 @@ export function syncSectionDraft(
       draftMarkdown,
       editedBy: options?.editedBy,
       aiAssisted: options?.aiAssisted,
+      aiProvider: options?.aiProvider,
     }),
   });
 }
@@ -333,6 +372,7 @@ export async function fetchModelFile(path: string): Promise<{ content: string }>
 export type SaveModelFileOptions = {
   editedBy?: string | null;
   aiAssisted?: boolean;
+  aiProvider?: string | null;
 };
 
 export async function saveModelFile(
@@ -343,6 +383,7 @@ export async function saveModelFile(
   const body: Record<string, unknown> = { path, content };
   if (options?.editedBy !== undefined) body.editedBy = options.editedBy;
   if (options?.aiAssisted !== undefined) body.aiAssisted = options.aiAssisted;
+  if (options?.aiProvider !== undefined) body.aiProvider = options.aiProvider;
   try {
     await request("/api/model/file", {
       method: "PUT",
@@ -364,6 +405,7 @@ export type DraftEditMeta = {
   editedBy: string | null;
   editedAt: string | null;
   aiAssisted: boolean;
+  aiProvider: string | null;
   approvedBy: string | null;
   approvedAt: string | null;
 };
@@ -372,6 +414,7 @@ const emptyDraftEditMeta = (): DraftEditMeta => ({
   editedBy: null,
   editedAt: null,
   aiAssisted: false,
+  aiProvider: null,
   approvedBy: null,
   approvedAt: null,
 });
@@ -390,6 +433,7 @@ export async function fetchDraftApprovalState(targetPath: string): Promise<{
         editedBy: data.meta?.editedBy ?? null,
         editedAt: data.meta?.editedAt ?? null,
         aiAssisted: Boolean(data.meta?.aiAssisted),
+        aiProvider: data.meta?.aiProvider ?? null,
         approvedBy: data.meta?.approvedBy ?? null,
         approvedAt: data.meta?.approvedAt ?? null,
       },
@@ -422,6 +466,8 @@ export type SectionComposeView = {
   kind: string | null;
   outlineMarkdown: string;
   draftMarkdown: string;
+  approvedDraftMarkdown?: string;
+  pendingAiProvider?: string | null;
   children: Array<{
     name: string;
     path: string;

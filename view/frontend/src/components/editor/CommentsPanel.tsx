@@ -25,6 +25,7 @@ export function CommentsPanel({
   paneLabel,
   refreshVersion,
   selectedLine = 1,
+  overlay = false,
   onError,
   onClose,
   onUnresolvedChange,
@@ -33,6 +34,8 @@ export function CommentsPanel({
   paneLabel?: string;
   refreshVersion: number;
   selectedLine?: number;
+  /** Slide over the editor instead of shrinking it (used in compact dual-pane layouts). */
+  overlay?: boolean;
   onError?: (message: string) => void;
   onClose?: () => void;
   onUnresolvedChange?: (count: number) => void;
@@ -120,7 +123,14 @@ export function CommentsPanel({
   const panelTitle = paneLabel ? `${paneLabel} comments` : "Comments";
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l border-border bg-card">
+    <aside
+      className={cn(
+        "flex w-72 max-w-full flex-col border-l border-border bg-card",
+        overlay
+          ? "absolute inset-y-0 right-0 z-20 shrink-0 shadow-lg"
+          : "h-full shrink-0",
+      )}
+    >
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
           <MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />

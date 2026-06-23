@@ -13,6 +13,7 @@ export type AgentDispatchAction =
   | "custom"
   | "refresh-index"
   | "sync-outline"
+  | "summarize-outline"
   | "generate-figure";
 
 export type DispatchProgressState = {
@@ -151,6 +152,7 @@ export type AgentSessionFile = {
   status: "dispatched" | "complete" | "skipped";
   notes?: string;
   body: string;
+  wikiPath?: string;
 };
 
 export async function fetchUnitSessions(unitPath: string): Promise<AgentSessionFile[]> {
@@ -250,7 +252,7 @@ export async function resolveViewSyncWithHarness(options: {
 }
 
 export function dispatchActionForSectionPane(focusedPane: "outline" | "draft"): AgentDispatchAction {
-  return focusedPane === "outline" ? "draft" : "sync-outline";
+  return focusedPane === "outline" ? "summarize-outline" : "sync-outline";
 }
 
 export async function runAgentDispatchWithProgress(
@@ -530,11 +532,49 @@ export function dispatchActionLabel(action: AgentDispatchAction): string {
       return "Revise draft";
     case "sync-outline":
       return "Sync outline from draft";
+    case "summarize-outline":
+      return "Summarize outline from children";
     case "generate-figure":
       return "Generate Mermaid figure";
     default:
       return action;
   }
+}
+
+/** Short labels for dispatch hot buttons in the panel. */
+export function dispatchHotActionLabel(action: AgentDispatchAction): string {
+  switch (action) {
+    case "draft":
+      return "Make draft";
+    case "summarize-outline":
+      return "Make outline";
+    case "sync-outline":
+      return "Sync outline";
+    case "revise":
+      return "Revise";
+    case "expand":
+      return "Expand";
+    case "cite-check":
+      return "Cite-check";
+    case "refresh-index":
+      return "Refresh";
+    case "custom":
+      return "Custom";
+    case "generate-figure":
+      return "Make figure";
+    default:
+      return action;
+  }
+}
+
+export function hotDispatchActions(options: { isUnit: boolean; canFanOut: boolean }): AgentDispatchAction[] {
+  if (options.isUnit) {
+    return ["draft", "sync-outline", "revise", "expand", "cite-check", "refresh-index", "custom"];
+  }
+  if (options.canFanOut) {
+    return ["summarize-outline", "sync-outline", "draft", "revise", "expand", "cite-check", "custom"];
+  }
+  return ["refresh-index", "custom"];
 }
 
 export function isDispatchRunShortcut(

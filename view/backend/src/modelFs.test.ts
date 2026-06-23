@@ -179,6 +179,37 @@ describe("moveNode", () => {
       { status: 409 }
     );
   });
+
+  it("updates INDEX title and outline heading when the folder is renamed", async () => {
+    await createNode(root, "sections", "hardware_problem", "unit");
+    await moveNode(root, "sections/hardware_problem", "sections/problem_1");
+
+    const index = matter(await readFile(path.join(root, "sections/problem_1/INDEX.md"), "utf8"));
+    expect(index.data.title).toBe("Problem 1");
+
+    const outline = await readFile(path.join(root, "sections/problem_1/outline.md"), "utf8");
+    expect(outline.startsWith("# Problem 1\n")).toBe(true);
+  });
+
+  it("updates a custom INDEX title when the folder is renamed", async () => {
+    await createNode(root, "sections", "hardware_problem", "unit");
+    const indexPath = path.join(root, "sections/hardware_problem/INDEX.md");
+    const parsed = matter(await readFile(indexPath, "utf8"));
+    parsed.data.title = "Problem 1";
+    await writeFile(indexPath, matter.stringify(parsed.content, parsed.data), "utf8");
+    await writeFile(
+      path.join(root, "sections/hardware_problem/outline.md"),
+      "# Problem 1\n\nOverview:\n- Point one.\n",
+      "utf8",
+    );
+
+    await moveNode(root, "sections/hardware_problem", "sections/problem_hardware");
+
+    const index = matter(await readFile(path.join(root, "sections/problem_hardware/INDEX.md"), "utf8"));
+    expect(index.data.title).toBe("Problem Hardware");
+    const outline = await readFile(path.join(root, "sections/problem_hardware/outline.md"), "utf8");
+    expect(outline.startsWith("# Problem Hardware\n")).toBe(true);
+  });
 });
 
 async function sectionOrderOf(rel: string): Promise<string[]> {
@@ -295,6 +326,45 @@ describe("orderedChildren", () => {
     const children = await orderedChildren(root, "sections");
     expect(children).toContain("introduction");
     expect(children).toContain("orphan-on-disk");
+  });
+});
+
+describe("createNode asset containers", () => {
+  it("does not add figures/tables/equations to a paper section_order", async () => {
+    await mkdir(path.join(root, "papers/demo"), { recursive: true });
+    await writeFile(
+      path.join(root, "papers/demo/INDEX.md"),
+      matter.stringify("# Demo\n", {
+        kind: "paper",
+        section_order: ["introduction"],
+      }),
+      "utf8",
+    );
+    await mkdir(path.join(root, "papers/demo/introduction"), { recursive: true });
+    await writeFile(
+      path.join(root, "papers/demo/introduction/INDEX.md"),
+      matter.stringify("", { kind: "section", title: "Introduction" }),
+      "utf8",
+    );
+    await createNode(root, "papers/demo", "figures", "section");
+    await createNode(root, "papers/demo", "tables", "section");
+    await createNode(root, "papers/demo", "equations", "section");
+
+    const paperIndex = matter(await readFile(path.join(root, "papers/demo/INDEX.md"), "utf8"));
+    expect(paperIndex.data.section_order).toEqual(["introduction"]);
+
+    const children = await orderedChildren(root, "papers/demo");
+    expect(children).toEqual(["introduction"]);
+  });
+
+  it("still updates child_order when adding assets under an asset folder", async () => {
+    await seedContainer("papers/demo/figures", []);
+    await createNode(root, "papers/demo/figures", "fig1", "figure");
+
+    const figuresIndex = matter(
+      await readFile(path.join(root, "papers/demo/figures/INDEX.md"), "utf8"),
+    );
+    expect(figuresIndex.data.child_order).toEqual(["fig1"]);
   });
 });
 

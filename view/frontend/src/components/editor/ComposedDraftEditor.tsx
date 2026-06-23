@@ -1,31 +1,64 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, FileCode2 } from "lucide-react";
 
-import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
+import { AssetAutocompletePopup } from "@/components/editor/AssetAutocompletePopup";
+import { BlockMarkdownEditor, type BlockMarkdownEditorHandle } from "@/components/editor/BlockMarkdownEditor";
+import { CommentsPanel } from "@/components/editor/CommentsPanel";
+import { PendingApprovalChip } from "@/components/editor/PendingApprovalChip";
+import { EditorFocusToggle } from "@/components/editor/EditorFocusToggle";
+import { EditorPaneModeToggle } from "@/components/editor/EditorPaneModeToggle";
+import { EditorPaneOverflowMenu } from "@/components/editor/EditorPaneOverflowMenu";
+import { EditorUndoRedoButtons } from "@/components/editor/EditorUndoRedoButtons";
 import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
-import { PendingChangesPanel } from "@/components/editor/PendingChangesPanel";
-import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
-import { Button } from "@/components/ui/button";
-import { draftSaveMeta, draftStatusLabel } from "@/lib/draftApproval";
+import { MarkdownToolbar } from "@/components/editor/MarkdownToolbar";
+import { ReadingFocusEditBar } from "@/components/editor/ReadingFocusEditBar";
+import { ReadingFocusFloatingBar } from "@/components/editor/ReadingFocusFloatingBar";
+import { ReadingFocusDocumentLayout } from "@/components/editor/ReadingFocusDocumentLayout";
+import { ReadingFocusTitleLink } from "@/components/editor/ReadingFocusTitleLink";
+import { applyMarkdownFormat, type MarkdownFormatAction } from "@/lib/markdownFormat";
+import { handleFormatShortcut } from "@/lib/editor/formatShortcut";
+import { draftSaveMeta, draftStatusLabel, loadDraftApprovalState, type DraftEditMeta } from "@/lib/draftApproval";
+import { effectiveDiffBaseline } from "@/lib/draftDiff";
+import { handleEditorUndoRedoShortcuts } from "@/lib/editorUndoShortcuts";
+import { markdownWordCount } from "@/lib/editorStats";
+import { authorNoteMacro, wrapInlineNote } from "@/lib/inlineNotes";
+import { applyTextHighlight, type TextHighlightColorId } from "@/lib/textHighlight";
+import { handleListEnterKeyDown } from "@/lib/listAutocomplete";
+import { normalizeComposedDraftBody, normalizeComposedSectionDraft } from "@/lib/sectionCompose";
+import { paperPathFromModelPath } from "@/lib/assetInsert";
+import { useAssetAutocomplete } from "@/lib/useAssetAutocomplete";
+import { TextZoomControl } from "@/components/editor/TextZoomControl";
+import { editorTextZoomStyle } from "@/lib/editorTextZoom";
+import { useEditorTextZoom } from "@/lib/useEditorTextZoom";
+import { useEditorHistory } from "@/lib/useEditorHistory";
+import { useReadingFocus } from "@/lib/readingFocus";
 import { useDraftAutosave } from "@/lib/useDraftAutosave";
+import { useEditorDirty } from "@/lib/editorDirtyRegistry";
+import { sessionKeyForComposedDraft, loadEditorSession, type EditorPaneMode } from "@/lib/editorSessionState";
+import { usePersistedEditorSession } from "@/lib/usePersistedEditorSession";
+import { getUserName } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
-import { fetchApprovedSectionCompose, syncSectionDraft } from "@/modelApi";
+import {
+  ApiError,
+  claimPresence,
+  fetchApprovedSectionCompose,
+  fetchComments,
+  fetchPresence,
+  heartbeatPresence,
+  releasePresence,
+  syncSectionDraft,
+} from "@/modelApi";
 import { resolveNavigateTarget, type NavigateTarget } from "@/lib/modelTree";
-
-type PaneEditMode = "rendered" | "raw";
 
 function buildDraftMarkdown(title: string, body: string): string {
   return title.trim() ? `# ${title.trim()}\n\n${body.trimEnd()}\n` : `${body.trimEnd()}\n`;
-}
-
-function stripComposedTitle(title: string, markdown: string): string {
-  return markdown.replace(/^#\s+.+\n+/, "");
 }
 
 export function ComposedDraftEditor({
   containerPath,
   title,
   markdown,
+  approvedDraftMarkdown,
+  pendingAiProvider = null,
   refreshVersion,
   linkContextPath,
   onNavigate,
@@ -35,10 +68,15 @@ export function ComposedDraftEditor({
   subtitle,
   headerExtra,
   className,
+  showFocusGraph = true,
 }: {
   containerPath: string;
   title: string;
   markdown: string;
+  /** Approved composed draft from parent compose fetch — avoids duplicate section-compose calls. */
+  approvedDraftMarkdown?: string;
+  /** AI provider for pending child-unit edits (from section compose). */
+  pendingAiProvider?: string | null;
   refreshVersion: number;
   linkContextPath: string;
   onNavigate: (target: NavigateTarget) => void;
@@ -48,19 +86,56 @@ export function ComposedDraftEditor({
   subtitle?: string;
   headerExtra?: React.ReactNode;
   className?: string;
+  showFocusGraph?: boolean;
 }) {
-  const [content, setContent] = useState(markdown);
-  const [loadedContent, setLoadedContent] = useState(markdown);
+  const {
+    value: content,
+    setValue: setContent,
+    resetHistory,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useEditorHistory("");
+  const readingFocus = useReadingFocus();
+  const editorStats = useMemo(() => markdownWordCount(content), [content]);
+  const [loadedContent, setLoadedContent] = useState("");
   const [approvedBaseline, setApprovedBaseline] = useState("");
-  const [paneMode, setPaneMode] = useState<PaneEditMode>("rendered");
+  const [editMeta, setEditMeta] = useState<DraftEditMeta>({
+    editedBy: null,
+    editedAt: null,
+    aiAssisted: false,
+    aiProvider: null,
+    approvedBy: null,
+    approvedAt: null,
+  });
+  const [paneMode, setPaneMode] = useState<EditorPaneMode>(() => {
+    const saved = loadEditorSession(sessionKeyForComposedDraft(containerPath));
+    const mode = saved?.paneMode ?? "rendered";
+    if (mode === "raw") return "raw";
+    if (mode === "changes") return "rendered";
+    return "rendered";
+  });
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [unresolvedComments, setUnresolvedComments] = useState(0);
+  const [selectedLine, setSelectedLine] = useState(1);
+  const [otherEditor, setOtherEditor] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const blockRef = useRef<BlockMarkdownEditorHandle | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const editorSessionKey = sessionKeyForComposedDraft(containerPath);
+  const { restore, persist } = usePersistedEditorSession(editorSessionKey);
   const isDirtyRef = useRef(false);
+  const authorName = useMemo(() => getUserName(), []);
+  const { zoom, zoomIn, zoomOut, resetZoom } = useEditorTextZoom();
+  const textZoomStyle = editorTextZoomStyle(zoom);
 
   const saveContent = useCallback(
     async (body: string, pendingSource: "human" | "ai" | null) => {
+      const normalized = normalizeComposedDraftBody(body, title);
       await syncSectionDraft(
         containerPath,
-        buildDraftMarkdown(title, body),
+        buildDraftMarkdown(title, normalized),
         draftSaveMeta(pendingSource),
       );
     },
@@ -69,7 +144,7 @@ export function ComposedDraftEditor({
 
   const reloadAfterDiscard = useCallback(async () => {
     const { draftMarkdown } = await fetchApprovedSectionCompose(containerPath);
-    return stripComposedTitle(title, draftMarkdown);
+    return normalizeComposedSectionDraft(title, draftMarkdown);
   }, [containerPath, title]);
 
   const {
@@ -77,6 +152,7 @@ export function ComposedDraftEditor({
     isDirty,
     isPendingApproval,
     pendingSource,
+    setPendingSource,
     githubHandle,
     handleApprove,
     handleDiscard,
@@ -91,33 +167,350 @@ export function ComposedDraftEditor({
     reloadAfterDiscard,
     onError,
     onSaved: onSynced,
-    onDiscarded: (restored) => setContent(restored),
+    onApproved: async () => {
+      try {
+        const { draftMarkdown } = await fetchApprovedSectionCompose(containerPath);
+        const normalized = normalizeComposedSectionDraft(title, draftMarkdown);
+        resetHistory(normalized);
+        setLoadedContent(normalized);
+        setApprovedBaseline(normalized);
+      } catch {
+        const fallback = normalizeComposedDraftBody(content, title);
+        resetHistory(fallback);
+        setLoadedContent(fallback);
+        setApprovedBaseline(fallback);
+      }
+      onSynced?.();
+    },
+    onDiscarded: (restored) => {
+      resetHistory(restored);
+      setLoadedContent(restored);
+    },
   });
 
   isDirtyRef.current = isDirty;
+  useEditorDirty(isDirty);
   const lineCount = useMemo(() => Math.max(24, content.split("\n").length + 2), [content]);
+  const draftFilePath = `${containerPath}/draft.md`;
+  const paperPath = paperPathFromModelPath(draftFilePath);
+  const diffBaseline = useMemo(
+    () => effectiveDiffBaseline(approvedBaseline, loadedContent),
+    [approvedBaseline, loadedContent],
+  );
+  const showPendingHighlights = isPendingApproval;
+  const [pendingHighlightsReady, setPendingHighlightsReady] = useState(!readingFocus.active);
+  useEffect(() => {
+    if (readingFocus.active) {
+      setPendingHighlightsReady(false);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      setPendingHighlightsReady(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [readingFocus.active]);
+  const showInlinePendingHighlights = showPendingHighlights && pendingHighlightsReady;
 
   useEffect(() => {
+    if (!isPendingApproval) return;
     let cancelled = false;
-    void fetchApprovedSectionCompose(containerPath)
-      .then(({ draftMarkdown }) => {
-        if (!cancelled) {
-          setApprovedBaseline(stripComposedTitle(title, draftMarkdown));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setApprovedBaseline("");
+    void loadDraftApprovalState(draftFilePath).then(({ meta }) => {
+      if (cancelled) return;
+      setEditMeta({
+        ...meta,
+        aiProvider: meta.aiProvider ?? pendingAiProvider ?? null,
+        aiAssisted: meta.aiAssisted || Boolean(pendingAiProvider),
       });
+      if (meta.aiAssisted || pendingAiProvider) {
+        setPendingSource((prev) => (prev === "human" ? prev : "ai"));
+      }
+    });
     return () => {
       cancelled = true;
     };
-  }, [containerPath, refreshVersion, title]);
+  }, [draftFilePath, isPendingApproval, pendingAiProvider, refreshVersion, setPendingSource]);
 
   useEffect(() => {
+    const saved = loadEditorSession(sessionKeyForComposedDraft(containerPath));
+    setPaneMode(saved?.paneMode ?? "rendered");
+  }, [containerPath]);
+
+  const persistEditorSession = useCallback(() => {
+    persist(textareaRef.current, scrollContainerRef.current, paneMode);
+  }, [paneMode, persist]);
+
+  useEffect(() => {
+    if (!loadedContent) return;
+    restore(textareaRef.current, scrollContainerRef.current, setPaneMode);
+  }, [containerPath, loadedContent, restore]);
+
+  useEffect(() => {
+    const scrollEl = scrollContainerRef.current;
+    if (!scrollEl) return;
+    let timer: number | undefined;
+    const schedulePersist = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => persistEditorSession(), 250);
+    };
+    scrollEl.addEventListener("scroll", schedulePersist, { passive: true });
+    return () => {
+      scrollEl.removeEventListener("scroll", schedulePersist);
+      window.clearTimeout(timer);
+      persistEditorSession();
+    };
+  }, [containerPath, paneMode, persistEditorSession]);
+
+  const updateSelectedLine = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    setSelectedLine(el.value.slice(0, el.selectionStart).split("\n").length);
+    persistEditorSession();
+  }, [persistEditorSession]);
+
+  const insertAtSelection = useCallback(
+    (nextValue: string, cursor: number) => {
+      setContent(nextValue);
+      requestAnimationFrame(() => {
+        const target = textareaRef.current;
+        if (!target) return;
+        target.focus();
+        target.setSelectionRange(cursor, cursor);
+        updateSelectedLine();
+      });
+    },
+    [setContent, updateSelectedLine],
+  );
+
+  const applyFormat = useCallback(
+    (action: MarkdownFormatAction) => {
+      if (
+        paneMode === "rendered" &&
+        blockRef.current?.applyToActiveBlock((value, start, end) =>
+          applyMarkdownFormat(value, start, end, action),
+        )
+      ) {
+        return;
+      }
+      const target = textareaRef.current;
+      if (!target) return;
+      const result = applyMarkdownFormat(
+        target.value,
+        target.selectionStart,
+        target.selectionEnd,
+        action,
+      );
+      insertAtSelection(result.value, result.selectionStart);
+    },
+    [insertAtSelection, paneMode],
+  );
+
+  const insertInlineNote = useCallback(() => {
+    const target = textareaRef.current;
+    if (!target) return;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const selected = target.value.slice(start, end);
+    const note = wrapInlineNote(authorNoteMacro(getUserName()), selected);
+    insertAtSelection(`${target.value.slice(0, start)}${note}${target.value.slice(end)}`, start + note.length);
+  }, [insertAtSelection]);
+
+  const insertTextHighlight = useCallback(
+    (colorId: TextHighlightColorId) => {
+      if (paneMode === "rendered") {
+        const applied = blockRef.current?.applyToActiveBlock((value, start, end) =>
+          applyTextHighlight(value, start, end, colorId),
+        );
+        if (applied) return;
+        return;
+      }
+
+      const target = textareaRef.current;
+      if (!target) return;
+      const result = applyTextHighlight(
+        target.value,
+        target.selectionStart,
+        target.selectionEnd,
+        colorId,
+      );
+      insertAtSelection(result.value, result.selectionEnd);
+    },
+    [insertAtSelection, paneMode],
+  );
+
+  const insertSnippet = useCallback(
+    (snippet: string) => {
+      const target = textareaRef.current;
+      if (!target) return;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      insertAtSelection(`${target.value.slice(0, start)}${snippet}${target.value.slice(end)}`, start + snippet.length);
+    },
+    [insertAtSelection],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchComments(draftFilePath)
+      .then(({ comments }) => {
+        if (!cancelled) {
+          setUnresolvedComments(comments.filter((c) => !c.resolved).length);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [draftFilePath, refreshVersion]);
+
+  const assetAutocomplete = useAssetAutocomplete({
+    paperPath,
+    filePath: draftFilePath,
+    refreshVersion,
+    enabled: Boolean(paperPath),
+  });
+
+  const applyAssetAutocomplete = useCallback((_textarea: HTMLTextAreaElement, value: string) => {
+    setContent(value);
+  }, []);
+
+  const onRawKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (handleEditorUndoRedoShortcuts(event, { undo, redo })) return;
+
+      if (
+        assetAutocomplete.handleKeyDown(event, (value) => {
+          applyAssetAutocomplete(event.currentTarget, value);
+        })
+      ) {
+        return;
+      }
+
+      const target = event.currentTarget;
+      if (
+        handleListEnterKeyDown({
+          event,
+          value: target.value,
+          selectionStart: target.selectionStart,
+          selectionEnd: target.selectionEnd,
+          apply: (result) => {
+            setContent(result.value);
+            requestAnimationFrame(() => {
+              target.focus();
+              target.setSelectionRange(result.selectionStart, result.selectionEnd);
+            });
+          },
+        })
+      ) {
+        return;
+      }
+
+      handleFormatShortcut(event, applyFormat);
+    },
+    [applyAssetAutocomplete, applyFormat, assetAutocomplete, redo, undo],
+  );
+
+  const onBlockKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (handleEditorUndoRedoShortcuts(event, { undo, redo })) return;
+
+      const mirror = textareaRef.current;
+      if (!mirror) return;
+
+      if (
+        assetAutocomplete.handleKeyDown(
+          event as unknown as React.KeyboardEvent<HTMLTextAreaElement>,
+          (value) => {
+            applyAssetAutocomplete(mirror, value);
+          },
+        )
+      ) {
+        return;
+      }
+
+      handleFormatShortcut(event, applyFormat);
+    },
+    [applyAssetAutocomplete, assetAutocomplete, applyFormat, redo, undo],
+  );
+
+  useEffect(() => {
+    const live = normalizeComposedSectionDraft(title, markdown);
+    const approved =
+      approvedDraftMarkdown !== undefined
+        ? normalizeComposedSectionDraft(title, approvedDraftMarkdown)
+        : live;
+
+    const allUnitsApproved = live === approved;
+    const locallySynced =
+      !isDirtyRef.current && content === loadedContent && content.length > 0;
+    const locallyApproved = locallySynced && content === approvedBaseline;
+    const parentComposeStale = locallySynced && content !== live;
+
+    // After approve (or autosave), parent compose may lag behind local state.
+    if ((locallyApproved && !allUnitsApproved) || parentComposeStale) {
+      return;
+    }
+
+    if (allUnitsApproved) {
+      setApprovedBaseline(approved);
+      if (content !== live || loadedContent !== live) {
+        resetHistory(live);
+        setLoadedContent(live);
+      }
+      return;
+    }
+
     if (isDirtyRef.current) return;
-    setContent(markdown);
-    setLoadedContent(markdown);
-  }, [markdown, refreshVersion]);
+
+    setApprovedBaseline(approved);
+    resetHistory(live);
+    setLoadedContent(live);
+  }, [
+    approvedDraftMarkdown,
+    content,
+    loadedContent,
+    markdown,
+    refreshVersion,
+    resetHistory,
+    title,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let heartbeatTimer: number | undefined;
+
+    const syncPresence = async () => {
+      try {
+        const { presence } = await fetchPresence(draftFilePath);
+        if (cancelled) return;
+        if (presence && presence.user !== authorName) {
+          setOtherEditor(presence.user);
+          return;
+        }
+        try {
+          await claimPresence(draftFilePath, authorName);
+          if (!cancelled) setOtherEditor(null);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 409) {
+            const retry = await fetchPresence(draftFilePath);
+            if (!cancelled && retry.presence) setOtherEditor(retry.presence.user);
+          }
+        }
+      } catch {
+        // presence is best-effort on localhost
+      }
+    };
+
+    void syncPresence();
+    heartbeatTimer = window.setInterval(() => {
+      void heartbeatPresence(draftFilePath, authorName);
+    }, 15_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(heartbeatTimer);
+      void releasePresence(draftFilePath, authorName);
+    };
+  }, [authorName, draftFilePath]);
 
   const handleHeadingNavigate = useCallback(
     (href: string) => {
@@ -149,97 +542,286 @@ export function ComposedDraftEditor({
     defaultLabel: "approved",
   });
 
-  return (
-    <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", className)}>
-      <DraftApprovalBar
-        pendingSource={isPendingApproval ? pendingSource : null}
-        editedBy={githubHandle}
-        aiAssisted={pendingSource === "ai"}
-        onApprove={() => void handleApprove()}
-        onDiscard={() => void handleDiscard()}
-        approving={saveState === "saving"}
-        approveLabel="Approve & sync sections"
-      />
-      {isPendingApproval ? (
-        <PendingChangesPanel baseline={approvedBaseline} current={content} />
-      ) : null}
-      <div className="ui-pane-header shrink-0">
-        <div className="flex min-w-0 flex-col">
-          <span className="ui-label">{paneLabel}</span>
-          {subtitle ? (
-            <span className="text-[10px] text-muted-foreground">{subtitle}</span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-ui-2xs text-muted-foreground">{saveLabel}</span>
+  const paneModeToggle = (
+    <EditorPaneModeToggle
+      paneMode={paneMode}
+      onPaneModeChange={setPaneMode}
+      ariaLabel={`${paneLabel} editing mode`}
+      reviewMode={showInlinePendingHighlights && paneMode === "rendered"}
+    />
+  );
+
+  const focusEditBar = readingFocus.active ? (
+    <ReadingFocusEditBar
+      toolbar={
+        <MarkdownToolbar
+          embedded
+          renderedMode={paneMode === "rendered"}
+          commentsOpen={commentsOpen}
+          unresolvedComments={unresolvedComments}
+          paperPath={paperPath}
+          filePath={draftFilePath}
+          refreshVersion={refreshVersion}
+          onFormat={applyFormat}
+          onToggleComments={() => setCommentsOpen((open) => !open)}
+          onInsertInlineNote={insertInlineNote}
+          onInsertHighlight={insertTextHighlight}
+          onInsertSnippet={insertSnippet}
+        />
+      }
+      trailing={
+        <>
+          {paneModeToggle}
           {headerExtra}
-          <div
-            className="inline-flex rounded-md border border-border p-0.5"
-            role="group"
-            aria-label={`${paneLabel} editing mode`}
-          >
-            <Button
-              type="button"
-              variant={paneMode === "rendered" ? "default" : "ghost"}
-              size="sm"
-              className="h-6 gap-1 px-2 text-[10px]"
-              aria-pressed={paneMode === "rendered"}
-              title="Preview + edit — live formatted view above source"
-              onClick={() => setPaneMode("rendered")}
-            >
-              <Eye className="h-3 w-3" aria-hidden="true" />
-              Preview
-            </Button>
-            <Button
-              type="button"
-              variant={paneMode === "raw" ? "default" : "ghost"}
-              size="sm"
-              className="h-6 gap-1 px-2 text-[10px]"
-              aria-pressed={paneMode === "raw"}
-              title="Raw markdown with section links"
-              onClick={() => setPaneMode("raw")}
-            >
-              <FileCode2 className="h-3 w-3" aria-hidden="true" />
-              Raw
-            </Button>
+        </>
+      }
+    />
+  ) : null;
+
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col",
+        commentsOpen && "relative overflow-hidden",
+        className,
+      )}
+    >
+      {otherEditor ? (
+        <div
+          className={cn(
+            "border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-900 dark:text-amber-100",
+            readingFocus.active && "editor-chrome-hidden",
+          )}
+        >
+          Being edited by {otherEditor}
+        </div>
+      ) : null}
+      {!readingFocus.active ? (
+        <div className="ui-pane-header shrink-0">
+          <div className="ui-pane-header__label flex max-w-[7rem] shrink-0 items-center gap-1.5 sm:max-w-[9rem]">
+            <span className="ui-label truncate">{paneLabel}</span>
+            {subtitle ? (
+              <span className="hidden truncate text-[10px] text-muted-foreground xl:inline">{subtitle}</span>
+            ) : null}
+          </div>
+          <div className="ui-pane-header__toolbar-slot min-w-0 flex-1 overflow-hidden">
+            <MarkdownToolbar
+              embedded
+              renderedMode={paneMode === "rendered"}
+              commentsOpen={commentsOpen}
+              unresolvedComments={unresolvedComments}
+              paperPath={paperPath}
+              filePath={draftFilePath}
+              refreshVersion={refreshVersion}
+              onFormat={applyFormat}
+              onToggleComments={() => setCommentsOpen((open) => !open)}
+              onInsertInlineNote={insertInlineNote}
+              onInsertHighlight={insertTextHighlight}
+              onInsertSnippet={insertSnippet}
+            />
+          </div>
+          <div className="ui-pane-header__actions flex shrink-0 items-center gap-1">
+            {paneModeToggle}
+            <EditorPaneOverflowMenu statusText={!isPendingApproval ? saveLabel : undefined}>
+              <div className="px-1 py-1">
+                <EditorUndoRedoButtons
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  onUndo={undo}
+                  onRedo={redo}
+                />
+              </div>
+              <div className="px-1 py-1">
+                <EditorFocusToggle />
+              </div>
+              <div className="px-1 py-1 font-mono text-[10px] text-muted-foreground">
+                {editorStats.words} words · {editorStats.characters} chars
+              </div>
+              <div className="px-1 py-1">
+                <TextZoomControl zoom={zoom} onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={resetZoom} />
+              </div>
+              {headerExtra ? <div className="px-1 py-1">{headerExtra}</div> : null}
+            </EditorPaneOverflowMenu>
           </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="markdown-pane min-h-0 flex-1 overflow-auto px-6 py-5">
+      {focusEditBar}
+
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div
+            ref={scrollContainerRef}
+            className={cn(
+              "markdown-pane editor-text-zoom-root min-h-0 flex-1 overflow-auto px-6 py-5",
+              readingFocus.active && "reading-focus-pane",
+            )}
+            style={textZoomStyle}
+          >
         {content.trim() || paneMode === "raw" ? (
           paneMode === "rendered" ? (
-            <RenderedMarkdownField
-              value={content}
-              onChange={setContent}
-              approvedBaseline={approvedBaseline}
-              highlightPending={isPendingApproval}
-              linkContextPath={linkContextPath}
-              linksClickable
-              onNavigate={onNavigate}
-              inputRef={textareaRef}
-              ariaLabel={`Edit composed ${paneLabel.toLowerCase()}`}
-              placeholder="Full composed draft — edits autosave to section drafts; approve when ready for export…"
-            />
+            content.trim() ? (
+              <ReadingFocusDocumentLayout
+                showGraph={showFocusGraph}
+                title={
+                  readingFocus.active && title.trim() ? (
+                    <ReadingFocusTitleLink
+                      title={title}
+                      contextPath={linkContextPath || containerPath}
+                      onNavigate={onNavigate}
+                    />
+                  ) : null
+                }
+              >
+                <BlockMarkdownEditor
+                  ref={blockRef}
+                  value={content}
+                  approvedBaseline={approvedBaseline}
+                  loadedContent={loadedContent}
+                  highlightPending={showInlinePendingHighlights}
+                  pendingApproval={
+                    showInlinePendingHighlights
+                      ? {
+                          pendingSource: pendingSource ?? "human",
+                          editedBy: githubHandle || editMeta.editedBy,
+                          aiAssisted: pendingSource === "ai" || editMeta.aiAssisted,
+                          aiProvider: editMeta.aiProvider,
+                          loadedContent,
+                          onApprove: () => void handleApprove(),
+                          onDiscard: () => void handleDiscard(),
+                          approving: saveState === "saving",
+                          approveLabel: "Approve & sync",
+                        }
+                      : null
+                  }
+                  className={cn(
+                    "composed-draft-preview",
+                    readingFocus.active && title.trim() && "composed-draft-preview--hide-lead-title",
+                  )}
+                linkContextPath={linkContextPath}
+                linksClickable
+                ariaLabel={`Edit composed ${paneLabel.toLowerCase()}`}
+                onNavigate={onNavigate}
+                onChange={setContent}
+                inputRef={textareaRef}
+                onSelect={updateSelectedLine}
+                onBlur={(event) => assetAutocomplete.handleEditorBlur(event.currentTarget)}
+                onKeyDown={onBlockKeyDown}
+                onTextareaSync={(textarea) => void assetAutocomplete.sync(textarea)}
+              />
+              </ReadingFocusDocumentLayout>
+            ) : (
+              <p className="text-sm italic text-muted-foreground">Empty composed draft.</p>
+            )
           ) : (
-            <HighlightingTextarea
+            <>
+              {showInlinePendingHighlights ? (
+                <PendingApprovalChip
+                  inline
+                  className="mb-2"
+                  pendingSource={pendingSource ?? "human"}
+                  editedBy={githubHandle || editMeta.editedBy}
+                  aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
+                  aiProvider={editMeta.aiProvider}
+                  approvedBaseline={approvedBaseline}
+                  loadedContent={loadedContent}
+                  current={content}
+                  onApprove={() => void handleApprove()}
+                  onDiscard={() => void handleDiscard()}
+                  approving={saveState === "saving"}
+                  approveLabel="Approve & sync"
+                />
+              ) : null}
+              <HighlightingTextarea
+              fillContainer={false}
               inputRef={textareaRef}
               className="composed-draft-raw w-full font-mono text-[13px] leading-6"
               mirrorClassName="font-mono text-[13px] leading-6"
               value={content}
-              baseline={approvedBaseline}
-              highlight={isPendingApproval}
+              baseline={diffBaseline}
+              highlight={showInlinePendingHighlights}
               rows={lineCount}
               spellCheck={false}
               aria-label={`Edit composed ${paneLabel.toLowerCase()} (raw)`}
-              onChange={(event) => setContent(event.target.value)}
-              onClick={handleRawClick}
+              onChange={(event) => {
+                setContent(event.target.value);
+                void assetAutocomplete.sync(event.currentTarget);
+              }}
+              onSelect={(event) => {
+                updateSelectedLine();
+                void assetAutocomplete.sync(event.currentTarget);
+              }}
+              onKeyUp={(event) => void assetAutocomplete.sync(event.currentTarget)}
+              onClick={(event) => {
+                handleRawClick(event);
+                void assetAutocomplete.sync(event.currentTarget);
+              }}
+              onFocus={(event) => void assetAutocomplete.sync(event.currentTarget)}
+              onBlur={(event) => assetAutocomplete.handleEditorBlur(event.currentTarget)}
+              onKeyDown={onRawKeyDown}
             />
+            </>
           )
         ) : (
           <p className="text-sm italic text-muted-foreground">Empty composed draft.</p>
         )}
+          </div>
+          {readingFocus.active ? (
+            <ReadingFocusFloatingBar
+              className="reading-focus-floating-bar"
+              wordCount={editorStats.words}
+              charCount={editorStats.characters}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={undo}
+              onRedo={redo}
+              onExit={readingFocus.exit}
+            />
+          ) : null}
+        </div>
       </div>
+      {commentsOpen ? (
+        <>
+          <button
+            type="button"
+            className="absolute inset-0 z-10 bg-overlay/40 backdrop-blur-[1px]"
+            aria-label="Close comments"
+            onClick={() => setCommentsOpen(false)}
+          />
+          <CommentsPanel
+            filePath={draftFilePath}
+            paneLabel={paneLabel}
+            refreshVersion={refreshVersion}
+            selectedLine={selectedLine}
+            overlay
+            onError={onError}
+            onClose={() => setCommentsOpen(false)}
+            onUnresolvedChange={setUnresolvedComments}
+          />
+        </>
+      ) : null}
+      <AssetAutocompletePopup
+        open={assetAutocomplete.state.open}
+        top={assetAutocomplete.state.position?.top ?? null}
+        left={assetAutocomplete.state.position?.left ?? null}
+        items={assetAutocomplete.state.items}
+        selectedIndex={assetAutocomplete.state.selectedIndex}
+        selectedCiteKeys={assetAutocomplete.state.selectedCiteKeys}
+        attachedCiteKeys={assetAutocomplete.attachedCiteKeys}
+        isCiteMode={assetAutocomplete.isCiteMode}
+        loading={assetAutocomplete.state.loading}
+        commandLabel={assetAutocomplete.commandLabel}
+        onClose={assetAutocomplete.close}
+        onHighlightIndex={assetAutocomplete.highlightIndex}
+        onToggleCiteKey={assetAutocomplete.toggleSelectedCiteKey}
+        onPopupInteractionStart={assetAutocomplete.beginPopupInteraction}
+        onPopupInteractionEnd={assetAutocomplete.endPopupInteraction}
+        onPick={(item) => {
+          assetAutocomplete.applyItem(textareaRef.current, item, (value) => {
+            setContent(value);
+          });
+        }}
+      />
     </div>
   );
 }

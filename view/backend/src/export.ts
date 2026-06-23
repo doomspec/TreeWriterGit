@@ -9,6 +9,12 @@ import { ModelFsError, isEquationDir, isFigureDir, isUnitDir, orderedChildren, r
 import { resolveEquationMetadata } from "./equations.js";
 import { resolveFigureMetadata } from "./figures.js";
 import { buildInlineNoteLatexPreamble } from "./inlineNotes.js";
+import {
+  appendPandocExportStyleArgs,
+  buildCombinedExportHeader,
+  type JournalExportStyle,
+} from "./journalExportStyle.js";
+import { loadJournalTemplate } from "./papers.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,14 +68,22 @@ function journalSlug(journal: string): string {
     .replace(/[^a-z0-9-]/g, "");
 }
 
-/** Resolve optional CSL from paper journal → model/templates/{slug}.csl */
-export function resolveCslPath(modelRoot: string, journal: string): string | null {
+/** Resolve optional CSL from template export.csl, then journal slug → model/templates/{slug}.csl */
+export function resolveCslPath(
+  modelRoot: string,
+  journal: string,
+  preferredCsl?: string,
+): string | null {
+  const candidates: string[] = [];
+  if (preferredCsl) {
+    candidates.push(path.join(modelRoot, "templates", preferredCsl));
+    candidates.push(path.join(modelRoot, "shared", preferredCsl));
+  }
   const slug = journalSlug(journal);
-  if (!slug) return null;
-  const candidates = [
-    path.join(modelRoot, "templates", `${slug}.csl`),
-    path.join(modelRoot, "shared", `${slug}.csl`),
-  ];
+  if (slug) {
+    candidates.push(path.join(modelRoot, "templates", `${slug}.csl`));
+    candidates.push(path.join(modelRoot, "shared", `${slug}.csl`));
+  }
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
@@ -132,10 +146,13 @@ export async function buildBibliography(
 
   const entries: string[] = [];
   for (const file of await readdir(literatureDir)) {
-    if (!file.endsWith(".md")) continue;
+    if (!file.endsWith(".md") || file === "INDEX.md" || file === "outline.md" || file === "draft.md") {
+      continue;
+    }
     const raw = await readFile(path.join(literatureDir, file), "utf8");
     const parsed = matter(raw);
     const data = parsed.data as Record<string, unknown>;
+    if (data.type !== "literature" && !data.cite_key) continue;
     const citeKey = String(data.cite_key ?? file.replace(/\.md$/, ""));
     if (!wanted.has(citeKey)) continue;
     entries.push(bibEntryFromNote(citeKey, data, parsed.content));
@@ -360,7 +377,8 @@ async function runPandocExport(
   bibliography: string,
   bibPath: string,
   cslPath: string | null,
-  inlineNotesHeaderPath?: string,
+  exportStyle: JournalExportStyle | undefined,
+  headerPath?: string,
 ): Promise<void> {
   const pandocArgs = [
     combinedPath,
@@ -370,9 +388,10 @@ async function runPandocExport(
     "--output",
     outPath,
   ];
-  if (inlineNotesHeaderPath) {
-    pandocArgs.push("--include-in-header", inlineNotesHeaderPath);
+  if (headerPath) {
+    pandocArgs.push("--include-in-header", headerPath);
   }
+  appendPandocExportStyleArgs(pandocArgs, exportStyle);
   if (bibliography) {
     pandocArgs.push("--bibliography", bibPath);
   }
@@ -411,7 +430,15 @@ export async function exportPaper(
   await assertPandocAvailable();
 
   const paperData = await readIndexData(modelRoot, paperRel);
-  const cslPath = resolveCslPath(modelRoot, String(paperData.journal ?? ""));
+  const journal = String(paperData.journal ?? "");
+  let exportStyle: JournalExportStyle | undefined;
+  try {
+    const template = await loadJournalTemplate(modelRoot, journal);
+    exportStyle = template.export;
+  } catch {
+    exportStyle = undefined;
+  }
+  const cslPath = resolveCslPath(modelRoot, journal, exportStyle?.csl);
 
   const includeDrafts = Boolean(input.includeDrafts);
   const { markdown: combined, unitCount } = await buildCombinedMarkdown(
@@ -452,11 +479,11 @@ export async function exportPaper(
   }
 
   const notesPreamble = buildInlineNoteLatexPreamble(combined);
-  const notesHeaderPath = notesPreamble
-    ? path.join(exportDir, `${baseName}-notes.tex`)
-    : undefined;
-  if (notesPreamble && notesHeaderPath) {
-    await writeFile(notesHeaderPath, notesPreamble, "utf8");
+  const combinedHeader = await buildCombinedExportHeader(modelRoot, exportStyle, notesPreamble);
+  let headerPath: string | undefined;
+  if (combinedHeader) {
+    headerPath = path.join(exportDir, `${baseName}-header.tex`);
+    await writeFile(headerPath, combinedHeader, "utf8");
   }
 
   let effectiveFormat = input.format;
@@ -470,7 +497,8 @@ export async function exportPaper(
       bibliography,
       bibPath,
       cslPath,
-      notesHeaderPath,
+      exportStyle,
+      headerPath,
     );
   };
 

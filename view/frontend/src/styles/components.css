@@ -14,24 +14,24 @@
   }
 
   .ui-badge-neutral {
-    @apply ui-badge bg-muted text-muted-foreground;
+    @apply ui-badge cursor-default bg-muted text-muted-foreground;
   }
 
   .ui-badge-success {
-    @apply ui-badge;
-    background-color: hsl(var(--success) / 0.12);
+    @apply ui-badge cursor-default;
+    background-color: hsl(var(--success) / 0.14);
     color: hsl(var(--success));
   }
 
   .ui-badge-warning {
-    @apply ui-badge;
-    background-color: hsl(var(--warning) / 0.12);
+    @apply ui-badge cursor-default;
+    background-color: hsl(var(--warning) / 0.14);
     color: hsl(var(--warning));
   }
 
   .ui-badge-destructive {
-    @apply ui-badge;
-    background-color: hsl(var(--destructive) / 0.1);
+    @apply ui-badge cursor-default;
+    background-color: hsl(var(--destructive) / 0.12);
     color: hsl(var(--destructive));
   }
 
@@ -52,7 +52,7 @@
   }
 
   .ui-tab-inactive:hover {
-    background-color: hsl(var(--accent) / 0.5);
+    background-color: hsl(var(--accent) / 0.55);
   }
 
   .ui-nav-row {
@@ -61,7 +61,7 @@
   }
 
   .ui-nav-row:hover {
-    background-color: hsl(var(--accent) / 0.6);
+    background-color: hsl(var(--accent) / 0.55);
   }
 
   .ui-nav-row-active {
@@ -74,7 +74,15 @@
 
   .ui-pane-header {
     background-color: hsl(var(--reading-bg));
-    @apply flex h-9 shrink-0 items-center justify-between border-b border-border px-3;
+    @apply flex min-h-9 shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-2 py-1 sm:px-3;
+  }
+
+  .ui-pane-header--stacked {
+    @apply flex-col items-stretch gap-1.5 py-1.5;
+  }
+
+  .ui-pane-header--stacked > * {
+    @apply w-full;
   }
 
   .ui-toolbar {
@@ -83,6 +91,14 @@
 
   .ui-input {
     transition-duration: 150ms;
-    @apply h-8 w-full rounded-md border border-border bg-background pl-8 pr-2 text-xs outline-none transition-shadow ease-out placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring;
+    @apply h-8 w-full cursor-text rounded-md border border-border bg-background pl-8 pr-2 text-xs outline-none transition-shadow ease-out placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .ui-surface-popover {
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius) + 2px);
+    background: hsl(var(--card));
+    color: hsl(var(--card-foreground));
+    box-shadow: var(--shadow-lg);
   }
 }

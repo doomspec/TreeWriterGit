@@ -37,22 +37,31 @@ export type PaperAssetsBundle = {
   figures: FigureMetadata[];
   tables: TableMetadata[];
   equations: EquationMetadata[];
-  references: ReferenceMetadata[];
+  referenceCount: number;
 };
 
 export async function fetchPaperAssets(paperPath: string): Promise<PaperAssetsBundle> {
   return request<PaperAssetsBundle>(`/api/model/assets?paper=${encodeURIComponent(paperPath)}`);
 }
 
+export async function fetchReferenceIndex(paperPath: string): Promise<ReferenceMetadata[]> {
+  const data = await request<{ references: ReferenceMetadata[] }>(
+    `/api/model/references/index?paper=${encodeURIComponent(paperPath)}`,
+  );
+  return data.references;
+}
+
 export function literatureNoteTemplate(title: string, citeKey: string): string {
   const safeTitle = title.replace(/"/g, '\\"');
   return `---
-kind: "note"
-type: "literature"
+kind: note
+type: literature
 title: "${safeTitle}"
 authors: ""
 year: ${new Date().getFullYear()}
 cite_key: "${citeKey}"
+entry_type: article
+relevance: []
 ---
 
 # ${title}

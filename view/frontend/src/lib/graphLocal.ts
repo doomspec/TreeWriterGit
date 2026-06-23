@@ -84,6 +84,23 @@ function seedFocusId(nodes: GraphNode[]): string | null {
   return nodes[0]?.id ?? null;
 }
 
+/** Drop nodes with no edges (e.g. unlinked literature references). */
+export function filterConnectedGraph(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  if (nodes.length === 0) return { nodes, edges };
+  const connected = new Set<string>();
+  for (const edge of edges) {
+    connected.add(edge.source);
+    connected.add(edge.target);
+  }
+  const filteredNodes = nodes.filter((node) => connected.has(node.id));
+  const keep = new Set(filteredNodes.map((node) => node.id));
+  const filteredEdges = edges.filter((edge) => keep.has(edge.source) && keep.has(edge.target));
+  return { nodes: filteredNodes, edges: filteredEdges };
+}
+
 export function filterLocalGraph(
   nodes: GraphNode[],
   edges: GraphEdge[],
@@ -91,7 +108,14 @@ export function filterLocalGraph(
   depth: number,
   scope: GraphScope,
 ): { nodes: GraphNode[]; edges: GraphEdge[]; focusId: string | null } {
-  if (scope === "global" || nodes.length === 0) {
+  if (scope === "global") {
+    const connected = filterConnectedGraph(nodes, edges);
+    const resolvedFocus =
+      focusId && connected.nodes.some((node) => node.id === focusId) ? focusId : null;
+    return { ...connected, focusId: resolvedFocus };
+  }
+
+  if (nodes.length === 0) {
     return { nodes, edges, focusId };
   }
 
