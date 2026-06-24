@@ -20,12 +20,11 @@ export function DraftApprovalBar({
   approving?: boolean;
   approveLabel?: string;
 }) {
-  if (!pendingSource) return null;
-
-  const Icon = pendingSource === "ai" || aiAssisted ? Bot : User;
+  const source = pendingSource ?? "human";
+  const Icon = source === "ai" || aiAssisted ? Bot : User;
   const handleLabel = formatGitHubHandle(editedBy);
-  const editorPart = handleLabel ? `${handleLabel} edited` : "Unsaved edit";
-  const aiPart = pendingSource === "ai" || aiAssisted ? " · AI assisted" : "";
+  const editorPart = handleLabel ? `${handleLabel} edited` : "Not yet approved";
+  const aiPart = source === "ai" || aiAssisted ? " · AI assisted" : "";
   const message = `${editorPart}${aiPart} — saved for collaborators; approve to mark ready for export.`;
   const shortMessage = `${editorPart}${aiPart} — approve to export`;
 

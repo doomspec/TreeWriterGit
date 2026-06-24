@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pencil, Search } from "lucide-react";
 
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
 import {
   ReadingFocusExtra,
+  ReadingFocusSplitPaneTitle,
+  useReadingFocusSplitPaneTitles,
 } from "@/components/editor/ReadingFocusNavBar";
-import { SearchResults } from "@/components/layout/SearchResults";
+import { SectionApproveChildrenButton } from "@/components/editor/SectionApproveChildrenButton";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
-import { Button } from "@/components/ui/button";
 import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
 import { normalizeComposedDraftBody } from "@/lib/sectionCompose";
 import { useReadingFocus } from "@/lib/readingFocus";
 import type { DualPaneActive, DualPaneView } from "@/lib/workspacePreferences";
-import { fetchSectionCompose, type SearchHit } from "@/modelApi";
+import { fetchSectionCompose } from "@/modelApi";
 
 export function PaperWorkspace({
   paperPath,
@@ -30,9 +30,6 @@ export function PaperWorkspace({
   onDispatchComplete,
   onSendToTerminal,
   onBeforeDispatch,
-  searchQuery,
-  onSearchChange,
-  onSearchSelect,
 }: {
   paperPath: string;
   refreshVersion: number;
@@ -48,14 +45,12 @@ export function PaperWorkspace({
   onDispatchComplete?: () => void;
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
-  onSearchSelect?: (hit: SearchHit) => void;
 }) {
   const [compose, setCompose] = useState<Awaited<ReturnType<typeof fetchSectionCompose>> | null>(null);
   const [loading, setLoading] = useState(true);
   const hasComposeRef = useRef(false);
   const readingFocus = useReadingFocus();
+  const showSplitPaneTitles = useReadingFocusSplitPaneTitles(paneView);
   const outlinePath = outlinePathFor(paperPath);
 
   const loadCompose = useCallback(
@@ -103,6 +98,11 @@ export function PaperWorkspace({
     [onNavigate, onOpenFile],
   );
 
+  const handleChildrenApproved = useCallback(() => {
+    void loadCompose(true);
+    onDispatchComplete?.();
+  }, [loadCompose, onDispatchComplete]);
+
   if (loading || !compose) {
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
@@ -118,6 +118,7 @@ export function PaperWorkspace({
       onFocusCapture={() => onActivePaneChange("outline")}
       onMouseDown={() => onActivePaneChange("outline")}
     >
+      {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Outline" /> : null}
       <MarkdownEditor
         key={outlinePath}
         filePath={outlinePath}
@@ -125,6 +126,9 @@ export function PaperWorkspace({
         layout="preview"
         compact
         showFocusGraph
+        syncDocumentOutline={
+          paneView === "outline" || (paneView === "split" && activePane === "outline")
+        }
         paneLabel="Paper outline"
         defaultPaneMode="rendered"
         className="min-h-0 flex-1"
@@ -150,6 +154,7 @@ export function PaperWorkspace({
       onFocusCapture={() => onActivePaneChange("draft")}
       onMouseDown={() => onActivePaneChange("draft")}
     >
+      {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Draft" /> : null}
       <ComposedDraftEditor
         containerPath={paperPath}
         title={compose.title}
@@ -161,6 +166,9 @@ export function PaperWorkspace({
         pendingAiProvider={compose.pendingAiProvider ?? null}
         refreshVersion={refreshVersion}
         showFocusGraph={paneView === "draft"}
+        syncDocumentOutline={
+          paneView === "draft" || (paneView === "split" && activePane === "draft")
+        }
         linkContextPath={paperPath}
         onNavigate={handleLinkNavigate}
         onError={onError}
@@ -170,51 +178,20 @@ export function PaperWorkspace({
         }}
         paneLabel="Paper draft"
         subtitle="Composed from sections · edits sync to units"
+        childrenApprovalExtra={
+          <SectionApproveChildrenButton
+            sectionPath={paperPath}
+            inline
+            onApproved={handleChildrenApproved}
+            onError={onError}
+          />
+        }
       />
     </div>
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="relative shrink-0 border-b border-border bg-card">
-        <div className="flex h-10 items-center justify-between gap-3 px-3">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <p className="hidden min-w-0 max-w-[9rem] truncate text-xs font-medium text-foreground lg:block">
-              {compose.title}
-            </p>
-            <div className="relative min-w-[10rem] max-w-sm flex-1">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <input
-                type="search"
-                placeholder="Search this paper…"
-                value={searchQuery}
-                className="ui-input h-8 w-full"
-                onChange={(event) => onSearchChange(event.target.value)}
-              />
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1 px-2 text-[10px]"
-              onClick={() => onOpenFile(outlinePath)}
-            >
-              <Pencil className="h-3 w-3" aria-hidden="true" />
-              <span className="hidden sm:inline">Edit outline source</span>
-              <span className="sm:hidden">Outline</span>
-            </Button>
-          </div>
-        </div>
-        {onSearchSelect ? (
-          <SearchResults query={searchQuery} root={paperPath} onSelect={onSearchSelect} />
-        ) : null}
-      </div>
-
       <ReadingFocusExtra focusedPane={paneView} onPaneChange={onPaneViewChange} />
       {readingFocus.active ? (
         paneView === "split" ? (

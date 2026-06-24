@@ -20,14 +20,23 @@ describe("listInlineNoteAuthors", () => {
   it("ignores todo macro", () => {
     expect(listInlineNoteAuthors("\\todo{x} \\iy{y}")).toEqual(["iy"]);
   });
+
+  it("ignores latex and highlight commands", () => {
+    expect(
+      listInlineNoteAuthors(
+        "\\ref{fig:a} \\hl{yellow}{text} \\textcolor{twyellow}{x} \\begin{figure} \\iy{note}",
+      ),
+    ).toEqual(["iy"]);
+  });
 });
 
 describe("buildInlineNoteLatexPreamble", () => {
   it("emits providecommand for each author", () => {
     const preamble = buildInlineNoteLatexPreamble("\\iy{note} \\ak{other}");
-    expect(preamble).toContain("\\usepackage{xcolor}");
     expect(preamble).toContain("\\providecommand{\\ak}");
     expect(preamble).toContain("\\providecommand{\\iy}");
+    expect(preamble).not.toContain("\\providecommand{\\hl}");
+    expect(preamble).not.toContain("\\providecommand{\\ref}");
   });
 
   it("returns empty string when no notes", () => {

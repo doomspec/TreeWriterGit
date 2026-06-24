@@ -13,15 +13,26 @@ export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 const IDLE_AFTER_SAVE_MS = 900;
 
-/** Sticky AI flag: once AI, stay AI until approve/discard. */
+/** Sticky AI flag: once AI, stay AI until approve/discard. Human only after a session edit. */
 export function resolvePendingSourceOnEdit(
   prev: DraftPendingSource | null,
   isPendingApproval: boolean,
   requiresApproval: boolean,
+  isDirty: boolean,
 ): DraftPendingSource | null {
-  if (!requiresApproval) return null;
-  if (!isPendingApproval) return null;
-  return prev === "ai" ? "ai" : "human";
+  if (!requiresApproval || !isPendingApproval) return null;
+  if (prev === "ai") return "ai";
+  if (prev === "human") return "human";
+  if (isDirty) return "human";
+  return null;
+}
+
+export function showSessionApprovalChrome(
+  isPendingApproval: boolean,
+  isDirty: boolean,
+  pendingSource: DraftPendingSource | null,
+): boolean {
+  return isPendingApproval && (isDirty || pendingSource !== null);
 }
 
 export function useDraftAutosave({
@@ -66,16 +77,23 @@ export function useDraftAutosave({
   const isDirty = content !== loadedContent;
   const isPendingApproval =
     requiresApproval && hasPendingApprovalDiff(approvedBaseline, loadedContent, content);
+  const sessionApprovalActive = showSessionApprovalChrome(
+    isPendingApproval,
+    isDirty,
+    pendingSource,
+  );
 
-  useRegisterDraftPending(targetPath, isPendingApproval);
+  useRegisterDraftPending(targetPath, sessionApprovalActive);
 
   useEffect(() => {
     if (!requiresApproval) {
       setPendingSource(null);
       return;
     }
-    setPendingSource((prev) => resolvePendingSourceOnEdit(prev, isPendingApproval, requiresApproval));
-  }, [content, approvedBaseline, isPendingApproval, requiresApproval]);
+    setPendingSource((prev) =>
+      resolvePendingSourceOnEdit(prev, isPendingApproval, requiresApproval, isDirty),
+    );
+  }, [content, approvedBaseline, isDirty, isPendingApproval, requiresApproval]);
 
   const flushSave = useCallback(async () => {
     if (!isDirty) return;
@@ -189,6 +207,7 @@ export function useDraftAutosave({
     setSaveState,
     isDirty,
     isPendingApproval,
+    sessionApprovalActive,
     pendingSource,
     setPendingSource,
     githubHandle,

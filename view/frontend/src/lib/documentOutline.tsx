@@ -1,0 +1,141 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+
+import { extractMarkdownHeadings, type MarkdownHeading } from "@/lib/markdownOutline";
+
+export type DocumentOutlineState = {
+  markdown: string;
+  scrollContainer: HTMLElement | null;
+  headings: MarkdownHeading[];
+  activeHeadingId: string | null;
+  registerScrollContainer: (el: HTMLElement | null) => void;
+  setMarkdown: (markdown: string) => void;
+  setActiveHeadingId: (id: string | null) => void;
+  scrollToHeading: (id: string) => void;
+};
+
+const DocumentOutlineContext = createContext<DocumentOutlineState | null>(null);
+
+const OUTLINE_SCROLL_PADDING = 12;
+
+export function findScrollableParent(element: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = element.parentElement;
+  while (node) {
+    const { overflowY } = getComputedStyle(node);
+    if (
+      (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+      node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+export function scrollElementIntoScrollParent(
+  target: HTMLElement,
+  scrollParent: HTMLElement,
+  padding = OUTLINE_SCROLL_PADDING,
+): void {
+  const parentRect = scrollParent.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const nextTop = scrollParent.scrollTop + (targetRect.top - parentRect.top) - padding;
+  scrollParent.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
+}
+
+export function DocumentOutlineProvider({ children }: { children: ReactNode }) {
+  const [markdown, setMarkdown] = useState("");
+  const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
+  const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
+
+  const headings = useMemo(() => extractMarkdownHeadings(markdown), [markdown]);
+
+  const registerScrollContainer = useCallback((el: HTMLElement | null) => {
+    setScrollContainer(el);
+  }, []);
+
+  const scrollToHeading = useCallback((id: string) => {
+    const escapedId = typeof CSS !== "undefined" && "escape" in CSS ? CSS.escape(id) : id;
+    const target = document.querySelector(
+      `[data-heading-id="${escapedId}"]`,
+    ) as HTMLElement | null;
+    if (!target) return;
+
+    const scrollParent = findScrollableParent(target);
+    if (scrollParent) {
+      scrollElementIntoScrollParent(target, scrollParent);
+    } else {
+      target.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+    setActiveHeadingId(id);
+  }, []);
+
+  const value = useMemo<DocumentOutlineState>(
+    () => ({
+      markdown,
+      scrollContainer,
+      headings,
+      activeHeadingId,
+      registerScrollContainer,
+      setMarkdown,
+      setActiveHeadingId,
+      scrollToHeading,
+    }),
+    [
+      activeHeadingId,
+      headings,
+      markdown,
+      registerScrollContainer,
+      scrollContainer,
+      scrollToHeading,
+    ],
+  );
+
+  return (
+    <DocumentOutlineContext.Provider value={value}>{children}</DocumentOutlineContext.Provider>
+  );
+}
+
+export function useDocumentOutline(): DocumentOutlineState | null {
+  return useContext(DocumentOutlineContext);
+}
+
+export function useDocumentOutlineRequired(): DocumentOutlineState {
+  const ctx = useContext(DocumentOutlineContext);
+  if (!ctx) throw new Error("useDocumentOutlineRequired must be used within DocumentOutlineProvider");
+  return ctx;
+}
+
+/** Keep outline panel in sync with the active editor document. */
+export function useSyncDocumentOutline(
+  markdown: string,
+  scrollRef: RefObject<HTMLElement | null>,
+  enabled = true,
+): (el: HTMLElement | null) => void {
+  const outline = useDocumentOutline();
+
+  useEffect(() => {
+    if (!outline || !enabled) return;
+    outline.setMarkdown(markdown);
+    outline.registerScrollContainer(scrollRef.current);
+  }, [enabled, markdown, outline, scrollRef]);
+
+  return useCallback(
+    (el: HTMLElement | null) => {
+      scrollRef.current = el;
+      if (outline && enabled) {
+        outline.registerScrollContainer(el);
+      }
+    },
+    [enabled, outline, scrollRef],
+  );
+}

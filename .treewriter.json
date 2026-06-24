@@ -26,10 +26,24 @@
         "{prompt}"
       ],
       "writesFiles": true
+    },
+    {
+      "name": "Gemini",
+      "command": "gemini",
+      "args": [
+        "-p",
+        "{prompt}",
+        "--approval-mode",
+        "auto_edit"
+      ],
+      "writesFiles": true
     }
   ],
   "defaultProvider": "Codex",
   "gitSync": {
-    "autoSync": true
+    "autoSync": false
+  },
+  "export": {
+    "autoExport": true
   }
 }

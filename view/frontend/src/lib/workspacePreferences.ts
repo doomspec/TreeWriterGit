@@ -1,5 +1,8 @@
 export type WorkspaceNavTab = "explorer" | "papers";
 
+/** Left rail panel: explorer/papers reuse WorkspaceNav; graph/outline/export are dedicated panels. */
+export type SidebarPanel = "explorer" | "papers" | "graph" | "outline" | "export";
+
 export type DualPaneView = "outline" | "draft" | "split";
 export type DualPaneActive = "outline" | "draft";
 
@@ -9,6 +12,18 @@ export type PapersSidebarPanels = {
   removedOpen: boolean;
   graphOpen: boolean;
 };
+
+export const ASSET_PREVIEW_SPLIT_MIN = 25;
+export const ASSET_PREVIEW_SPLIT_MAX = 80;
+export const ASSET_PREVIEW_SPLIT_DEFAULT = 58;
+
+export function clampAssetPreviewSplit(
+  percent: number,
+  min = ASSET_PREVIEW_SPLIT_MIN,
+  max = ASSET_PREVIEW_SPLIT_MAX,
+): number {
+  return Math.min(max, Math.max(min, Math.round(percent)));
+}
 
 export type WorkspacePreferences = {
   sidebarTab: WorkspaceNavTab;
@@ -22,7 +37,11 @@ export type WorkspacePreferences = {
   dualPaneSplit: number;
   dualPaneView: DualPaneView;
   dualPaneActive: DualPaneActive;
+  /** Top share (percent) when splitting editor from figure/equation preview. */
+  assetPreviewSplit: number;
   sidebarWidth: number;
+  sidebarPanel: SidebarPanel;
+  sidebarPanelOpen: boolean;
   bottomPanelHeight: number;
   papersSidebar: PapersSidebarPanels;
 };
@@ -56,7 +75,10 @@ const DEFAULTS: WorkspacePreferences = {
   dualPaneSplit: 50,
   dualPaneView: "split",
   dualPaneActive: "outline",
+  assetPreviewSplit: ASSET_PREVIEW_SPLIT_DEFAULT,
   sidebarWidth: 240,
+  sidebarPanel: "papers",
+  sidebarPanelOpen: true,
   bottomPanelHeight: BOTTOM_PANEL_HEIGHT_DEFAULT,
   papersSidebar: DEFAULT_PAPERS_SIDEBAR,
 };
@@ -72,6 +94,11 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     if (typeof parsed.dualPaneSplit === "number") {
       parsed.dualPaneSplit = Math.min(80, Math.max(20, parsed.dualPaneSplit));
     }
+    if (typeof parsed.assetPreviewSplit === "number") {
+      parsed.assetPreviewSplit = clampAssetPreviewSplit(parsed.assetPreviewSplit);
+    } else {
+      delete parsed.assetPreviewSplit;
+    }
     if (
       parsed.dualPaneView !== "outline" &&
       parsed.dualPaneView !== "draft" &&
@@ -84,6 +111,22 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     }
     if (typeof parsed.sidebarWidth === "number") {
       parsed.sidebarWidth = Math.min(520, Math.max(180, Math.round(parsed.sidebarWidth)));
+    }
+    const panel = (parsed as { sidebarPanel?: string }).sidebarPanel;
+    if (
+      panel !== "explorer" &&
+      panel !== "papers" &&
+      panel !== "graph" &&
+      panel !== "outline" &&
+      panel !== "export"
+    ) {
+      delete (parsed as { sidebarPanel?: string }).sidebarPanel;
+    }
+    if (typeof (parsed as { sidebarPanelOpen?: boolean }).sidebarPanelOpen !== "boolean") {
+      delete (parsed as { sidebarPanelOpen?: boolean }).sidebarPanelOpen;
+    }
+    if (!(parsed as { sidebarPanel?: string }).sidebarPanel && parsed.sidebarTab) {
+      (parsed as { sidebarPanel?: SidebarPanel }).sidebarPanel = parsed.sidebarTab;
     }
     if (typeof parsed.bottomPanelHeight === "number") {
       parsed.bottomPanelHeight = clampBottomPanelHeight(parsed.bottomPanelHeight);

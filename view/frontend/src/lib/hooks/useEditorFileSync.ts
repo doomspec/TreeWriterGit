@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { effectiveDiffBaseline } from "@/lib/draftDiff";
+import { repairEditorMacroSyntax } from "@/lib/editorMacroRepair";
 import {
   loadDraftApprovalState,
   loadModelFileContent,
@@ -103,8 +104,9 @@ export function useEditorFileSync({
           return;
         }
 
-        resetHistory(diskContent);
-        setLoadedContent(diskContent);
+        const normalized = repairEditorMacroSyntax(diskContent);
+        resetHistory(normalized);
+        setLoadedContent(normalized);
         if (requiresApproval && snapshot !== null && diskContent !== snapshot) {
           setPendingSource("ai");
           void loadDraftApprovalState(filePath).then(({ meta }) => {

@@ -38,9 +38,6 @@ export function WorkspaceRouter({
         onDispatchComplete={onDispatchComplete}
         onSendToTerminal={onSendToTerminal}
         onBeforeDispatch={onBeforeDispatch}
-        searchQuery={ws.searchQuery}
-        onSearchChange={ws.setSearchQuery}
-        onSearchSelect={ws.handleSearchSelect}
       />
     );
   }
@@ -77,6 +74,8 @@ export function WorkspaceRouter({
         onNavigate={ws.handleMarkdownNavigate}
         dualPaneSplit={ws.dualPaneSplit}
         onDualPaneSplitChange={ws.setDualPaneSplit}
+        assetPreviewSplit={ws.assetPreviewSplit}
+        onAssetPreviewSplitChange={ws.setAssetPreviewSplit}
         paneView={ws.dualPaneView}
         onPaneViewChange={ws.setDualPaneView}
         activePane={ws.dualPaneActive}
@@ -84,10 +83,6 @@ export function WorkspaceRouter({
         onSendToTerminal={onSendToTerminal}
         onBeforeDispatch={onBeforeDispatch}
         onDispatchComplete={onDispatchComplete}
-        onBackToSectionView={
-          ws.showPaperViewBack || ws.showSectionViewBack ? ws.backToSectionView : undefined
-        }
-        backLabel={ws.showPaperViewBack ? "Paper view" : "Section view"}
         isFigure={ws.isFigure}
         isEquation={ws.isEquation}
         onModelChanged={ws.reloadModel}

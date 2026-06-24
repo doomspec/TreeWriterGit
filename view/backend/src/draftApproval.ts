@@ -606,6 +606,34 @@ async function walkDraftLeaves(
   return updated;
 }
 
+/** True when a pending draft/outline file belongs to a child folder under a section. */
+export function isChildApprovalFilePath(sectionRel: string, fileRel: string): boolean {
+  const section = sectionRel.replace(/\\/g, "/").replace(/\/+$/, "");
+  const file = fileRel.replace(/\\/g, "/");
+  if (!section || !file.startsWith(`${section}/`)) return false;
+  const remainder = file.slice(section.length + 1);
+  return remainder.includes("/");
+}
+
+/** Approve all pending drafts and outlines in child units/subsections (not the section itself). */
+export async function approvePendingChildrenTarget(
+  modelRoot: string,
+  sectionRel: string,
+  approvedBy?: string | null,
+): Promise<{ updated: string[] }> {
+  const normalized = sectionRel.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!normalized) throw new ModelFsError("Path required", 400);
+
+  const pending = await collectPendingApprovalPaths(modelRoot, normalized);
+  const childPaths = pending.filter((fileRel) => isChildApprovalFilePath(normalized, fileRel));
+  const updated: string[] = [];
+  for (const fileRel of childPaths) {
+    const result = await approveDraftTarget(modelRoot, fileRel, approvedBy);
+    updated.push(...result.updated);
+  }
+  return { updated: [...new Set(updated)] };
+}
+
 export async function approveDraftTarget(
   modelRoot: string,
   targetPath: string,

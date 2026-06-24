@@ -201,10 +201,10 @@ export function EditableMarkdownField({
       if (!anchor) return;
       const href = anchor.getAttribute("href");
       if (!href || href.startsWith("http://") || href.startsWith("https://")) return;
-      if (!event.metaKey && !event.ctrlKey) return;
       const target = resolveNavigateTarget(linkContextPath, href);
       if (!target) return;
       event.preventDefault();
+      event.stopPropagation();
       onNavigate(target);
     },
     [linkContextPath, linksClickable, onNavigate],

@@ -3,8 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
 import { DispatchAiButton } from "@/components/editor/DispatchAiButton";
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
+import { SectionApproveChildrenButton } from "@/components/editor/SectionApproveChildrenButton";
 import {
   ReadingFocusExtra,
+  ReadingFocusSplitPaneTitle,
+  useReadingFocusSplitPaneTitles,
 } from "@/components/editor/ReadingFocusNavBar";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import {
@@ -79,6 +82,7 @@ export function SectionWorkspace({
   const dispatching = outlineDispatching || draftDispatching;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const readingFocus = useReadingFocus();
+  const showSplitPaneTitles = useReadingFocusSplitPaneTitles(paneView);
   const agentDispatchPanel = useAgentDispatchPanelOptional();
 
   const loadCompose = useCallback(
@@ -184,6 +188,11 @@ export function SectionWorkspace({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [activePane, agentDispatchPanel]);
 
+  const handleChildrenApproved = useCallback(() => {
+    void loadCompose(true);
+    onDispatchComplete?.();
+  }, [loadCompose, onDispatchComplete]);
+
   const outlinePath = outlinePathFor(sectionPath);
   const paperPath = paperPathFromModelPath(outlinePath);
 
@@ -213,6 +222,16 @@ export function SectionWorkspace({
     />
   );
 
+  const approveChildrenButton = (
+    <SectionApproveChildrenButton
+      sectionPath={sectionPath}
+      disabled={dispatching}
+      inline
+      onApproved={handleChildrenApproved}
+      onError={onError}
+    />
+  );
+
   const outlinePane = (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col"
@@ -220,6 +239,7 @@ export function SectionWorkspace({
       onFocusCapture={() => onActivePaneChange("outline")}
       onMouseDown={() => onActivePaneChange("outline")}
     >
+      {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Outline" /> : null}
       <MarkdownEditor
         key={outlinePath}
         filePath={outlinePath}
@@ -227,6 +247,9 @@ export function SectionWorkspace({
         layout="preview"
         compact
         showFocusGraph
+        syncDocumentOutline={
+          paneView === "outline" || (paneView === "split" && activePane === "outline")
+        }
         paneLabel="Outline"
         defaultPaneMode="rendered"
         className="min-h-0 flex-1"
@@ -251,6 +274,7 @@ export function SectionWorkspace({
       onFocusCapture={() => onActivePaneChange("draft")}
       onMouseDown={() => onActivePaneChange("draft")}
     >
+      {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Draft" /> : null}
       <ComposedDraftEditor
         containerPath={sectionPath}
         title={compose.title}
@@ -259,6 +283,9 @@ export function SectionWorkspace({
         pendingAiProvider={compose.pendingAiProvider ?? null}
         refreshVersion={refreshVersion}
         showFocusGraph={paneView === "draft"}
+        syncDocumentOutline={
+          paneView === "draft" || (paneView === "split" && activePane === "draft")
+        }
         linkContextPath={sectionPath}
         onNavigate={handleLinkNavigate}
         onError={onError}
@@ -268,6 +295,7 @@ export function SectionWorkspace({
         }}
         paneLabel="Draft"
         headerExtra={aiButton("draft")}
+        childrenApprovalExtra={approveChildrenButton}
       />
     </div>
   );

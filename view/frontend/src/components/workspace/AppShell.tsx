@@ -1,37 +1,33 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   FilePlus,
   FolderPlus,
-  PanelBottomClose,
-  PanelBottomOpen,
-  RefreshCw,
-  CircleHelp,
-  Settings,
-  TerminalSquare,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { InfoPage } from "@/components/help/InfoPage";
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { AppChromeHeader } from "@/components/layout/AppChromeHeader";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { BottomPanel } from "@/components/layout/BottomPanel";
-import { ResizableSidebarLayout } from "@/components/layout/ResizableSidebarLayout";
+import { BottomPanel, type DispatchPaneTab } from "@/components/layout/BottomPanel";
+import { WorkspaceSidebarShell } from "@/components/layout/WorkspaceSidebarShell";
 import { WorkspaceNav } from "@/components/nav/WorkspaceNav";
-import { WorkspaceModeTabs } from "@/components/layout/WorkspaceModeTabs";
+import { DocumentOutlinePanel } from "@/components/nav/DocumentOutlinePanel";
+import { ReadingFocusOutlineRail } from "@/components/editor/ReadingFocusOutlineRail";
+import { PaperExportPanel } from "@/components/paper/PaperExportPanel";
+import { GraphPanel } from "@/components/graph/GraphPanel";
 import { WorkspaceRouter } from "@/components/workspace/WorkspaceRouter";
-import { PaperExportMenu } from "@/components/paper/PaperExportMenu";
+import { DocumentOutlineProvider } from "@/lib/documentOutline";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { parentPath } from "@/lib/modelTree";
-import { formatGitSyncError, gitSyncHasError, isViewSyncPaused } from "@/lib/gitSync";
+import { gitSyncHasError, isViewSyncPaused } from "@/lib/gitSync";
 import { resolveViewSyncWithHarness } from "@/lib/agentDispatchClient";
 import { useGitSyncState } from "@/lib/useGitSyncState";
 import { useTerminalSession } from "@/lib/useTerminalSession";
 import { useTheme } from "@/lib/useTheme";
 import { useReadingFocus } from "@/lib/readingFocus";
-import { ReadingFocusNavBar } from "@/components/editor/ReadingFocusNavBar";
 import {
   ReadingFocusGraphProvider,
   type ReadingFocusGraphConfig,
@@ -92,11 +88,16 @@ function AppShell({
   const readingFocus = useReadingFocus();
   const { preference: themePreference, setPreference: setThemePreference, cyclePreference } =
     useTheme();
+  const [agentPanelFocus, setAgentPanelFocus] = useState<"terminal" | "dispatch" | null>(null);
+  const [requestedDispatchTab, setRequestedDispatchTab] = useState<DispatchPaneTab | undefined>(
+    undefined,
+  );
 
   const {
     terminalHostRef,
     connectionState,
     sendToTerminal,
+    sendToTerminalWhenReady,
     refitTerminal,
     reconnectTerminal,
   } = useTerminalSession({
@@ -122,17 +123,52 @@ function AppShell({
   });
 
   const openAgentPanel = useCallback(() => {
+    setAgentPanelFocus("terminal");
     ws.setAgentPanelOpen(true);
     refitTerminal();
   }, [refitTerminal, ws]);
 
   const openAgentDispatch = useCallback(
     (intent: Parameters<typeof ws.setDispatchIntent>[0]) => {
+      setAgentPanelFocus("dispatch");
+      setRequestedDispatchTab("run");
       ws.setAgentPanelOpen(true);
       ws.setDispatchIntent(intent);
       refitTerminal();
     },
     [refitTerminal, ws],
+  );
+
+  const openTerminalPanel = useCallback(() => {
+    if (ws.agentPanelOpen && agentPanelFocus === "terminal") {
+      ws.setAgentPanelOpen(false);
+      setAgentPanelFocus(null);
+      return;
+    }
+    setAgentPanelFocus("terminal");
+    setRequestedDispatchTab(undefined);
+    ws.setAgentPanelOpen(true);
+    refitTerminal();
+  }, [agentPanelFocus, refitTerminal, ws]);
+
+  const openDispatchPanel = useCallback(() => {
+    if (ws.agentPanelOpen && agentPanelFocus === "dispatch") {
+      ws.setAgentPanelOpen(false);
+      setAgentPanelFocus(null);
+      return;
+    }
+    setAgentPanelFocus("dispatch");
+    setRequestedDispatchTab("run");
+    ws.setAgentPanelOpen(true);
+    refitTerminal();
+  }, [agentPanelFocus, refitTerminal, ws]);
+
+  const handleAgentPanelOpenChange = useCallback(
+    (open: boolean) => {
+      ws.setAgentPanelOpen(open);
+      if (!open) setAgentPanelFocus(null);
+    },
+    [ws],
   );
 
   const agentDispatchPanelValue = useMemo(
@@ -142,12 +178,14 @@ function AppShell({
 
   const resolveViewSyncHarness = useCallback(async () => {
     try {
+      ws.setAppView("workspace");
       openAgentPanel();
-      await resolveViewSyncWithHarness({ onSendToTerminal: sendToTerminal });
+      refitTerminal();
+      await resolveViewSyncWithHarness({ submitToTerminal: sendToTerminalWhenReady });
     } catch (err) {
       ws.setError(err instanceof Error ? err.message : String(err));
     }
-  }, [openAgentPanel, sendToTerminal, ws]);
+  }, [openAgentPanel, refitTerminal, sendToTerminalWhenReady, ws]);
 
   const viewSyncPaused = isViewSyncPaused(gitSync);
   const showFocusGraph =
@@ -196,16 +234,26 @@ function AppShell({
   return (
     <AgentDispatchPanelContext.Provider value={agentDispatchPanelValue}>
       <ReadingFocusGraphProvider config={focusGraphConfig}>
+        <DocumentOutlineProvider>
         <main
           className={cn(
             "flex h-screen flex-col overflow-hidden bg-background text-foreground",
             readingFocus.active && "reading-focus-mode",
           )}
         >
-          <ReadingFocusNavBar
-            path={ws.browsePath}
+          <AppChromeHeader
+            appView={ws.appView}
+            browsePath={ws.browsePath}
             onNavigate={ws.navigateTo}
             breadcrumbVariant={ws.sidebarTab === "papers" ? "papers" : "default"}
+            tree={ws.tree}
+            refreshVersion={ws.refreshVersion}
+            onOpenFile={ws.openFile}
+            paperPath={ws.paperPath}
+            searchQuery={ws.searchQuery}
+            onSearchChange={ws.setSearchQuery}
+            onSearchSelect={ws.handleSearchSelect}
+            onRefreshModel={() => ws.reloadModel()}
             canBack={canFocusBack}
             onBack={handleFocusBack}
             backTitle={focusBackTitle}
@@ -221,6 +269,8 @@ function AppShell({
             showSectionViewBack={ws.showSectionViewBack || ws.showPaperViewBack}
             onSetAppView={ws.setAppView}
             onSetSidebarTab={ws.handleSidebarTabChange}
+            onSetSidebarPanel={ws.setSidebarPanel}
+            onToggleSidebarPanel={ws.toggleSidebarPanel}
             onNavigateUp={handleNavigateUp}
             onBack={ws.backToSectionView}
             onCreateChild={createChild}
@@ -231,129 +281,6 @@ function AppShell({
             onGitSync={() => void runGitSync()}
             onCycleTheme={cyclePreference}
           />
-          <header className="app-chrome-header relative z-20 flex h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-border bg-card px-2 shadow-sm sm:gap-3 sm:px-4">
-            <div className="app-chrome-header__lead flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-3">
-              <div className="flex shrink-0 items-center gap-1.5">
-                <TerminalSquare className="h-4 w-4 text-primary" aria-hidden="true" />
-                <span className="hidden text-sm font-semibold tracking-tight sm:inline">TreeWriter</span>
-              </div>
-              <div className="hidden h-4 w-px shrink-0 bg-border md:block" />
-              {ws.appView === "workspace" ? (
-                <>
-                  <WorkspaceModeTabs activeTab={ws.sidebarTab} onTabChange={ws.handleSidebarTabChange} />
-                  <div className="hidden h-4 w-px shrink-0 bg-border lg:block" />
-                  <div className="hidden min-w-0 lg:block">
-                    <Breadcrumbs
-                      path={ws.browsePath}
-                      onNavigate={ws.navigateTo}
-                      variant={ws.sidebarTab === "papers" ? "papers" : "default"}
-                    />
-                  </div>
-                </>
-              ) : ws.appView === "settings" ? (
-                <span className="truncate text-sm text-muted-foreground">Settings</span>
-              ) : (
-                <span className="truncate text-sm text-muted-foreground">Guide</span>
-              )}
-            </div>
-
-            <div className="app-chrome-header__actions flex shrink-0 items-center gap-1 sm:gap-2">
-              {ws.appView === "workspace" ? (
-                <>
-                  <button
-                    type="button"
-                    className={cn(
-                      gitSync?.conflictDetected
-                        ? "ui-badge-destructive"
-                        : gitSync?.lastError
-                          ? "ui-badge-warning"
-                          : gitSync?.running
-                            ? "ui-badge-warning"
-                            : gitSync?.enabled
-                              ? "ui-badge-success"
-                              : "ui-badge-neutral",
-                      "max-w-[3.25rem] cursor-pointer truncate transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-none",
-                    )}
-                    title={
-                      gitSync && gitSyncHasError(gitSync)
-                        ? formatGitSyncError(gitSync)
-                        : gitSync?.enabled
-                          ? gitSync.autoSync === false
-                            ? "Git sync — auto sync off (click to sync now)"
-                            : `Git sync (auto every ${Math.round((gitSync.intervalMs ?? 120_000) / 1000)}s) — click to sync now`
-                          : "Git sync disabled"
-                    }
-                    disabled={!gitSync?.enabled || gitSync?.running}
-                    onClick={handleGitBadgeClick}
-                  >
-                    <span className="sm:hidden">{gitStatusLabel}</span>
-                    <span className="hidden sm:inline">git {gitStatusLabel}</span>
-                  </button>
-                  <span className="ui-badge-neutral hidden min-[640px]:inline-flex">
-                    terminal {connectionState}
-                  </span>
-                  <Button
-                    type="button"
-                    variant={ws.agentPanelOpen ? "default" : "outline"}
-                    size="icon"
-                    className="h-8 w-8"
-                    title={ws.agentPanelOpen ? "Hide bottom panel" : "Show terminal & AI dispatch"}
-                    aria-label={ws.agentPanelOpen ? "Hide bottom panel" : "Show bottom panel"}
-                    aria-pressed={ws.agentPanelOpen}
-                    onClick={() => ws.setAgentPanelOpen((open) => !open)}
-                  >
-                    {ws.agentPanelOpen ? (
-                      <PanelBottomClose className="h-4 w-4" aria-hidden="true" />
-                    ) : (
-                      <PanelBottomOpen className="h-4 w-4" aria-hidden="true" />
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="hidden h-8 w-8 md:inline-flex"
-                    title="Refresh model"
-                    aria-label="Refresh model"
-                    onClick={() => ws.reloadModel()}
-                  >
-                    <RefreshCw className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                  <div className="hidden lg:block">
-                    <PaperExportMenu
-                      paperSlug={ws.exportPaperSlug}
-                      onError={ws.setError}
-                      onComplete={() => ws.reloadModel()}
-                    />
-                  </div>
-                </>
-              ) : null}
-              <ThemeToggle preference={themePreference} onCycle={cyclePreference} />
-              <Button
-                type="button"
-                variant={ws.appView === "info" ? "default" : "outline"}
-                size="icon"
-                className="h-8 w-8"
-                title="Guide & shortcuts"
-                aria-label="Guide and shortcuts"
-                aria-pressed={ws.appView === "info"}
-                onClick={() => ws.setAppView((view) => (view === "info" ? "workspace" : "info"))}
-              >
-                <CircleHelp className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button
-                type="button"
-                variant={ws.appView === "settings" ? "default" : "outline"}
-                size="icon"
-                title="Settings"
-                aria-label="Settings"
-                aria-pressed={ws.appView === "settings"}
-                onClick={() => ws.setAppView((view) => (view === "settings" ? "workspace" : "settings"))}
-              >
-                <Settings className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </div>
-          </header>
 
           {ws.appView === "settings" ? (
             <SettingsPage
@@ -374,40 +301,100 @@ function AppShell({
                 readingFocus.active && "reading-focus-shell",
               )}
             >
+              {readingFocus.active ? <ReadingFocusOutlineRail /> : null}
+              <div className="reading-focus-shell__main flex min-h-0 min-w-0 flex-1 flex-col">
               <div className="workspace-shell flex min-h-0 min-w-0 flex-1 flex-col">
-                <ResizableSidebarLayout
-                  width={ws.sidebarWidth}
-                  onWidthChange={ws.setSidebarWidth}
-                  sidebar={
-                    <WorkspaceNav
-                      tree={ws.tree}
-                      currentPath={ws.browsePath}
-                      activeFile={ws.activeFile}
-                      activeTab={ws.sidebarTab}
-                      searchQuery={ws.searchQuery}
-                      refreshVersion={ws.refreshVersion}
-                      onSearchChange={ws.setSearchQuery}
-                      onNavigate={ws.navigateTo}
-                      onOpenFile={ws.openFile}
-                      onSearchSelect={ws.handleSearchSelect}
-                      onPaperCreated={(path) => {
-                        ws.reloadModel();
-                        ws.navigateTo(path);
-                        ws.handleSidebarTabChange("papers");
-                      }}
-                      onModelChanged={ws.reloadModel}
-                      onError={ws.setError}
-                      graphFetchRoot={ws.graphFetchRoot ?? ""}
-                      graphFocusPath={ws.graphFocusPath}
-                      graphScope={ws.graphScope}
-                      onGraphScopeChange={ws.setGraphScope}
-                      onGraphSelectNode={(id) => {
-                        if (id.startsWith("missing:")) return;
-                        ws.navigateTo(id);
-                      }}
-                    />
+                <div
+                  className={cn(
+                    "workspace-main min-h-0 flex-1",
+                    !ws.sidebarPanelOpen && "workspace-main--sidebar-collapsed",
+                  )}
+                  style={
+                    {
+                      "--sidebar-rail-width": "36px",
+                      "--sidebar-width": `${ws.sidebarPanelOpen ? ws.sidebarWidth : 0}px`,
+                    } as React.CSSProperties
                   }
                 >
+                  <WorkspaceSidebarShell
+                    activePanel={ws.sidebarPanel}
+                    panelOpen={ws.sidebarPanelOpen}
+                    graphAvailable={Boolean(ws.graphFetchRoot)}
+                    sidebarWidth={ws.sidebarWidth}
+                    agentPanelOpen={ws.agentPanelOpen}
+                    agentPanelFocus={agentPanelFocus}
+                    appView={ws.appView}
+                    gitSync={gitSync}
+                    gitStatusLabel={gitStatusLabel}
+                    connectionState={connectionState}
+                    themePreference={themePreference}
+                    onSelectPanel={ws.setSidebarPanel}
+                    onTogglePanel={ws.toggleSidebarPanel}
+                    onWidthChange={ws.setSidebarWidth}
+                    onOpenTerminalPanel={openTerminalPanel}
+                    onOpenDispatchPanel={openDispatchPanel}
+                    onCloseAgentPanel={() => handleAgentPanelOpenChange(false)}
+                    onGitClick={handleGitBadgeClick}
+                    onSetAppView={ws.setAppView}
+                    onCycleTheme={cyclePreference}
+                    panelContent={
+                      ws.sidebarPanel === "outline" ? (
+                        <DocumentOutlinePanel className="h-full" />
+                      ) : ws.sidebarPanel === "graph" ? (
+                        <div className="graph-tab-host flex h-full min-h-[200px] flex-col overflow-hidden">
+                          <GraphPanel
+                            embedded
+                            active
+                            fetchRoot={ws.graphFetchRoot ?? ""}
+                            focusPath={ws.graphFocusPath}
+                            graphScope={ws.graphScope}
+                            refreshVersion={ws.refreshVersion}
+                            onGraphScopeChange={ws.setGraphScope}
+                            onSelectNode={(id) => {
+                              if (id.startsWith("missing:")) return;
+                              ws.navigateTo(id);
+                            }}
+                          />
+                        </div>
+                      ) : ws.sidebarPanel === "export" ? (
+                        <PaperExportPanel
+                          className="h-full"
+                          paperSlug={ws.exportPaperSlug}
+                          onError={ws.setError}
+                          onComplete={() => ws.reloadModel()}
+                        />
+                      ) : (
+                        <WorkspaceNav
+                          tree={ws.tree}
+                          currentPath={ws.browsePath}
+                          activeFile={ws.activeFile}
+                          activeTab={ws.sidebarPanel === "papers" ? "papers" : "explorer"}
+                          searchQuery={ws.searchQuery}
+                          refreshVersion={ws.refreshVersion}
+                          onSearchChange={ws.setSearchQuery}
+                          onNavigate={ws.navigateTo}
+                          onOpenFile={ws.openFile}
+                          onSearchSelect={ws.handleSearchSelect}
+                          onPaperCreated={(path) => {
+                            ws.reloadModel();
+                            ws.navigateTo(path);
+                            ws.handleSidebarTabChange("papers");
+                          }}
+                          onModelChanged={ws.reloadModel}
+                          onError={ws.setError}
+                          graphFetchRoot={ws.graphFetchRoot ?? ""}
+                          graphFocusPath={ws.graphFocusPath}
+                          graphScope={ws.graphScope}
+                          onGraphScopeChange={ws.setGraphScope}
+                          onGraphSelectNode={(id) => {
+                            if (id.startsWith("missing:")) return;
+                            ws.navigateTo(id);
+                          }}
+                        />
+                      )
+                    }
+                  />
+                  <div className="workspace-main__main min-h-0 min-w-0">
                   <section className="relative flex min-h-0 flex-1 flex-col bg-workspace">
                     <div className="flex min-h-0 flex-1 flex-col">
                       <WorkspaceRouter
@@ -494,11 +481,12 @@ function AppShell({
                       ) : null}
                     </footer>
                   </section>
-                </ResizableSidebarLayout>
+                  </div>
+                </div>
 
                 <BottomPanel
                   open={ws.agentPanelOpen}
-                  onOpenChange={ws.setAgentPanelOpen}
+                  onOpenChange={handleAgentPanelOpenChange}
                   currentPath={ws.browsePath}
                   refreshVersion={ws.refreshVersion}
                   height={ws.bottomPanelHeight}
@@ -506,7 +494,9 @@ function AppShell({
                   isUnit={ws.isUnit}
                   canFanOut={ws.isPaperSection && !ws.isUnit}
                   dispatchIntent={ws.dispatchIntent}
-                  initialDispatchTab={ws.dispatchIntent ? "run" : undefined}
+                  initialDispatchTab={
+                    requestedDispatchTab ?? (ws.dispatchIntent ? "run" : undefined)
+                  }
                   onDispatchIntentConsumed={ws.clearDispatchIntent}
                   onSendToTerminal={sendToTerminal}
                   onError={ws.setError}
@@ -514,6 +504,7 @@ function AppShell({
                   onLayoutChange={refitTerminal}
                   terminalHostRef={terminalHostRef}
                 />
+              </div>
               </div>
             </div>
           )}
@@ -548,6 +539,7 @@ function AppShell({
             </div>
           ) : null}
         </main>
+        </DocumentOutlineProvider>
       </ReadingFocusGraphProvider>
     </AgentDispatchPanelContext.Provider>
   );

@@ -24,6 +24,7 @@ export const ASSET_EXTENSIONS = new Set([
   ".tex",
   ".gif",
   ".webp",
+  ".pdf",
 ]);
 
 export type FigureMetadata = {
@@ -39,7 +40,7 @@ export type FigureMetadata = {
   figureLabel: string | null;
 };
 
-const FIGURE_ASSET_NAMES = /\.(png|jpe?g|svg|mmd|gif|webp)$/i;
+const FIGURE_ASSET_NAMES = /\.(png|jpe?g|svg|mmd|gif|webp|pdf)$/i;
 const SKIP_DIRS = new Set([".sessions", "notes", ".trash"]);
 
 function stripLeadingH1(markdown: string): string {
@@ -67,6 +68,8 @@ export function assetContentType(relativePath: string): string {
       return "image/gif";
     case ".webp":
       return "image/webp";
+    case ".pdf":
+      return "application/pdf";
     case ".mmd":
     case ".tex":
       return "text/plain; charset=utf-8";
@@ -285,6 +288,7 @@ export const FIGURE_IMAGE_EXTENSIONS = new Set([
   ".svg",
   ".gif",
   ".webp",
+  ".pdf",
 ]);
 
 export function isFigureImageExtension(relativePath: string): boolean {

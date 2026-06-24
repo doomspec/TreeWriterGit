@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bot, GitBranch, Monitor, RefreshCw, RotateCcw, User } from "lucide-react";
+import { ArrowLeft, Bot, Download, GitBranch, Monitor, RefreshCw, RotateCcw, User } from "lucide-react";
 
 import { KeyboardShortcutsSection } from "@/components/settings/KeyboardShortcutsSection";
 import { Button } from "@/components/ui/button";
@@ -16,12 +16,17 @@ import { useReadingTypography } from "@/lib/ReadingTypographyProvider";
 import type { ThemePreference } from "@/lib/themePreferences";
 import {
   fetchSettings,
+  formatExportDebounceLabel,
   formatInterval,
   runGitSyncNow,
   updateDefaultProvider,
-  updateGitSyncAutoSync,
+  updateExportSettings,
+  updateGitSyncSettings,
+  SYNC_INTERVAL_OPTIONS,
+  EXPORT_DEBOUNCE_OPTIONS,
   type AgentSettings,
   type AppSettings,
+  type ExportSettings,
   type GitSyncSettings,
 } from "@/lib/settingsApi";
 import { saveLastAgentProvider } from "@/lib/lastAgentProvider";
@@ -124,6 +129,7 @@ export function SettingsPage({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [gitSync, setGitSync] = useState<GitSyncSettings | null>(null);
+  const [exportSettings, setExportSettings] = useState<ExportSettings | null>(null);
   const [agents, setAgents] = useState<AgentSettings | null>(null);
   const [authorName, setAuthorName] = useState(() => getUserName());
   const [githubHandle, setGithubHandleState] = useState(() => getGitHubHandle());
@@ -140,6 +146,7 @@ export function SettingsPage({
     try {
       const settings: AppSettings = await fetchSettings();
       setGitSync(settings.gitSync);
+      setExportSettings(settings.export);
       setAgents(settings.agents);
       onGitSyncChangeRef.current?.(settings.gitSync);
       hasLoadedRef.current = true;
@@ -158,10 +165,50 @@ export function SettingsPage({
     if (!gitSync?.enabled) return;
     setSaving("autoSync");
     try {
-      const updated = await updateGitSyncAutoSync(autoSync);
+      const updated = await updateGitSyncSettings({ autoSync });
       const next = { ...gitSync, ...updated };
       setGitSync(next);
       onGitSyncChange?.(next);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const patchGitSyncSettings = async (
+    patch: { autoSync?: boolean; intervalMs?: number },
+    savingKey: string,
+  ) => {
+    if (!gitSync?.enabled) return;
+    setSaving(savingKey);
+    try {
+      const updated = await updateGitSyncSettings(patch);
+      const next = { ...gitSync, ...updated };
+      setGitSync(next);
+      onGitSyncChange?.(next);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const patchExportSettings = async (
+    patch: {
+      autoExport?: boolean;
+      includeDrafts?: boolean;
+      pushOverleaf?: boolean;
+      debounceMs?: number;
+    },
+    savingKey: string,
+  ) => {
+    if (!exportSettings) return;
+    setSaving(savingKey);
+    try {
+      const updated = await updateExportSettings(patch);
+      const next = { ...exportSettings, ...updated };
+      setExportSettings(next);
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -228,6 +275,7 @@ export function SettingsPage({
   };
 
   const syncStatus = gitSync?.status;
+  const exportStatus = exportSettings?.status;
   const syncStatusLabel = syncStatus?.conflictDetected
     ? "Conflict"
     : syncStatus?.lastError
@@ -237,6 +285,14 @@ export function SettingsPage({
         : syncStatus?.lastSuccessAt
           ? "OK"
           : "Idle";
+
+  const exportStatusLabel = exportStatus?.running
+    ? "Exporting"
+    : exportStatus?.lastError
+      ? "Error"
+      : exportStatus?.lastSuccessAt
+        ? "OK"
+        : "Idle";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-workspace">
@@ -307,11 +363,7 @@ export function SettingsPage({
               <SettingsSection title="Git sync" icon={GitBranch}>
                 <SettingRow
                   label="Automatic sync"
-                  hint={
-                    gitSync?.enabled
-                      ? `Sync every ${formatInterval(gitSync.intervalMs)} when enabled`
-                      : "Git sync is disabled by server configuration"
-                  }
+                  hint="Pull and push model changes on a schedule"
                 >
                   <Toggle
                     checked={Boolean(gitSync?.autoSync)}
@@ -319,6 +371,36 @@ export function SettingsPage({
                     label="Automatic git sync"
                     onChange={(checked) => void handleAutoSyncChange(checked)}
                   />
+                </SettingRow>
+
+                <SettingRow
+                  label="Sync interval"
+                  hint={
+                    gitSync?.autoSync
+                      ? `Runs every ${formatInterval(gitSync.intervalMs)}`
+                      : "Enable automatic sync to choose an interval"
+                  }
+                >
+                  <select
+                    className="h-8 min-w-[10rem] rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    value={gitSync?.intervalMs ?? 120_000}
+                    disabled={
+                      !gitSync?.enabled || !gitSync.autoSync || saving === "intervalMs"
+                    }
+                    aria-label="Git sync interval"
+                    onChange={(event) =>
+                      void patchGitSyncSettings(
+                        { intervalMs: Number(event.target.value) },
+                        "intervalMs",
+                      )
+                    }
+                  >
+                    {SYNC_INTERVAL_OPTIONS.map((option) => (
+                      <option key={option.ms} value={option.ms}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </SettingRow>
 
                 <SettingRow label="Sync now" hint="Pull and push model changes immediately">
@@ -383,6 +465,102 @@ export function SettingsPage({
                   ) : null}
                   {syncStatus?.lastError ? (
                     <p className="mt-2 text-destructive">{syncStatus.lastError}</p>
+                  ) : null}
+                </div>
+              </SettingsSection>
+
+              <SettingsSection title="Export" icon={Download}>
+                <SettingRow
+                  label="Automatic export"
+                  hint="Regenerate LaTeX sections and push to Overleaf after you stop editing"
+                >
+                  <Toggle
+                    checked={Boolean(exportSettings?.autoExport)}
+                    disabled={!exportSettings || saving === "autoExport"}
+                    label="Automatic export"
+                    onChange={(checked) => void patchExportSettings({ autoExport: checked }, "autoExport")}
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  label="Auto-export delay"
+                  hint={
+                    exportSettings?.autoExport
+                      ? `Export runs ${formatExportDebounceLabel(exportSettings.debounceMs)} after the last edit`
+                      : "Enable automatic export to choose a delay"
+                  }
+                >
+                  <select
+                    className="h-8 min-w-[10rem] rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    value={exportSettings?.debounceMs ?? 60_000}
+                    disabled={
+                      !exportSettings ||
+                      !exportSettings.autoExport ||
+                      saving === "debounceMs"
+                    }
+                    aria-label="Auto-export delay"
+                    onChange={(event) =>
+                      void patchExportSettings(
+                        { debounceMs: Number(event.target.value) },
+                        "debounceMs",
+                      )
+                    }
+                  >
+                    {EXPORT_DEBOUNCE_OPTIONS.map((option) => (
+                      <option key={option.ms} value={option.ms}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </SettingRow>
+
+                <SettingRow
+                  label="Include non-approved drafts"
+                  hint="Export outlines and drafted units, not just approved content"
+                >
+                  <Toggle
+                    checked={Boolean(exportSettings?.includeDrafts)}
+                    disabled={!exportSettings || saving === "includeDrafts"}
+                    label="Include non-approved drafts in auto-export"
+                    onChange={(checked) =>
+                      void patchExportSettings({ includeDrafts: checked }, "includeDrafts")
+                    }
+                  />
+                </SettingRow>
+
+                <SettingRow
+                  label="Push to Overleaf"
+                  hint="When a paper is connected, auto-export pushes main.tex, sections/, and references.bib"
+                >
+                  <Toggle
+                    checked={Boolean(exportSettings?.pushOverleaf)}
+                    disabled={!exportSettings || saving === "pushOverleaf"}
+                    label="Push to Overleaf on auto-export"
+                    onChange={(checked) =>
+                      void patchExportSettings({ pushOverleaf: checked }, "pushOverleaf")
+                    }
+                  />
+                </SettingRow>
+
+                <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span>
+                      Status: <strong className="text-foreground">{exportStatusLabel}</strong>
+                    </span>
+                    {exportStatus?.lastPaperSlug ? (
+                      <span>Paper: {exportStatus.lastPaperSlug}</span>
+                    ) : null}
+                    {exportStatus?.lastSuccessAt ? (
+                      <span>
+                        Last success: {new Date(exportStatus.lastSuccessAt).toLocaleString()}
+                      </span>
+                    ) : null}
+                  </div>
+                  {exportStatus?.lastMessage ? (
+                    <p className="mt-2 text-foreground">{exportStatus.lastMessage}</p>
+                  ) : null}
+                  {exportStatus?.lastError ? (
+                    <p className="mt-2 text-destructive">{exportStatus.lastError}</p>
                   ) : null}
                 </div>
               </SettingsSection>

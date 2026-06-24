@@ -105,4 +105,12 @@ export async function uploadFigureImage(figurePath: string, file: File): Promise
 }
 
 export const FIGURE_IMAGE_ACCEPT =
-  "image/png,image/jpeg,image/jpg,image/svg+xml,image/gif,image/webp,.png,.jpg,.jpeg,.svg,.gif,.webp";
+  "image/png,image/jpeg,image/jpg,image/svg+xml,image/gif,image/webp,application/pdf,.png,.jpg,.jpeg,.svg,.gif,.webp,.pdf";
+
+const FIGURE_UPLOAD_PATTERN = /\.(png|jpe?g|svg|gif|webp|pdf)$/i;
+
+export function isFigureUploadFile(file: File): boolean {
+  if (FIGURE_UPLOAD_PATTERN.test(file.name)) return true;
+  if (file.type === "application/pdf") return true;
+  return /^image\//.test(file.type);
+}

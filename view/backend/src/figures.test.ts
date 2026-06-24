@@ -27,6 +27,7 @@ describe("figures asset helpers", () => {
 
   it("detects image upload extensions", () => {
     expect(isFigureImageExtension("preview.png")).toBe(true);
+    expect(isFigureImageExtension("figure.pdf")).toBe(true);
     expect(isFigureImageExtension("source.mmd")).toBe(false);
   });
 });

@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 
 import { ApiError, claimPresence, fetchPresence, heartbeatPresence, releasePresence } from "@/modelApi";
 
+function ignorePresenceError(): void {
+  // Presence is best-effort; ignore network failures during heartbeat/unmount.
+}
+
 export function useEditorPresence(filePath: string, authorName: string) {
   const [otherEditor, setOtherEditor] = useState<string | null>(null);
 
@@ -33,13 +37,13 @@ export function useEditorPresence(filePath: string, authorName: string) {
 
     void syncPresence();
     heartbeatTimer = window.setInterval(() => {
-      void heartbeatPresence(filePath, authorName);
+      void heartbeatPresence(filePath, authorName).catch(ignorePresenceError);
     }, 15_000);
 
     return () => {
       cancelled = true;
       window.clearInterval(heartbeatTimer);
-      void releasePresence(filePath, authorName);
+      void releasePresence(filePath, authorName).catch(ignorePresenceError);
     };
   }, [authorName, filePath]);
 

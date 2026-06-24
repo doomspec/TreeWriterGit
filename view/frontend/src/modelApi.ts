@@ -105,6 +105,7 @@ export interface PaperDetail extends PaperSummary {
   targetWords: number;
   sectionOrder: string[];
   overleafRepoPath: string | null;
+  overleafGitUrl: string | null;
   sections: SectionRollup[];
   containerCounts: Record<string, UnitStatusCounts>;
   pendingApprovalPaths: string[];
@@ -213,6 +214,36 @@ export function pushToOverleaf(body: { paperSlug: string; includeDrafts?: boolea
     exportPath: string;
     missingCitations?: string[];
   }>("/api/overleaf/push", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export interface OverleafStatus {
+  connected: boolean;
+  repoPath: string | null;
+  gitUrl: string | null;
+  projectId: string | null;
+}
+
+export function fetchOverleafStatus(paperSlug: string) {
+  return request<OverleafStatus>(
+    `/api/overleaf/status?paperSlug=${encodeURIComponent(paperSlug)}`,
+  );
+}
+
+export function connectOverleaf(body: {
+  paperSlug: string;
+  gitUrl: string;
+  token?: string;
+}) {
+  return request<{
+    repoPath: string;
+    gitUrl: string;
+    projectId: string;
+    action: "cloned" | "pulled" | "linked";
+    message: string;
+  }>("/api/overleaf/connect", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -450,6 +481,16 @@ export async function approveDraft(path: string, approvedBy?: string | null): Pr
   await request("/api/model/draft-approve", {
     method: "POST",
     body: JSON.stringify({ path, approvedBy: approvedBy ?? null }),
+  });
+}
+
+export async function approveDraftChildren(
+  sectionPath: string,
+  approvedBy?: string | null,
+): Promise<{ updated: string[] }> {
+  return request<{ updated: string[] }>("/api/model/draft-approve-children", {
+    method: "POST",
+    body: JSON.stringify({ path: sectionPath, approvedBy: approvedBy ?? null }),
   });
 }
 

@@ -29,6 +29,7 @@ export function RenderedMarkdownField({
   linkContextPath = "",
   linksClickable = false,
   onNavigate,
+  refreshVersion = 0,
   inputRef,
   editorRef,
   showPreview: _showPreview = true,
@@ -50,6 +51,7 @@ export function RenderedMarkdownField({
   linkContextPath?: string;
   linksClickable?: boolean;
   onNavigate?: (target: NavigateTarget) => void;
+  refreshVersion?: number;
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   editorRef?: React.RefObject<BlockMarkdownEditorHandle | null>;
   showPreview?: boolean;
@@ -78,6 +80,7 @@ export function RenderedMarkdownField({
         linkContextPath={linkContextPath}
         linksClickable={linksClickable}
         onNavigate={onNavigate}
+        refreshVersion={refreshVersion}
         inputRef={inputRef}
       />
     </div>

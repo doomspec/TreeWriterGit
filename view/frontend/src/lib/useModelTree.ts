@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ModelNode } from "@/lib/modelTree";
 import { isAnyEditorDirty } from "@/lib/editorDirtyRegistry";
+import { isApiTemporarilyOffline } from "@/lib/apiClient";
 import { closeWebSocket } from "@/lib/websocket";
 import { fetchModelTree } from "@/modelApi";
 
@@ -138,17 +139,24 @@ export function useModelTree(options: UseModelTreeOptions = {}) {
 
     const connect = () => {
       if (!active) return;
-      socket = new WebSocket(modelEventsUrl);
+      if (isApiTemporarilyOffline()) {
+        const delay = Math.min(30_000, 1_000 * 2 ** retryAttempt);
+        retryAttempt += 1;
+        reconnectTimer = window.setTimeout(connect, delay);
+        return;
+      }
+      const nextSocket = new WebSocket(modelEventsUrl);
+      socket = nextSocket;
 
-      socket.addEventListener("open", () => {
+      nextSocket.addEventListener("open", () => {
         if (!active) {
-          closeWebSocket(socket!);
+          closeWebSocket(nextSocket);
           return;
         }
         retryAttempt = 0;
       });
 
-      socket.addEventListener("message", (event) => {
+      nextSocket.addEventListener("message", (event) => {
         if (!active) return;
         const payload = parseModelEvent(event);
         if (payload.type === "connected") return;
@@ -162,8 +170,12 @@ export function useModelTree(options: UseModelTreeOptions = {}) {
         scheduleReload(payload);
       });
 
-      socket.addEventListener("close", () => {
-        if (!active) return;
+      nextSocket.addEventListener("error", () => {
+        closeWebSocket(nextSocket);
+      });
+
+      nextSocket.addEventListener("close", () => {
+        if (!active || socket !== nextSocket) return;
         const delay = Math.min(30_000, 1_000 * 2 ** retryAttempt);
         retryAttempt += 1;
         reconnectTimer = window.setTimeout(connect, delay);

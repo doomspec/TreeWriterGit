@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Columns2, Eye, FileCode2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import { Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
@@ -7,8 +7,11 @@ import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
 import {
   ReadingFocusExtra,
+  ReadingFocusSplitPaneTitle,
+  useReadingFocusSplitPaneTitles,
 } from "@/components/editor/ReadingFocusNavBar";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
+import { ResizableVerticalSplit } from "@/components/layout/ResizableVerticalSplit";
 import { outlinePathFor, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
 import { useReadingFocus } from "@/lib/readingFocus";
 import type { DualPaneActive, DualPaneView } from "@/lib/workspacePreferences";
@@ -20,89 +23,99 @@ function captionFromDraft(content: string): string {
     .trim();
 }
 
-export function EditorWorkspace({
+function LeafUnitEditor({
   unitPath,
-  activeFile,
+  outlinePath,
+  draftPath,
   refreshVersion,
-  layout,
-  onLayoutChange,
+  isFigure,
+  isEquation,
+  isPaperEditor,
+  paperPath,
+  linkContextPath,
   onError,
-  linkContextPath = "",
   onNavigate,
-  dualPaneSplit,
-  onDualPaneSplitChange,
-  paneView,
-  onPaneViewChange,
-  activePane,
-  onActivePaneChange,
   onSendToTerminal,
   onBeforeDispatch,
   onDispatchComplete,
-  onBackToSectionView,
-  backLabel = "Section view",
-  isFigure = false,
-  isEquation = false,
   onModelChanged,
-  paperPath = null,
+  dualPaneSplit,
+  onDualPaneSplitChange,
+  assetPreviewSplit,
+  onAssetPreviewSplitChange,
+  paneView,
+  onPaneViewChange,
+  onActivePaneChange,
 }: {
-  unitPath: string | null;
-  activeFile: string;
+  unitPath: string;
+  outlinePath: string;
+  draftPath: string;
   refreshVersion: number;
-  layout: EditorLayout;
-  onLayoutChange: (layout: EditorLayout) => void;
+  isFigure: boolean;
+  isEquation: boolean;
+  isPaperEditor: boolean;
+  paperPath: string | null;
+  linkContextPath: string;
   onError: (message: string) => void;
-  linkContextPath?: string;
   onNavigate?: (target: NavigateTarget) => void;
-  dualPaneSplit: number;
-  onDualPaneSplitChange: (percent: number) => void;
-  paneView: DualPaneView;
-  onPaneViewChange: (view: DualPaneView) => void;
-  activePane: DualPaneActive;
-  onActivePaneChange: (pane: DualPaneActive) => void;
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
   onDispatchComplete?: () => void;
-  /** Return to composed section outline + draft view. */
-  onBackToSectionView?: () => void;
-  backLabel?: string;
-  isFigure?: boolean;
-  isEquation?: boolean;
   onModelChanged?: () => void;
-  paperPath?: string | null;
+  dualPaneSplit: number;
+  onDualPaneSplitChange: (percent: number) => void;
+  assetPreviewSplit: number;
+  onAssetPreviewSplitChange: (percent: number) => void;
+  paneView: DualPaneView;
+  onPaneViewChange: (view: DualPaneView) => void;
+  onActivePaneChange: (pane: DualPaneActive) => void;
 }) {
-  const isLeafEditor = Boolean(unitPath);
-  const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
-  const draftPath = unitPath ? `${unitPath}/draft.md` : null;
   const [liveDraftCaption, setLiveDraftCaption] = useState<string | null>(null);
+  const liveCaptionTimerRef = useRef<number | null>(null);
   const readingFocus = useReadingFocus();
+  const showSplitPaneTitles = useReadingFocusSplitPaneTitles(paneView);
 
   const handleDraftContentChange = useCallback(
     (content: string) => {
-      if (isFigure || isEquation) setLiveDraftCaption(captionFromDraft(content));
+      if (!isFigure && !isEquation) return;
+      const nextCaption = captionFromDraft(content);
+      if (liveCaptionTimerRef.current !== null) {
+        window.clearTimeout(liveCaptionTimerRef.current);
+      }
+      liveCaptionTimerRef.current = window.setTimeout(() => {
+        startTransition(() => {
+          setLiveDraftCaption(nextCaption);
+        });
+      }, 120);
     },
     [isEquation, isFigure],
   );
 
   useEffect(() => {
+    return () => {
+      if (liveCaptionTimerRef.current !== null) {
+        window.clearTimeout(liveCaptionTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (liveCaptionTimerRef.current !== null) {
+      window.clearTimeout(liveCaptionTimerRef.current);
+      liveCaptionTimerRef.current = null;
+    }
     setLiveDraftCaption(null);
   }, [unitPath, refreshVersion]);
 
-  const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = [
-    { id: "source", icon: FileCode2, label: "Source" },
-    { id: "split", icon: Columns2, label: "Split" },
-    { id: "preview", icon: Eye, label: "Preview" },
-  ];
-
-  const isPaperEditor = Boolean(paperPath && unitPath === paperPath);
-
-  if (isLeafEditor && outlinePath && draftPath) {
-    const outlinePane = (
+  const outlinePane = useMemo(
+    () => (
       <div
         className="flex min-h-0 min-w-0 flex-1 flex-col"
         tabIndex={-1}
         onFocusCapture={() => onActivePaneChange("outline")}
         onMouseDown={() => onActivePaneChange("outline")}
       >
+        {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Outline" /> : null}
         <MarkdownEditor
           key={outlinePath}
           filePath={outlinePath}
@@ -123,15 +136,33 @@ export function EditorWorkspace({
           paperPath={paperPath}
         />
       </div>
-    );
+    ),
+    [
+      isPaperEditor,
+      isFigure,
+      linkContextPath,
+      onActivePaneChange,
+      onBeforeDispatch,
+      onDispatchComplete,
+      onError,
+      onNavigate,
+      onSendToTerminal,
+      outlinePath,
+      paperPath,
+      refreshVersion,
+      showSplitPaneTitles,
+    ],
+  );
 
-    const draftPane = (
+  const draftPane = useMemo(
+    () => (
       <div
         className="flex min-h-0 min-w-0 flex-1 flex-col"
         tabIndex={-1}
         onFocusCapture={() => onActivePaneChange("draft")}
         onMouseDown={() => onActivePaneChange("draft")}
       >
+        {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Draft" /> : null}
         <MarkdownEditor
           key={draftPath}
           filePath={draftPath}
@@ -149,61 +180,208 @@ export function EditorWorkspace({
           onSendToTerminal={onSendToTerminal}
           onBeforeDispatch={onBeforeDispatch}
           onDispatchComplete={onDispatchComplete}
-          onContentChange={handleDraftContentChange}
+          onContentChange={isFigure || isEquation ? handleDraftContentChange : undefined}
           paperPath={paperPath}
         />
       </div>
-    );
+    ),
+    [
+      draftPath,
+      handleDraftContentChange,
+      isEquation,
+      isFigure,
+      isPaperEditor,
+      linkContextPath,
+      onActivePaneChange,
+      onBeforeDispatch,
+      onDispatchComplete,
+      onError,
+      onNavigate,
+      onSendToTerminal,
+      paneView,
+      paperPath,
+      refreshVersion,
+      showSplitPaneTitles,
+    ],
+  );
 
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <ReadingFocusExtra focusedPane={paneView} onPaneChange={onPaneViewChange} />
-        {readingFocus.active ? (
-          paneView === "split" ? (
-            <ResizableDualPane
-              className="reading-focus-dual-pane"
-              splitPercent={dualPaneSplit}
-              onSplitChange={onDualPaneSplitChange}
-              left={outlinePane}
-              right={draftPane}
-            />
-          ) : paneView === "outline" ? (
-            outlinePane
-          ) : (
-            draftPane
-          )
-        ) : (
+  const editorDualPane = useMemo(
+    () =>
+      readingFocus.active ? (
+        paneView === "split" ? (
           <ResizableDualPane
+            className="reading-focus-dual-pane min-h-0 flex-1"
             splitPercent={dualPaneSplit}
             onSplitChange={onDualPaneSplitChange}
             left={outlinePane}
             right={draftPane}
           />
-        )}
-        {isFigure && unitPath ? (
-          <div className={readingFocus.active ? "editor-chrome-hidden" : undefined}>
-            <FigurePreviewPanel
-              unitPath={unitPath}
-              refreshVersion={refreshVersion}
-              liveCaption={liveDraftCaption}
-              embeddedInEditor
-              onModelChanged={onModelChanged}
-              onError={onError}
-            />
-          </div>
-        ) : null}
-        {isEquation && unitPath ? (
-          <div className={readingFocus.active ? "editor-chrome-hidden" : undefined}>
-            <EquationPreviewPanel
-              unitPath={unitPath}
-              refreshVersion={refreshVersion}
-              liveCaption={liveDraftCaption}
-              onModelChanged={onModelChanged}
-              onError={onError}
-            />
-          </div>
-        ) : null}
-      </div>
+        ) : paneView === "outline" ? (
+          outlinePane
+        ) : (
+          draftPane
+        )
+      ) : (
+        <ResizableDualPane
+          className="min-h-0 flex-1"
+          splitPercent={dualPaneSplit}
+          onSplitChange={onDualPaneSplitChange}
+          left={outlinePane}
+          right={draftPane}
+        />
+      ),
+    [
+      draftPane,
+      dualPaneSplit,
+      onDualPaneSplitChange,
+      outlinePane,
+      paneView,
+      readingFocus.active,
+    ],
+  );
+
+  const assetPreview = useMemo(() => {
+    if (isFigure) {
+      return (
+        <FigurePreviewPanel
+          unitPath={unitPath}
+          refreshVersion={refreshVersion}
+          liveCaption={liveDraftCaption}
+          embeddedInEditor
+          onModelChanged={onModelChanged}
+          onError={onError}
+        />
+      );
+    }
+    if (isEquation) {
+      return (
+        <EquationPreviewPanel
+          unitPath={unitPath}
+          refreshVersion={refreshVersion}
+          liveCaption={liveDraftCaption}
+          onModelChanged={onModelChanged}
+          onError={onError}
+        />
+      );
+    }
+    return null;
+  }, [
+    isEquation,
+    isFigure,
+    liveDraftCaption,
+    onError,
+    onModelChanged,
+    refreshVersion,
+    unitPath,
+  ]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ReadingFocusExtra focusedPane={paneView} onPaneChange={onPaneViewChange} />
+      {assetPreview && !readingFocus.active ? (
+        <ResizableVerticalSplit
+          className="min-h-0 flex-1"
+          splitPercent={assetPreviewSplit}
+          onSplitChange={onAssetPreviewSplitChange}
+          handleLabel="Resize outline/draft and figure preview"
+          top={editorDualPane}
+          bottom={assetPreview}
+        />
+      ) : (
+        editorDualPane
+      )}
+    </div>
+  );
+}
+
+export function EditorWorkspace({
+  unitPath,
+  activeFile,
+  refreshVersion,
+  layout,
+  onLayoutChange,
+  onError,
+  linkContextPath = "",
+  onNavigate,
+  dualPaneSplit,
+  onDualPaneSplitChange,
+  assetPreviewSplit,
+  onAssetPreviewSplitChange,
+  paneView,
+  onPaneViewChange,
+  activePane,
+  onActivePaneChange,
+  onSendToTerminal,
+  onBeforeDispatch,
+  onDispatchComplete,
+  isFigure = false,
+  isEquation = false,
+  onModelChanged,
+  paperPath = null,
+}: {
+  unitPath: string | null;
+  activeFile: string;
+  refreshVersion: number;
+  layout: EditorLayout;
+  onLayoutChange: (layout: EditorLayout) => void;
+  onError: (message: string) => void;
+  linkContextPath?: string;
+  onNavigate?: (target: NavigateTarget) => void;
+  dualPaneSplit: number;
+  onDualPaneSplitChange: (percent: number) => void;
+  assetPreviewSplit: number;
+  onAssetPreviewSplitChange: (percent: number) => void;
+  paneView: DualPaneView;
+  onPaneViewChange: (view: DualPaneView) => void;
+  activePane: DualPaneActive;
+  onActivePaneChange: (pane: DualPaneActive) => void;
+  onSendToTerminal?: (command: string) => void;
+  onBeforeDispatch?: () => void;
+  onDispatchComplete?: () => void;
+  isFigure?: boolean;
+  isEquation?: boolean;
+  onModelChanged?: () => void;
+  paperPath?: string | null;
+}) {
+  const isLeafEditor = Boolean(unitPath);
+  const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
+  const draftPath = unitPath ? `${unitPath}/draft.md` : null;
+  const readingFocus = useReadingFocus();
+
+  const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = [
+    { id: "source", icon: FileCode2, label: "Source" },
+    { id: "split", icon: Columns2, label: "Split" },
+    { id: "preview", icon: Eye, label: "Preview" },
+  ];
+
+  const isPaperEditor = Boolean(paperPath && unitPath === paperPath);
+
+  if (isLeafEditor && outlinePath && draftPath && unitPath) {
+    return (
+      <LeafUnitEditor
+        unitPath={unitPath}
+        outlinePath={outlinePath}
+        draftPath={draftPath}
+        refreshVersion={refreshVersion}
+        isFigure={isFigure}
+        isEquation={isEquation}
+        isPaperEditor={isPaperEditor}
+        paperPath={paperPath}
+        linkContextPath={linkContextPath}
+        onError={onError}
+        onNavigate={onNavigate}
+        onSendToTerminal={onSendToTerminal}
+        onBeforeDispatch={onBeforeDispatch}
+        onDispatchComplete={onDispatchComplete}
+        onModelChanged={onModelChanged}
+        dualPaneSplit={dualPaneSplit}
+        onDualPaneSplitChange={onDualPaneSplitChange}
+        assetPreviewSplit={assetPreviewSplit}
+        onAssetPreviewSplitChange={onAssetPreviewSplitChange}
+        paneView={paneView}
+        onPaneViewChange={onPaneViewChange}
+        onActivePaneChange={onActivePaneChange}
+      />
     );
   }
 
@@ -211,24 +389,10 @@ export function EditorWorkspace({
     <div className="flex min-h-0 flex-1 flex-col">
       <div
         className={cn(
-          "flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3",
+          "flex h-10 shrink-0 items-center justify-end gap-3 border-b border-border bg-card px-3",
           readingFocus.active && "editor-chrome-hidden",
         )}
       >
-        {onBackToSectionView ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-            onClick={onBackToSectionView}
-          >
-            <ArrowLeft className="h-3 w-3" aria-hidden="true" />
-            {backLabel}
-          </Button>
-        ) : (
-          <span />
-        )}
         <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
           {layoutButtons.map(({ id, icon: Icon, label }) => (
             <Button
@@ -253,6 +417,7 @@ export function EditorWorkspace({
         refreshVersion={refreshVersion}
         layout={layout}
         className="min-h-0 flex-1"
+        syncDocumentOutline
         onError={onError}
         linkContextPath={linkContextPath}
         onNavigate={onNavigate}

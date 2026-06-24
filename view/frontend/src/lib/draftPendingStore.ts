@@ -23,6 +23,17 @@ export function setDraftPending(pathValue: string, isPending: boolean): void {
   recomputePendingPaths();
 }
 
+/** Clear pending state for specific draft/outline paths (after bulk approve). */
+export function clearDraftPendingPaths(paths: Iterable<string>): void {
+  for (const pathValue of paths) {
+    const normalized = normalizePath(pathValue);
+    if (!normalized) continue;
+    serverPendingPaths.delete(normalized);
+    editorPendingPaths.delete(normalized);
+  }
+  recomputePendingPaths();
+}
+
 /** Replace server-derived pending paths (from paper detail scan). */
 export function replaceServerDraftPendingPaths(paths: string[]): void {
   serverPendingPaths.clear();
@@ -35,6 +46,10 @@ export function replaceServerDraftPendingPaths(paths: string[]): void {
 
 export function getDraftPendingPaths(): ReadonlySet<string> {
   return pendingPaths;
+}
+
+export function getEditorDraftPendingPaths(): ReadonlySet<string> {
+  return editorPendingPaths;
 }
 
 /** True when this folder or any pending draft path lies beneath it. */
@@ -52,9 +67,30 @@ export function subscribeDraftPending(listener: () => void): () => void {
   return () => window.removeEventListener(PENDING_EVENT, listener);
 }
 
+/** Pending draft/outline paths strictly under a section (excludes the section's own files). */
+export function pendingChildApprovalPaths(
+  sectionPath: string,
+  paths: ReadonlySet<string> = getDraftPendingPaths(),
+): string[] {
+  const section = normalizePath(sectionPath);
+  if (!section) return [];
+  const prefix = `${section}/`;
+  return [...paths].filter((filePath) => {
+    const normalized = normalizePath(filePath);
+    if (!normalized.startsWith(prefix)) return false;
+    return normalized.slice(prefix.length).includes("/");
+  });
+}
+
 export function useDraftPendingPaths(): ReadonlySet<string> {
   const [paths, setPaths] = useState(() => new Set(getDraftPendingPaths()));
   useEffect(() => subscribeDraftPending(() => setPaths(new Set(getDraftPendingPaths()))), []);
+  return paths;
+}
+
+export function useEditorDraftPendingPaths(): ReadonlySet<string> {
+  const [paths, setPaths] = useState(() => new Set(getEditorDraftPendingPaths()));
+  useEffect(() => subscribeDraftPending(() => setPaths(new Set(getEditorDraftPendingPaths()))), []);
   return paths;
 }
 

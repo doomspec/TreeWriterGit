@@ -1,8 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, createContext, useContext, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+const PopoverMenuCloseContext = createContext<(() => void) | null>(null);
 
 export function PopoverMenu({
   trigger,
@@ -10,6 +12,7 @@ export function PopoverMenu({
   align = "end",
   className,
   menuClassName,
+  triggerClassName,
   disabled = false,
   "aria-label": ariaLabel = "Open menu",
 }: {
@@ -18,6 +21,7 @@ export function PopoverMenu({
   align?: "start" | "end";
   className?: string;
   menuClassName?: string;
+  triggerClassName?: string;
   disabled?: boolean;
   "aria-label"?: string;
 }) {
@@ -80,7 +84,7 @@ export function PopoverMenu({
         type="button"
         variant="ghost"
         size="sm"
-        className="h-7 px-2"
+        className={cn("h-7 px-2", triggerClassName)}
         aria-label={ariaLabel}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -100,7 +104,9 @@ export function PopoverMenu({
               )}
               style={{ top: position.top, left: position.left }}
             >
-              {children}
+              <PopoverMenuCloseContext.Provider value={() => setOpen(false)}>
+                {children}
+              </PopoverMenuCloseContext.Provider>
             </div>,
             document.body,
           )
@@ -133,6 +139,7 @@ export function PopoverMenuItem({
   disabled?: boolean;
   className?: string;
 }) {
+  const close = useContext(PopoverMenuCloseContext);
   return (
     <button
       type="button"
@@ -142,7 +149,10 @@ export function PopoverMenuItem({
         "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50",
         className,
       )}
-      onClick={onClick}
+      onClick={() => {
+        onClick?.();
+        close?.();
+      }}
     >
       {children}
     </button>

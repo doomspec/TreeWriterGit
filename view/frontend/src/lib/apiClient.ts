@@ -11,12 +11,50 @@ export function getApiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 }
 
+const API_OFFLINE_BASE_MS = 5_000;
+const API_OFFLINE_MAX_MS = 60_000;
+let apiOfflineUntil = 0;
+let apiOfflineBackoffMs = API_OFFLINE_BASE_MS;
+
+export function isApiTemporarilyOffline(): boolean {
+  return Date.now() < apiOfflineUntil;
+}
+
+function markApiOnline(): void {
+  apiOfflineUntil = 0;
+  apiOfflineBackoffMs = API_OFFLINE_BASE_MS;
+}
+
+function markApiOffline(): void {
+  apiOfflineUntil = Date.now() + apiOfflineBackoffMs;
+  apiOfflineBackoffMs = Math.min(API_OFFLINE_MAX_MS, apiOfflineBackoffMs * 2);
+}
+
+function offlineApiError(): ApiError {
+  return new ApiError(
+    `Cannot reach API at ${getApiBaseUrl()}. Is the backend running?`,
+    0,
+  );
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (isApiTemporarilyOffline()) {
+    throw offlineApiError();
+  }
+
   const apiBaseUrl = getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      headers: { "Content-Type": "application/json" },
+      ...init,
+    });
+  } catch {
+    markApiOffline();
+    throw offlineApiError();
+  }
+
+  markApiOnline();
   const text = await response.text();
   let body: unknown = {};
   if (text) {
@@ -44,8 +82,20 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function requestText(path: string, init?: RequestInit): Promise<string> {
+  if (isApiTemporarilyOffline()) {
+    throw offlineApiError();
+  }
+
   const apiBaseUrl = getApiBaseUrl();
-  const response = await fetch(`${apiBaseUrl}${path}`, init);
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, init);
+  } catch {
+    markApiOffline();
+    throw offlineApiError();
+  }
+
+  markApiOnline();
   if (!response.ok) {
     throw new ApiError(`Request failed (${response.status})`, response.status);
   }

@@ -197,7 +197,7 @@ export function preprocessFigureEmbeds(markdown: string): string {
   );
 
   result = result.replace(
-    /(?<!!)\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g,
+    /\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g,
     (_match, target: string, alias?: string) => {
       const label = alias?.trim() || target.split("/").pop() || target;
       const trimmed = target.trim().replace(/\/INDEX\.md$/i, "");

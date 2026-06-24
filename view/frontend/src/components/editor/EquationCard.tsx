@@ -17,7 +17,14 @@ type EquationCardProps = {
   className?: string;
 };
 
-function EquationCaption({ markdown }: { markdown: string }) {
+function EquationCaption({ markdown, live = false }: { markdown: string; live?: boolean }) {
+  if (live) {
+    return (
+      <div className="equation-caption-markdown whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+        {markdown}
+      </div>
+    );
+  }
   return (
     <div className="equation-caption-markdown text-sm leading-relaxed text-foreground [&>p]:m-0">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
@@ -99,6 +106,7 @@ export function EquationCard({
 
   const displayCaption =
     liveCaption !== null && liveCaption !== undefined ? liveCaption : equation.caption;
+  const captionIsLive = liveCaption !== null && liveCaption !== undefined;
   const showSummary = !displayCaption && equation.summary;
 
   return (
@@ -119,7 +127,7 @@ export function EquationCard({
         {!embeddedInEditor ? <EquationBlock source={source} /> : null}
         {displayCaption ? (
           <figcaption className="text-sm leading-relaxed text-foreground">
-            <EquationCaption markdown={displayCaption} />
+            <EquationCaption markdown={displayCaption} live={captionIsLive} />
           </figcaption>
         ) : showSummary ? (
           <figcaption className="text-sm italic text-muted-foreground">{equation.summary}</figcaption>

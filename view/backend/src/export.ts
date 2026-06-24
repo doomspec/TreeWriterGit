@@ -5,10 +5,20 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
-import { ModelFsError, isEquationDir, isFigureDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { ModelFsError, isEquationDir, isFigureDir, isTableDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
 import { resolveEquationMetadata } from "./equations.js";
 import { resolveFigureMetadata } from "./figures.js";
+import { resolveTableMetadata } from "./tables.js";
+import {
+  buildEquationLatexExportAsync,
+  buildFigureLatexExport,
+  buildTableMarkdownExport,
+} from "./exportEmbeds.js";
 import { buildInlineNoteLatexPreamble } from "./inlineNotes.js";
+import {
+  buildHighlightColorLatexPreamble,
+  prepareMarkdownForLatexExport,
+} from "./exportMarkdown.js";
 import {
   appendPandocExportStyleArgs,
   buildCombinedExportHeader,
@@ -174,42 +184,30 @@ export function findMissingCitations(combinedMarkdown: string, bibliography: str
 
 async function readEquationExportBody(modelRoot: string, dirRel: string): Promise<string | null> {
   const meta = await resolveEquationMetadata(modelRoot, dirRel);
-  if (!meta?.sourcePath) return null;
-  const source = (await readFile(path.join(modelRoot, meta.sourcePath), "utf8")).trim();
-  if (!source) return null;
-  const caption = meta.caption.trim() || meta.summary?.trim();
-  const lines = ["\\begin{equation}", source, "\\end{equation}"];
-  if (caption) {
-    lines.push("", `*${caption}*`);
-  }
-  return `${lines.join("\n")}\n`;
+  if (!meta) return null;
+  const latex = await buildEquationLatexExportAsync(modelRoot, meta);
+  return latex.trim() ? latex : null;
 }
 
 async function readFigureExportBody(modelRoot: string, dirRel: string): Promise<string | null> {
   const meta = await resolveFigureMetadata(modelRoot, dirRel);
   if (!meta) return null;
-  const caption = meta.caption.trim() || meta.summary?.trim();
-  if (!caption) return null;
+  const { latex } = buildFigureLatexExport(meta);
+  return latex.trim() ? latex : null;
+}
 
-  if (meta.previewPath && !meta.previewPath.endsWith(".mmd")) {
-    const assetName = path.posix.basename(meta.previewPath);
-    return [
-      "\\begin{figure}[htbp]",
-      "\\centering",
-      `\\includegraphics[width=0.9\\linewidth]{${assetName}}`,
-      `\\caption{${caption.replace(/\\/g, "\\\\")}}`,
-      "\\end{figure}",
-      "",
-    ].join("\n");
-  }
-
-  return `${caption}\n\n*(Mermaid figure: ${meta.sourcePath ?? dirRel})*\n`;
+async function readTableExportBody(modelRoot: string, dirRel: string): Promise<string | null> {
+  const meta = await resolveTableMetadata(modelRoot, dirRel);
+  if (!meta) return null;
+  const body = await buildTableMarkdownExport(modelRoot, meta);
+  return body.trim() ? body : null;
 }
 
 async function readUnitExportBody(
   modelRoot: string,
   dirRel: string,
   includeDrafts: boolean,
+  includeUnitOutlines: boolean,
   unitTitle: string,
 ): Promise<string | null> {
   const draftAbs = path.join(modelRoot, dirRel, "draft.md");
@@ -221,7 +219,7 @@ async function readUnitExportBody(
     }
   }
 
-  if (!includeDrafts) return null;
+  if (!includeDrafts || !includeUnitOutlines) return null;
 
   const outlineAbs = path.join(modelRoot, dirRel, "outline.md");
   if (!existsSync(outlineAbs)) return null;
@@ -272,13 +270,20 @@ async function countUnitSources(
   return { units, withDraft, withOutlineOnly };
 }
 
+export type ExportWalkOptions = {
+  /** When false, unit outline.md is never used as fallback body content. */
+  includeUnitOutlines?: boolean;
+};
+
 async function walkPaper(
   modelRoot: string,
   dirRel: string,
   depth: number,
   includeDrafts: boolean,
   parts: string[],
+  walkOptions: ExportWalkOptions = {},
 ): Promise<number> {
+  const includeUnitOutlines = walkOptions.includeUnitOutlines ?? true;
   if (dirRel.includes("/notes/") || dirRel.endsWith("/notes")) return 0;
 
   if (dirRel.includes("/notes/") || dirRel.endsWith("/notes")) return 0;
@@ -303,13 +308,29 @@ async function walkPaper(
     return 1;
   }
 
+  if (await isTableDir(modelRoot, dirRel)) {
+    const data = await readIndexData(modelRoot, dirRel);
+    const status = String(data.status ?? "outline");
+    if (!shouldIncludeUnit(status, includeDrafts)) return 0;
+    const body = await readTableExportBody(modelRoot, dirRel);
+    if (!body) return 0;
+    parts.push(`${body}\n\n`);
+    return 1;
+  }
+
   if (await isUnitDir(modelRoot, dirRel)) {
     const data = await readIndexData(modelRoot, dirRel);
     const status = String(data.status ?? "outline");
     if (!shouldIncludeUnit(status, includeDrafts)) return 0;
 
     const unitTitle = String(data.title ?? path.posix.basename(dirRel));
-    const body = await readUnitExportBody(modelRoot, dirRel, includeDrafts, unitTitle);
+    const body = await readUnitExportBody(
+      modelRoot,
+      dirRel,
+      includeDrafts,
+      includeUnitOutlines,
+      unitTitle,
+    );
     if (!body) return 0;
     parts.push(`${body}\n\n`);
     return 1;
@@ -326,7 +347,7 @@ async function walkPaper(
   for (const child of await orderedChildren(modelRoot, dirRel)) {
     const childRel = resolveChildPath(modelRoot, dirRel, child);
     if (!childRel) continue;
-    count += await walkPaper(modelRoot, childRel, depth + 1, includeDrafts, parts);
+    count += await walkPaper(modelRoot, childRel, depth + 1, includeDrafts, parts, walkOptions);
   }
   return count;
 }
@@ -342,6 +363,73 @@ export async function buildCombinedMarkdown(
   const parts: string[] = [`# ${title}\n\n`];
   const unitCount = await walkPaper(modelRoot, paperRel, 0, includeDrafts, parts);
   return { markdown: parts.join("").trim() + "\n", unitCount };
+}
+
+/** Combine units and nested subsections for one top-level section. */
+export async function buildSectionMarkdown(
+  modelRoot: string,
+  sectionRel: string,
+  sectionTitle: string,
+  includeDrafts: boolean,
+  walkOptions: ExportWalkOptions = {},
+): Promise<{ markdown: string; unitCount: number }> {
+  const parts: string[] = [`# ${sectionTitle}\n\n`];
+  const unitCount = await walkPaper(modelRoot, sectionRel, 0, includeDrafts, parts, walkOptions);
+  return { markdown: parts.join("").trim() + "\n", unitCount };
+}
+
+export function escapeLatexText(text: string): string {
+  return text
+    .replace(/\\/g, "\\textbackslash{}")
+    .replace(/([{}])/g, "\\$1")
+    .replace(/([#%&_$])/g, "\\$1")
+    .replace(/~/g, "\\textasciitilde{}")
+    .replace(/\^/g, "\\textasciicircum{}");
+}
+
+/** Read a top-level section outline.md for Overleaf planning notes. */
+export async function readSectionOutlineNoteBody(
+  modelRoot: string,
+  sectionRel: string,
+  sectionTitle: string,
+): Promise<string | null> {
+  const outlineAbs = path.join(modelRoot, sectionRel, "outline.md");
+  if (!existsSync(outlineAbs)) return null;
+  const outlineRaw = (await readFile(outlineAbs, "utf8")).trim();
+  if (!outlineRaw) return null;
+  return stripDuplicateLeadingH1(outlineRaw, sectionTitle);
+}
+
+/** Wrap section outline markdown as a raw LaTeX planning-note block for Overleaf export. */
+export function formatSectionOutlineNoteForExport(outlineBody: string): string {
+  const text = outlineBody
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\[@([^\]]+)\]/g, (_full, cites: string) =>
+      cites
+        .split(/[,;]/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(", "),
+    )
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .trim();
+  if (!text) return "";
+  const escaped = escapeLatexText(text).replace(/\n{2,}/g, "\n\n\\par\n\n");
+  return `\\begin{sectionoutline}\n${escaped}\n\\end{sectionoutline}\n\n`;
+}
+
+/** LaTeX preamble for section outline planning notes in modular Overleaf export. */
+export function buildSectionOutlineNotePreamble(): string {
+  return [
+    "\\newenvironment{sectionoutline}{%",
+    "  \\par\\smallskip\\noindent{\\color{teal!60!black}\\footnotesize\\itshape Section outline (planning notes)}%",
+    "  \\par\\small\\begin{quote}",
+    "}{%",
+    "  \\end{quote}\\par\\smallskip",
+    "}",
+  ].join("\n");
 }
 
 async function assertPandocAvailable(): Promise<void> {
@@ -382,7 +470,7 @@ async function runPandocExport(
 ): Promise<void> {
   const pandocArgs = [
     combinedPath,
-    "--from=markdown+raw_tex",
+    "--from=markdown+raw_tex+pipe_tables",
     `--to=${format === "pdf" ? "pdf" : "latex"}`,
     "--citeproc",
     "--output",
@@ -441,11 +529,12 @@ export async function exportPaper(
   const cslPath = resolveCslPath(modelRoot, journal, exportStyle?.csl);
 
   const includeDrafts = Boolean(input.includeDrafts);
-  const { markdown: combined, unitCount } = await buildCombinedMarkdown(
+  const { markdown: combinedRaw, unitCount } = await buildCombinedMarkdown(
     modelRoot,
     paperRel,
     includeDrafts,
   );
+  const combined = prepareMarkdownForLatexExport(combinedRaw);
   if (unitCount === 0) {
     const stats = await countUnitSources(modelRoot, paperRel, includeDrafts);
     const message = includeDrafts
@@ -478,8 +567,14 @@ export async function exportPaper(
     await writeFile(bibPath, bibliography, "utf8");
   }
 
-  const notesPreamble = buildInlineNoteLatexPreamble(combined);
-  const combinedHeader = await buildCombinedExportHeader(modelRoot, exportStyle, notesPreamble);
+  // Scan source markdown only — prepared export text contains `\textcolor{…}{…}` highlights.
+  const notesPreamble = buildInlineNoteLatexPreamble(combinedRaw);
+  const highlightPreamble = buildHighlightColorLatexPreamble();
+  const combinedHeader = await buildCombinedExportHeader(
+    modelRoot,
+    exportStyle,
+    [highlightPreamble, notesPreamble].filter(Boolean).join("\n\n"),
+  );
   let headerPath: string | undefined;
   if (combinedHeader) {
     headerPath = path.join(exportDir, `${baseName}-header.tex`);

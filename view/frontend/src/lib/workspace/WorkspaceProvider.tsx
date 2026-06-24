@@ -32,8 +32,10 @@ import {
   loadWorkspacePreferences,
   mergeWorkspaceDefaults,
   scheduleSaveWorkspacePreferences,
+  clampAssetPreviewSplit,
   type DualPaneActive,
   type DualPaneView,
+  type SidebarPanel,
 } from "@/lib/workspacePreferences";
 import { useModelTree } from "@/lib/useModelTree";
 import { useWorkspaceNavigation } from "@/lib/useWorkspaceNavigation";
@@ -46,6 +48,11 @@ export type WorkspaceContextValue = {
   error: string | null;
   setError: (message: string | null) => void;
   sidebarTab: WorkspaceNavTab;
+  sidebarPanel: SidebarPanel;
+  sidebarPanelOpen: boolean;
+  setSidebarPanel: (panel: SidebarPanel) => void;
+  setSidebarPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  toggleSidebarPanel: () => void;
   currentPath: string;
   activeFile: string | null;
   editorLayout: EditorLayout;
@@ -63,6 +70,8 @@ export type WorkspaceContextValue = {
   setDualPaneView: (view: DualPaneView) => void;
   dualPaneActive: DualPaneActive;
   setDualPaneActive: (pane: DualPaneActive) => void;
+  assetPreviewSplit: number;
+  setAssetPreviewSplit: (split: number) => void;
   sidebarWidth: number;
   setSidebarWidth: (width: number) => void;
   bottomPanelHeight: number;
@@ -132,7 +141,11 @@ export function WorkspaceProvider({
   const [currentPath, setCurrentPath] = useState(savedPrefs.currentPath);
   const [activeFile, setActiveFile] = useState<string | null>(savedPrefs.activeFile);
   const [editorLayout, setEditorLayout] = useState<EditorLayout>(savedPrefs.editorLayout);
-  const [sidebarTab, setSidebarTab] = useState<WorkspaceNavTab>(savedPrefs.sidebarTab);
+  const [sidebarTab, setSidebarTab] = useState<WorkspaceNavTab>(
+    savedPrefs.sidebarPanel === "explorer" ? "explorer" : savedPrefs.sidebarTab,
+  );
+  const [sidebarPanel, setSidebarPanelState] = useState<SidebarPanel>(savedPrefs.sidebarPanel);
+  const [sidebarPanelOpen, setSidebarPanelOpen] = useState(savedPrefs.sidebarPanelOpen);
   const [searchQuery, setSearchQuery] = useState(savedPrefs.searchQuery);
   const [appView, setAppView] = useState<AppView>("workspace");
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +154,10 @@ export function WorkspaceProvider({
   const [dualPaneSplit, setDualPaneSplit] = useState(savedPrefs.dualPaneSplit);
   const [dualPaneView, setDualPaneView] = useState<DualPaneView>(savedPrefs.dualPaneView);
   const [dualPaneActive, setDualPaneActive] = useState<DualPaneActive>(savedPrefs.dualPaneActive);
+  const [assetPreviewSplit, setAssetPreviewSplitState] = useState(savedPrefs.assetPreviewSplit);
+  const setAssetPreviewSplit = useCallback((split: number) => {
+    setAssetPreviewSplitState(clampAssetPreviewSplit(split));
+  }, []);
   const [sidebarWidth, setSidebarWidth] = useState(savedPrefs.sidebarWidth);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(savedPrefs.bottomPanelHeight);
   const [graphScope, setGraphScope] = useState<GraphScope>(savedPrefs.graphScope);
@@ -168,7 +185,6 @@ export function WorkspaceProvider({
     navigateTo,
     handleMarkdownNavigate,
     backToSectionView,
-    handleSidebarTabChange,
     handleSearchSelect,
   } = useWorkspaceNavigation({
     tree,
@@ -178,6 +194,42 @@ export function WorkspaceProvider({
     setEditorLayout,
     setSidebarTab,
   });
+
+  const handleSidebarTabChange = useCallback(
+    (tab: WorkspaceNavTab) => {
+      setSidebarTab(tab);
+      setSidebarPanelState(tab);
+      setSidebarPanelOpen(true);
+      if (tab === "papers") {
+        setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
+        setActiveFile(null);
+      }
+    },
+    [setActiveFile, setCurrentPath],
+  );
+
+  const setSidebarPanel = useCallback(
+    (panel: SidebarPanel) => {
+      if (panel === sidebarPanel) {
+        setSidebarPanelOpen((open) => !open);
+        return;
+      }
+      setSidebarPanelState(panel);
+      setSidebarPanelOpen(true);
+      if (panel === "explorer" || panel === "papers") {
+        setSidebarTab(panel);
+        if (panel === "papers") {
+          setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
+          setActiveFile(null);
+        }
+      }
+    },
+    [sidebarPanel, setActiveFile, setCurrentPath, setSidebarTab],
+  );
+
+  const toggleSidebarPanel = useCallback(() => {
+    setSidebarPanelOpen((open) => !open);
+  }, []);
 
   const files = useMemo(() => flattenFiles(tree), [tree]);
   const browsePath =
@@ -228,12 +280,16 @@ export function WorkspaceProvider({
       dualPaneSplit,
       dualPaneView,
       dualPaneActive,
+      assetPreviewSplit,
       sidebarWidth,
+      sidebarPanel,
+      sidebarPanelOpen,
       bottomPanelHeight,
     });
   }, [
     activeFile,
     agentPanelOpen,
+    assetPreviewSplit,
     bottomPanelHeight,
     currentPath,
     dualPaneActive,
@@ -244,6 +300,8 @@ export function WorkspaceProvider({
     graphScope,
     searchQuery,
     sidebarTab,
+    sidebarPanel,
+    sidebarPanelOpen,
     sidebarWidth,
   ]);
 
@@ -341,6 +399,11 @@ export function WorkspaceProvider({
       error,
       setError,
       sidebarTab,
+      sidebarPanel,
+      sidebarPanelOpen,
+      setSidebarPanel,
+      setSidebarPanelOpen,
+      toggleSidebarPanel,
       currentPath,
       activeFile,
       editorLayout,
@@ -358,6 +421,8 @@ export function WorkspaceProvider({
       setDualPaneView,
       dualPaneActive,
       setDualPaneActive,
+      assetPreviewSplit,
+      setAssetPreviewSplit,
       sidebarWidth,
       setSidebarWidth,
       bottomPanelHeight,
@@ -410,6 +475,7 @@ export function WorkspaceProvider({
       activeFile,
       agentPanelOpen,
       appView,
+      assetPreviewSplit,
       backToSectionView,
       bottomPanelHeight,
       browsePath,
@@ -456,6 +522,9 @@ export function WorkspaceProvider({
       showPaperViewBack,
       showSectionViewBack,
       sidebarTab,
+      sidebarPanel,
+      sidebarPanelOpen,
+      setSidebarPanel,
       sidebarWidth,
       submitCreateChild,
       tablePath,

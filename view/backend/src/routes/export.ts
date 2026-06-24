@@ -1,7 +1,7 @@
 import type { Express } from "express";
 
 import { exportPaper, exportPaperBatch, resolveExportDownload } from "../export.js";
-import { importOverleafFeedback, pushToOverleaf } from "../overleaf.js";
+import { importOverleafFeedback, connectOverleafProject, getOverleafStatus, pushToOverleaf } from "../overleaf.js";
 import type { ServerDeps } from "./types.js";
 
 export function registerExportRoutes(app: Express, deps: ServerDeps) {
@@ -67,6 +67,49 @@ export function registerExportRoutes(app: Express, deps: ServerDeps) {
       const fileName = String(request.query.file ?? "");
       const abs = resolveExportDownload(deps.repoRoot, fileName);
       response.download(abs);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/overleaf/status", async (request, response, next) => {
+    try {
+      const paperSlug = String(request.query.paperSlug ?? "").trim();
+      if (!paperSlug) {
+        response.status(400).json({ error: "paperSlug required" });
+        return;
+      }
+      const result = await getOverleafStatus(deps.modelRoot, paperSlug);
+      response.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/overleaf/connect", async (request, response, next) => {
+    try {
+      const { paperSlug, gitUrl, token } = request.body as {
+        paperSlug?: string;
+        gitUrl?: string;
+        token?: string;
+      };
+      if (!paperSlug?.trim()) {
+        response.status(400).json({ error: "paperSlug required" });
+        return;
+      }
+      if (!gitUrl?.trim()) {
+        response.status(400).json({ error: "gitUrl required" });
+        return;
+      }
+      const result = await connectOverleafProject(
+        deps.modelRoot,
+        deps.repoRoot,
+        paperSlug.trim(),
+        gitUrl.trim(),
+        token?.trim(),
+      );
+      deps.broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
+      response.json(result);
     } catch (error) {
       next(error);
     }

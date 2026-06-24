@@ -54,6 +54,26 @@ export function createTestDeps(overrides: Partial<ServerDeps> = {}): ServerDeps 
         commitPaths: ["model"],
         excludePaths: ["view"],
       })),
+    getExportConfig:
+      overrides.getExportConfig ??
+      (async () => ({
+        autoExport: false,
+        includeDrafts: true,
+        pushOverleaf: true,
+        debounceMs: 60_000,
+      })),
+    getAutoExportState:
+      overrides.getAutoExportState ??
+      (() => ({
+        running: false,
+        lastRunAt: null,
+        lastSuccessAt: null,
+        lastError: null,
+        lastPaperSlug: null,
+        lastMessage: null,
+      })),
+    runAutoExportNow: overrides.runAutoExportNow ?? (async () => {}),
+    reloadGitSyncSchedule: overrides.reloadGitSyncSchedule ?? (() => {}),
     ...overrides,
   };
 }
@@ -88,6 +108,7 @@ export function createTestServer(options: TestAppOptions = {}): TestServerHandle
     new Promise<void>((resolve, reject) => {
       runtime.stopWatch?.();
       runtime.stopGitSyncInterval?.();
+      runtime.stopAutoExport?.();
       server.close((error) => (error ? reject(error) : resolve()));
     });
 

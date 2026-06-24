@@ -57,6 +57,22 @@ function createTestDeps(): ServerDeps {
       commitPaths: ["model"],
       excludePaths: ["view"],
     }),
+    getExportConfig: async () => ({
+      autoExport: false,
+      includeDrafts: true,
+      pushOverleaf: true,
+      debounceMs: 60_000,
+    }),
+    getAutoExportState: () => ({
+      running: false,
+      lastRunAt: null,
+      lastSuccessAt: null,
+      lastError: null,
+      lastPaperSlug: null,
+      lastMessage: null,
+    }),
+    runAutoExportNow: async () => {},
+    reloadGitSyncSchedule: () => {},
   };
 }
 

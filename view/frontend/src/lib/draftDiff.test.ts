@@ -58,9 +58,17 @@ describe("draftDiff", () => {
     expect(pendingChangesRows("", text, text)).toEqual([]);
   });
 
-  it("treats unchanged loaded content as not pending when nothing is approved yet", () => {
+  it("does not treat never-approved content as pending when unchanged on disk", () => {
     const text = "Full paragraph on disk.";
     expect(hasPendingApprovalDiff("", text, text)).toBe(false);
+  });
+
+  it("treats never-approved content as pending when edited since load", () => {
+    expect(hasPendingApprovalDiff("", "Original", "Original edited")).toBe(true);
+  });
+
+  it("treats empty never-approved content as not pending", () => {
+    expect(hasPendingApprovalDiff("", "", "")).toBe(false);
   });
 
   it("detects pending edits against approved baseline", () => {

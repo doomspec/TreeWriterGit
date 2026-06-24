@@ -7,6 +7,8 @@ import { WebSocket, WebSocketServer } from "ws";
 
 import { createGitSyncRunner } from "./gitSyncRunner.js";
 import { loadGitSyncConfig, type GitSyncConfig } from "./gitSyncConfig.js";
+import { createAutoExportRunner } from "./autoExportRunner.js";
+import { loadExportConfig, type ExportConfig, type AutoExportRuntimeState } from "./exportConfig.js";
 import { resetServerMemoryState } from "./devReset.js";
 import { createModelEventBroadcaster } from "./modelEvents.js";
 import { ModelFsError } from "./modelFs.js";
@@ -36,7 +38,6 @@ export type AppConfig = {
   modelRoot: string;
   corsOrigin?: string;
   gitSyncEnabled?: boolean;
-  gitSyncIntervalMs?: number;
   enableModelWatch?: boolean;
   terminalCommand?: string;
   terminalScriptPath: string;
@@ -52,8 +53,11 @@ export type AppRuntime = {
   terminalServer: WebSocketServer;
   modelEventsServer: WebSocketServer;
   gitSyncConfigCache: { current: GitSyncConfig | null };
+  exportConfigCache: { current: ExportConfig | null };
+  autoExportState: AutoExportRuntimeState;
   stopWatch?: () => void;
   stopGitSyncInterval?: () => void;
+  stopAutoExport?: () => void;
 };
 
 function defaultShellArgs(shell: string): string[] {
@@ -68,7 +72,6 @@ export function createApp(config: AppConfig): AppRuntime {
     modelRoot,
     corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:5173",
     gitSyncEnabled = process.env.GIT_SYNC_ENABLED !== "false",
-    gitSyncIntervalMs = Number(process.env.GIT_SYNC_INTERVAL_MS ?? 120_000),
     enableModelWatch = process.env.MODEL_WATCH_ENABLED !== "false",
     terminalCommand = process.env.TREEWRITER_TERMINAL_COMMAND ?? "python3",
     terminalScriptPath,
@@ -80,6 +83,15 @@ export function createApp(config: AppConfig): AppRuntime {
   const getGitSyncConfig = async (): Promise<GitSyncConfig> => {
     gitSyncConfigCache.current = await loadGitSyncConfig(repoRoot);
     return gitSyncConfigCache.current;
+  };
+  const invalidateGitSyncConfig = (): void => {
+    gitSyncConfigCache.current = null;
+  };
+
+  const exportConfigCache = { current: null as ExportConfig | null };
+  const getExportConfig = async (): Promise<ExportConfig> => {
+    exportConfigCache.current = await loadExportConfig(repoRoot);
+    return exportConfigCache.current;
   };
 
   const { state: gitSyncState, runGitSync } = createGitSyncRunner(repoRoot, gitSyncEnabled);
@@ -93,7 +105,18 @@ export function createApp(config: AppConfig): AppRuntime {
   app.use(express.json({ limit: "2mb" }));
 
   const modelEventClients = new Set<WebSocket>();
-  const broadcastModelEvent = createModelEventBroadcaster(modelEventClients, WebSocket.OPEN);
+  const baseBroadcastModelEvent = createModelEventBroadcaster(modelEventClients, WebSocket.OPEN);
+  const autoExportRunner = createAutoExportRunner({
+    modelRoot,
+    repoRoot,
+    getExportConfig,
+  });
+  const broadcastModelEvent: typeof baseBroadcastModelEvent = (event, source) => {
+    baseBroadcastModelEvent(event, source);
+    if (typeof event.path === "string") {
+      autoExportRunner.scheduleAutoExport(event.path);
+    }
+  };
 
   const deps: ServerDeps = {
     modelRoot,
@@ -102,6 +125,10 @@ export function createApp(config: AppConfig): AppRuntime {
     getGitSyncState: () => gitSyncState,
     runGitSync,
     getGitSyncConfig,
+    getExportConfig,
+    getAutoExportState: () => autoExportRunner.state,
+    runAutoExportNow: autoExportRunner.runAutoExportNow,
+    reloadGitSyncSchedule: () => scheduleGitSyncInterval(),
   };
 
   registerSettingsRoutes(app, deps);
@@ -193,16 +220,38 @@ export function createApp(config: AppConfig): AppRuntime {
   }
 
   let stopGitSyncInterval: (() => void) | undefined;
+  let gitSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  let gitSyncScheduleGeneration = 0;
+
+  const scheduleGitSyncInterval = (): void => {
+    if (!gitSyncEnabled) return;
+    gitSyncScheduleGeneration += 1;
+    const generation = gitSyncScheduleGeneration;
+    clearTimeout(gitSyncTimer);
+    void (async () => {
+      invalidateGitSyncConfig();
+      const config = await getGitSyncConfig();
+      if (generation !== gitSyncScheduleGeneration) return;
+      gitSyncTimer = setTimeout(() => {
+        void (async () => {
+          const latest = await getGitSyncConfig();
+          if (latest.autoSync) {
+            await runGitSync("interval");
+          }
+          if (generation === gitSyncScheduleGeneration) {
+            scheduleGitSyncInterval();
+          }
+        })();
+      }, config.intervalMs);
+    })();
+  };
+
   if (gitSyncEnabled) {
-    void getGitSyncConfig();
-    const interval = setInterval(() => {
-      void (async () => {
-        const config = gitSyncConfigCache.current ?? (await getGitSyncConfig());
-        if (!config.autoSync) return;
-        await runGitSync("interval");
-      })();
-    }, gitSyncIntervalMs);
-    stopGitSyncInterval = () => clearInterval(interval);
+    scheduleGitSyncInterval();
+    stopGitSyncInterval = () => {
+      gitSyncScheduleGeneration += 1;
+      clearTimeout(gitSyncTimer);
+    };
   }
 
   return {
@@ -213,8 +262,11 @@ export function createApp(config: AppConfig): AppRuntime {
     terminalServer,
     modelEventsServer,
     gitSyncConfigCache,
+    exportConfigCache,
+    autoExportState: autoExportRunner.state,
     stopWatch,
     stopGitSyncInterval,
+    stopAutoExport: autoExportRunner.dispose,
   };
 }
 
@@ -254,6 +306,7 @@ export function createServer(config: AppConfig, port = Number(process.env.PORT ?
     new Promise<void>((resolve, reject) => {
       runtime.stopWatch?.();
       runtime.stopGitSyncInterval?.();
+      runtime.stopAutoExport?.();
       runtime.terminalServer.close();
       runtime.modelEventsServer.close();
       server.close((error) => (error ? reject(error) : resolve()));

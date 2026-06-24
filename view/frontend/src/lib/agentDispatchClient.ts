@@ -243,11 +243,13 @@ export async function runAgentDispatch(options: {
 
 export async function resolveViewSyncWithHarness(options: {
   provider?: string;
-  onSendToTerminal: (command: string) => void;
+  submitToTerminal: (command: string) => void | Promise<void>;
 }): Promise<{ providerName: string; sessionId: string }> {
-  const preview = await fetchGitSyncResolveHarness(options.provider);
+  const provider = options.provider ?? (await getDefaultAgentProvider());
+  const preview = await fetchGitSyncResolveHarness(provider);
   rememberAgentProvider(preview.providerName);
-  options.onSendToTerminal(`${preview.command}\n`);
+  const command = preview.command.endsWith("\n") ? preview.command : `${preview.command}\n`;
+  await options.submitToTerminal(command);
   return { providerName: preview.providerName, sessionId: preview.sessionId };
 }
 

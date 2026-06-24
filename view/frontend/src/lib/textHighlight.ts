@@ -62,8 +62,30 @@ export function wrapTextHighlight(colorId: TextHighlightColorId, selectedText: s
   return `\\hl{${color}}{${body}}`;
 }
 
+/** Repair double-escaped, bare-encoded, and split-word highlight macros. */
+export function normalizeTextHighlightMacros(markdown: string): string {
+  let result = markdown;
+  while (/\\\\hl\{/.test(result)) {
+    result = result.replace(/\\\\hl\{/g, "\\hl{");
+  }
+  result = result.replace(/⟦hl:([a-z]+):([\s\S]*?)⟧/g, (full, color: string, text: string, offset: number, whole: string) => {
+    if (offset > 0 && whole[offset - 1] === "`") return full;
+    const after = offset + full.length;
+    if (after < whole.length && whole[after] === "`") return full;
+    return `\`⟦hl:${normalizeHighlightColor(color)}:${text}⟧\``;
+  });
+  result = result.replace(
+    /([A-Za-z]{1,40})\\hl\{([a-z]+)\}\{([a-z][^}]*)\}/g,
+    (_full, prefix: string, color: string, inner: string) => {
+      return `\\hl{${normalizeHighlightColor(color)}}{${prefix}${inner}}`;
+    },
+  );
+  return result;
+}
+
 export function preprocessTextHighlightsForMarkdown(markdown: string): string {
-  return markdown.replace(TEXT_HIGHLIGHT_PATTERN, (_full, color: string, text: string) => {
+  const normalized = normalizeTextHighlightMacros(markdown);
+  return normalized.replace(TEXT_HIGHLIGHT_PATTERN, (_full, color: string, text: string) => {
     const safeColor = normalizeHighlightColor(color);
     const safe = String(text).replace(/`/g, "'");
     return `\`⟦hl:${safeColor}:${safe}⟧\``;
@@ -77,9 +99,68 @@ export function parseTextHighlightCodeSpan(value: string): { color: TextHighligh
 }
 
 export function restoreTextHighlightsFromMarkdown(markdown: string): string {
-  return markdown.replace(/`⟦hl:([a-z]+):([\s\S]*?)⟧`/g, (_full, color: string, text: string) => {
-    return `\\hl{${normalizeHighlightColor(color)}}{${text}}`;
-  });
+  return normalizeTextHighlightMacros(
+    markdown
+      .replace(/`⟦hl:([a-z]+):([\s\S]*?)⟧`/g, (_full, color: string, text: string) => {
+        return `\\hl{${normalizeHighlightColor(color)}}{${text}}`;
+      })
+      .replace(/`\[hl:([a-z]+):([\s\S]*?)\]`/g, (_full, color: string, text: string) => {
+        return `\\hl{${normalizeHighlightColor(color)}}{${text}}`;
+      }),
+  );
+}
+
+export type RawMirrorPart = {
+  text: string;
+  highlightColor?: TextHighlightColorId;
+  pendingClass?: string;
+};
+
+const RAW_TEXT_HIGHLIGHT_PATTERN =
+  /\\hl\{([a-z]+)\}\{([^}]*)\}|`⟦hl:([a-z]+):([\s\S]*?)⟧`|`\[hl:([a-z]+):([\s\S]*?)\]`/g;
+
+export function hasRawTextHighlights(text: string): boolean {
+  return (
+    TEXT_HIGHLIGHT_PATTERN_TEST.test(text) ||
+    /`⟦hl:[a-z]+:/.test(text) ||
+    /`\[hl:[a-z]+:/.test(text)
+  );
+}
+
+/** Split a raw markdown line into mirror spans with optional text-highlight coloring. */
+export function splitRawMirrorLine(line: string): RawMirrorPart[] {
+  const parts: RawMirrorPart[] = [];
+  let lastIndex = 0;
+  for (const match of line.matchAll(RAW_TEXT_HIGHLIGHT_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      parts.push({ text: line.slice(lastIndex, index) });
+    }
+    if (match[1]) {
+      const color = normalizeHighlightColor(match[1]);
+      const inner = match[2];
+      parts.push({ text: `\\hl{${color}}{` });
+      parts.push({ text: inner, highlightColor: color });
+      parts.push({ text: "}" });
+    } else {
+      const color = normalizeHighlightColor(match[3] || match[5]);
+      const inner = match[4] || match[6] || "";
+      const full = match[0];
+      const openLen = full.indexOf(inner);
+      if (openLen > 0) parts.push({ text: full.slice(0, openLen) });
+      parts.push({ text: inner, highlightColor: color });
+      const closeStart = openLen + inner.length;
+      if (closeStart < full.length) parts.push({ text: full.slice(closeStart) });
+    }
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < line.length) {
+    parts.push({ text: line.slice(lastIndex) });
+  }
+  if (parts.length === 0) {
+    parts.push({ text: line });
+  }
+  return parts;
 }
 
 function escapeHtmlAttr(value: string): string {

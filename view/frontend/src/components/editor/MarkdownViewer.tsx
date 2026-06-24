@@ -11,6 +11,7 @@ import { TextHighlightBadge } from "@/components/editor/TextHighlightBadge";
 import { MermaidBlock } from "@/components/editor/MermaidBlock";
 import { resolveAssetSrc } from "@/lib/figures";
 import { parseInlineNoteCodeSpan, preprocessInlineNotesForMarkdown } from "@/lib/inlineNotes";
+import { repairEditorMacroSyntax } from "@/lib/editorMacroRepair";
 import { parseTextHighlightCodeSpan, preprocessTextHighlightsForMarkdown } from "@/lib/textHighlight";
 import { preprocessLatexForMarkdownPreview } from "@/lib/latexPreview";
 import { parseLabelCodeSpan, parseRefCodeSpan, preprocessLatexTokensForMarkdown } from "@/lib/latexTokens";
@@ -41,7 +42,9 @@ export function MarkdownViewer({
       preprocessInlineNotesForMarkdown(
         preprocessTextHighlightsForMarkdown(
           preprocessLatexTokensForMarkdown(
-            preprocessLatexForMarkdownPreview(preprocessMarkdownLinks(markdown)),
+            preprocessLatexForMarkdownPreview(
+              preprocessMarkdownLinks(repairEditorMacroSyntax(markdown)),
+            ),
           ),
         ),
       ),

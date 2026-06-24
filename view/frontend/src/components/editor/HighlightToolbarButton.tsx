@@ -93,18 +93,18 @@ export function HighlightToolbarButton({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-7 gap-1 rounded-r-none px-2 text-[10px]"
+          className="h-7 gap-1 rounded-r-none px-1.5"
           title={`Highlight selection (${activeColor.label})`}
           aria-label="Highlight selection"
           disabled={disabled || !onInsertHighlight}
+          onMouseDown={(event) => event.preventDefault()}
           onClick={() => onInsertHighlight?.(lastColor)}
         >
           <Highlighter className="h-3.5 w-3.5" aria-hidden="true" />
           <span
-            className={cn("hidden h-2.5 w-2.5 rounded-sm sm:inline-block", activeColor.swatchClassName)}
+            className={cn("h-2.5 w-2.5 rounded-sm", activeColor.swatchClassName)}
             aria-hidden="true"
           />
-          <span className="hidden md:inline">Highlight</span>
         </Button>
         <Button
           ref={buttonRef}
@@ -150,6 +150,7 @@ export function HighlightToolbarButton({
                       color.swatchClassName,
                       color.id === lastColor && "ring-2 ring-primary",
                     )}
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => selectColor(color.id)}
                   >
                     <span className="sr-only">{color.label}</span>

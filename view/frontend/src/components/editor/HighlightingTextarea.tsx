@@ -1,15 +1,68 @@
 import { Fragment, useCallback, useMemo, useRef } from "react";
 
-import { pendingCurrentLineHighlightRows, splitLines } from "@/lib/draftDiff";
+import {
+  pendingCurrentLineHighlightRows,
+  splitLines,
+  type PendingLineHighlight,
+} from "@/lib/draftDiff";
+import {
+  hasRawTextHighlights,
+  splitRawMirrorLine,
+  type RawMirrorPart,
+} from "@/lib/textHighlight";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { cn } from "@/lib/utils";
 
 type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
 
+type HighlightRow = PendingLineHighlight;
+
+function mirrorPartsWithPendingClass(parts: RawMirrorPart[], pendingClass?: string): RawMirrorPart[] {
+  if (!pendingClass) return parts;
+  return parts.map((part) => ({ ...part, pendingClass: pendingClass ?? part.pendingClass }));
+}
+
+function lineMirrorParts(line: string, row: HighlightRow): RawMirrorPart[] {
+  if (row.kind === "inline") {
+    return row.segments.flatMap((segment) => {
+      const pendingClass =
+        segment.kind === "insert"
+          ? "highlight-inline--pending"
+          : segment.kind === "delete"
+            ? "highlight-inline--deleted"
+            : undefined;
+      return mirrorPartsWithPendingClass(splitRawMirrorLine(segment.text), pendingClass);
+    });
+  }
+  if (row.kind === "full") {
+    return [{ text: line, pendingClass: "highlight-line--pending" }];
+  }
+  if (row.kind === "delete") {
+    return [{ text: line, pendingClass: "highlight-inline--deleted" }];
+  }
+  return splitRawMirrorLine(line);
+}
+
+function renderMirrorParts(parts: RawMirrorPart[], keyPrefix: string) {
+  return parts.map((part, partIndex) => {
+    if (!part.text) return null;
+    const className = cn(
+      part.highlightColor ? `text-highlight-badge text-highlight-${part.highlightColor}` : undefined,
+      part.pendingClass,
+    );
+    return (
+      <span key={`${keyPrefix}-${partIndex}`} className={className || undefined}>
+        {part.text}
+      </span>
+    );
+  });
+}
+
 export function HighlightingTextarea({
   value,
   baseline,
   highlight = false,
+  showTextHighlights = true,
   fillContainer = true,
   className,
   mirrorClassName,
@@ -19,6 +72,7 @@ export function HighlightingTextarea({
 }: TextareaProps & {
   baseline: string;
   highlight?: boolean;
+  showTextHighlights?: boolean;
   /** When false, textarea grows with content; parent should scroll. */
   fillContainer?: boolean;
   mirrorClassName?: string;
@@ -30,10 +84,13 @@ export function HighlightingTextarea({
 
   const text = typeof value === "string" ? value : String(value ?? "");
   const debouncedText = useDebouncedValue(text, 120);
-  const showHighlight = highlight && debouncedText !== baseline;
+  const showPendingMirror = highlight && debouncedText !== baseline;
   const lines = useMemo(() => splitLines(text), [text]);
-  const rows = useMemo(() => {
-    if (!showHighlight) {
+  const showHlMirror = showTextHighlights && hasRawTextHighlights(text);
+  const showMirror = showPendingMirror || showHlMirror;
+
+  const rows = useMemo((): HighlightRow[] => {
+    if (!showPendingMirror) {
       return lines.map((line) => ({ kind: "equal" as const, text: line }));
     }
     const computed = pendingCurrentLineHighlightRows(baseline, debouncedText);
@@ -41,7 +98,7 @@ export function HighlightingTextarea({
       return lines.map((line) => ({ kind: "equal" as const, text: line }));
     }
     return computed;
-  }, [baseline, debouncedText, lines, showHighlight]);
+  }, [baseline, debouncedText, lines, showPendingMirror]);
 
   const syncScroll = useCallback(() => {
     const textarea = textareaRef.current;
@@ -59,7 +116,7 @@ export function HighlightingTextarea({
     [onScroll, syncScroll],
   );
 
-  const mirror = showHighlight ? (
+  const mirror = showMirror ? (
     <pre
       ref={mirrorRef}
       className={cn(
@@ -75,36 +132,12 @@ export function HighlightingTextarea({
       {lines.map((line, index) => {
         const row = rows[index] ?? { kind: "equal" as const, text: line };
         const prefix = index > 0 ? "\n" : "";
-        const display = line.length > 0 ? line : "\u00a0";
-
-        if (row.kind === "inline") {
-          return (
-            <Fragment key={index}>
-              {prefix}
-              {row.segments.map((segment, segmentIndex) =>
-                segment.text ? (
-                  <span
-                    key={segmentIndex}
-                    className={
-                      segment.kind === "insert"
-                        ? "highlight-inline--pending"
-                        : segment.kind === "delete"
-                          ? "highlight-inline--deleted"
-                          : undefined
-                    }
-                  >
-                    {segment.text}
-                  </span>
-                ) : null,
-              )}
-            </Fragment>
-          );
-        }
+        const parts = lineMirrorParts(line, row);
 
         return (
           <Fragment key={index}>
             {prefix}
-            <span className={row.kind === "full" ? "highlight-line--pending" : undefined}>{display}</span>
+            {renderMirrorParts(parts, String(index))}
           </Fragment>
         );
       })}
@@ -130,7 +163,7 @@ export function HighlightingTextarea({
           fillContainer
             ? "relative z-[1] min-h-0 flex-1 overflow-auto"
             : "highlighting-textarea__input--grow z-[1] overflow-hidden",
-          showHighlight && "highlighting-textarea__input--overlay",
+          showMirror && "highlighting-textarea__input--overlay",
           className,
         )}
         onScroll={fillContainer ? handleScroll : undefined}

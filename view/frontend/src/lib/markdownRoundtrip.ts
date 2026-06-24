@@ -2,9 +2,11 @@ import { marked } from "marked";
 import TurndownService from "turndown";
 
 import { preprocessInlineNotesForMarkdown, restoreInlineNotesFromMarkdown } from "@/lib/inlineNotes";
+import { repairEditorMacroSyntax } from "@/lib/editorMacroRepair";
 import {
   enhanceTextHighlightBadges,
   isPendingTrackChangeHtml,
+  normalizeTextHighlightMacros,
   preprocessTextHighlightsForMarkdown,
   replaceTextHighlightMacrosInHtml,
   restoreTextHighlightBadgesFromHtml,
@@ -40,7 +42,8 @@ function normalizeListSpacing(markdown: string): string {
 }
 
 function restoreCustomBlocks(markdown: string): string {
-  let result = restoreLatexTokensFromMarkdown(markdown);
+  let result = normalizeTextHighlightMacros(markdown);
+  result = restoreLatexTokensFromMarkdown(result);
   result = restoreTextHighlightsFromMarkdown(result);
   result = restoreInlineNotesFromMarkdown(result);
   result = result.replace(
@@ -59,7 +62,10 @@ export function markdownToEditableHtml(markdown: string): string {
   const processed = preprocessInlineNotesForMarkdown(
     preprocessTextHighlightsForMarkdown(
       preprocessLatexTokensForMarkdown(
-        preprocessLatexForMarkdownPreview(preprocessMarkdownLinks(markdown), { math: "html" }),
+        preprocessLatexForMarkdownPreview(
+          preprocessMarkdownLinks(repairEditorMacroSyntax(markdown)),
+          { math: "html" },
+        ),
       ),
     ),
   );
@@ -85,5 +91,5 @@ export function editableHtmlToMarkdown(html: string): string {
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/\u00a0/g, " ");
   const markdown = turndown.turndown(cleaned);
-  return restoreCustomBlocks(markdown);
+  return repairEditorMacroSyntax(restoreCustomBlocks(markdown));
 }

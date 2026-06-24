@@ -1,13 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { FilePlus, FolderPlus, GripVertical, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GripVertical } from "lucide-react";
 
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
-import { TreeRowActions } from "@/components/nav/TreeRowActions";
+import { SectionTreeRowMeta } from "@/components/paper/SectionTreeRowMeta";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
-import { Button } from "@/components/ui/button";
 import { UnapprovedIndicator } from "@/components/nav/UnapprovedIndicator";
 import { cn } from "@/lib/utils";
 import { useDraftPendingPaths, replaceServerDraftPendingPaths } from "@/lib/draftPendingStore";
@@ -15,16 +13,13 @@ import {
   sectionNeedsHighlight,
   unapprovedSectionRowClass,
   unapprovedSectionTitle,
-  UNIT_STATUS_COUNTS_HINT,
 } from "@/lib/unapprovedHighlight";
+import { loadIndexChildOrder } from "@/lib/indexChildOrder";
 import { navigateAfterArchive, useArchiveNodeDialog } from "@/lib/useArchiveNodeDialog";
 import {
   findNode,
-  canAddManuscriptChildren,
   isLeafEditorFolder,
-  indexPathFor,
   orderedChildFolders,
-  parseIndexFrontmatter,
   sectionsForPaper,
   type ModelNode,
   type PaperSectionItem,
@@ -40,8 +35,6 @@ import {
 } from "@/modelApi";
 import { usePaperList } from "@/lib/usePaperList";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
-
 type SectionRow = PaperSectionItem & {
   counts?: UnitStatusCounts;
 };
@@ -54,12 +47,6 @@ type CreatePrompt = {
 type RenameTarget = {
   path: string;
   label: string;
-};
-
-type CreateMenuOption = {
-  kind: NodeKind;
-  label: string;
-  Icon: typeof FolderPlus;
 };
 
 function sectionTreeDragHandleClass(compact = false): string {
@@ -78,7 +65,7 @@ function sectionTreeNavButtonClass(options: {
 }): string {
   const { active, highlight, textSize, rowPad } = options;
   return cn(
-    "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left transition-colors",
+    "section-tree-row__nav flex items-center gap-1.5 rounded-md px-2 text-left transition-colors",
     textSize,
     rowPad,
     highlight
@@ -88,146 +75,6 @@ function sectionTreeNavButtonClass(options: {
       : active
         ? "bg-accent/50 font-medium text-foreground hover:bg-primary/15 hover:text-foreground"
         : "text-muted-foreground hover:bg-accent/45 hover:text-foreground",
-  );
-}
-
-function SectionCreateMenu({
-  parentPath,
-  paperPath,
-  tree,
-  disabled,
-  onCreate,
-}: {
-  parentPath: string;
-  paperPath: string;
-  tree: ModelNode[];
-  disabled?: boolean;
-  onCreate: (parentPath: string, kind: NodeKind) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
-
-  const node = findNode(tree, parentPath);
-  const atPaperRoot = parentPath === paperPath;
-  const options: CreateMenuOption[] = atPaperRoot
-    ? [{ kind: "section", label: "Section", Icon: FolderPlus }]
-    : [
-        { kind: "unit", label: "Unit", Icon: FilePlus },
-        { kind: "subsection", label: "Subsection", Icon: FolderPlus },
-      ];
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setMenuPosition(null);
-      return;
-    }
-
-    const updatePosition = () => {
-      const button = buttonRef.current;
-      if (!button) return;
-      const rect = button.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.bottom + 4,
-        right: window.innerWidth - rect.right,
-      });
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
-
-  if (!canAddManuscriptChildren(node, parentPath, paperPath)) {
-    return null;
-  }
-
-  const wrapperClass = "relative shrink-0";
-
-  const choose = (kind: NodeKind) => {
-    setOpen(false);
-    onCreate(parentPath, kind);
-  };
-
-  return (
-    <div ref={rootRef} className={wrapperClass}>
-      <Button
-        ref={buttonRef}
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6 text-muted-foreground hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-400"
-        title="Add to section"
-        aria-label="Add to section"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (options.length === 1) {
-            choose(options[0]!.kind);
-            return;
-          }
-          setOpen((value) => !value);
-        }}
-      >
-        <Plus className="h-3 w-3" aria-hidden="true" />
-      </Button>
-      {open && menuPosition
-        ? createPortal(
-            <div
-              ref={menuRef}
-              role="menu"
-              style={{
-                top: menuPosition.top,
-                right: menuPosition.right,
-              }}
-              className="fixed z-overlay min-w-[9.5rem] rounded-md border border-border bg-card py-1 text-card-foreground shadow-lg"
-            >
-              {options.map(({ kind, label, Icon }) => (
-                <button
-                  key={kind}
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2 bg-card px-2.5 py-1.5 text-left text-xs hover:bg-accent"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    choose(kind);
-                  }}
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  {label}
-                </button>
-              ))}
-            </div>,
-            document.body,
-          )
-        : null}
-    </div>
   );
 }
 
@@ -365,14 +212,12 @@ function ChildOrderList({
           child.path,
           containerCounts[child.path],
         );
-        const childNode = findNode(tree, child.path);
-        const showCreate = canAddManuscriptChildren(childNode, child.path, paperPath);
 
         return (
           <li key={child.path}>
             <div
               className={cn(
-                "group flex items-stretch gap-0.5 rounded-md",
+                "section-tree-row group flex items-stretch gap-0.5 rounded-md",
                 unapprovedSectionRowClass({ highlight, pending, active: childActive, compact: true }),
                 dragIndex === index ? "opacity-50" : undefined,
                 overIndex === index && dragIndex !== null && dragIndex !== index
@@ -413,27 +258,25 @@ function ChildOrderList({
                 onClick={() => onNavigate(child.path)}
               >
                 <UnapprovedIndicator pending={pending} unapproved={unapproved} />
-                <span className={cn("min-w-0 truncate", highlight && "text-amber-950 dark:text-amber-50")}>
+                <span
+                  className={cn(
+                    "section-tree-row__title",
+                    highlight && "text-amber-950 dark:text-amber-50",
+                  )}
+                >
                   {child.title}
                 </span>
               </button>
-              <div className="flex shrink-0 items-center gap-1 pr-0.5">
-                {showCreate ? (
-                  <SectionCreateMenu
-                    parentPath={child.path}
-                    paperPath={paperPath}
-                    tree={tree}
-                    disabled={reordering}
-                    onCreate={onCreate}
-                  />
-                ) : null}
-                <TreeRowActions
-                  onRename={() => onRename(child.path, child.title)}
-                  renameLabel={`Rename ${child.title}`}
-                  onDelete={() => onDelete(child.path, child.title)}
-                  deleteLabel={`Delete ${child.title}`}
-                />
-              </div>
+              <SectionTreeRowMeta
+                parentPath={child.path}
+                paperPath={paperPath}
+                tree={tree}
+                title={child.title}
+                disabled={reordering}
+                onCreate={onCreate}
+                onRename={() => onRename(child.path, child.title)}
+                onDelete={() => onDelete(child.path, child.title)}
+              />
             </div>
             <FolderChildrenList
               parent={child}
@@ -584,7 +427,7 @@ function SectionOrderList({
           <li key={section.path}>
             <div
               className={cn(
-                "group flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
+                "section-tree-row group flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
                 unapprovedSectionRowClass({ highlight, pending, active }),
                 active && !highlight ? "border-primary/40 bg-accent/50" : undefined,
                 dragIndex === index ? "opacity-50" : undefined,
@@ -626,33 +469,21 @@ function SectionOrderList({
                 onClick={() => onNavigate(section.path)}
               >
                 <UnapprovedIndicator pending={pending} unapproved={unapproved} />
-                <span className={unapprovedSectionTitle("min-w-0 truncate font-medium", highlight)}>
+                <span className={unapprovedSectionTitle("section-tree-row__title font-medium", highlight)}>
                   {section.title}
                 </span>
               </button>
-              <div className="flex shrink-0 items-center gap-1 pr-0.5">
-                {section.counts ? (
-                  <span
-                    className="font-mono text-[10px] text-muted-foreground"
-                    title={UNIT_STATUS_COUNTS_HINT}
-                  >
-                    {section.counts.approved}/{section.counts.drafted}/{section.counts.outline}
-                  </span>
-                ) : null}
-                <SectionCreateMenu
-                  parentPath={section.path}
-                  paperPath={paperPath}
-                  tree={tree}
-                  disabled={reordering}
-                  onCreate={onCreate}
-                />
-                <TreeRowActions
-                  onRename={() => onRename(section.path, section.title)}
-                  renameLabel={`Rename ${section.title}`}
-                  onDelete={() => onDelete(section.path, section.title)}
-                  deleteLabel={`Delete ${section.title}`}
-                />
-              </div>
+              <SectionTreeRowMeta
+                parentPath={section.path}
+                paperPath={paperPath}
+                tree={tree}
+                title={section.title}
+                counts={section.counts}
+                disabled={reordering}
+                onCreate={onCreate}
+                onRename={() => onRename(section.path, section.title)}
+                onDelete={() => onDelete(section.path, section.title)}
+              />
             </div>
             {renderChildren(section)}
           </li>
@@ -704,18 +535,10 @@ export function PapersPanel({
     setRenameTarget({ path, label });
   }, []);
 
-  const loadChildOrder = useCallback(async (path: string): Promise<string[]> => {
-    try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/model/file?path=${encodeURIComponent(indexPathFor(path))}`,
-      );
-      if (!response.ok) return [];
-      const data = (await response.json()) as { content: string };
-      return parseIndexFrontmatter(data.content).childOrder;
-    } catch {
-      return [];
-    }
-  }, []);
+  const loadChildOrder = useCallback(
+    (path: string) => loadIndexChildOrder(path),
+    [],
+  );
 
   const loadSectionOrder = useCallback(
     async (path: string) => {
@@ -857,11 +680,11 @@ export function PapersPanel({
     let cancelled = false;
     void (async () => {
       for (const folderPath of foldersNeedingChildOrder) {
-        if (childOrders[folderPath]) continue;
+        if (folderPath in childOrders) continue;
         const order = await loadChildOrder(folderPath);
         if (cancelled) return;
         setChildOrders((prev) =>
-          prev[folderPath] ? prev : { ...prev, [folderPath]: order },
+          folderPath in prev ? prev : { ...prev, [folderPath]: order },
         );
       }
     })();
@@ -925,7 +748,7 @@ export function PapersPanel({
           <div className="space-y-1">
             <div
               className={cn(
-                "flex items-stretch gap-0.5 rounded-md border border-border/60 bg-background",
+                "section-tree-row flex items-stretch gap-0.5 rounded-md border border-border/60 bg-background",
                 unapprovedSectionRowClass({
                   highlight: paperHighlight.highlight,
                   pending: paperHighlight.pending,
@@ -948,20 +771,28 @@ export function PapersPanel({
                   pending={paperHighlight.pending}
                   unapproved={paperHighlight.unapproved}
                 />
-                <span className={unapprovedSectionTitle("truncate font-medium", paperHighlight.highlight)}>
+                <span
+                  className={unapprovedSectionTitle(
+                    "section-tree-row__title font-medium",
+                    paperHighlight.highlight,
+                  )}
+                >
                   {detail?.title ?? "Paper overview"}
                 </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">Outline · Draft</span>
+                <span className="section-tree-row__meta-label shrink-0 text-[10px] text-muted-foreground">
+                  Outline · Draft
+                </span>
               </button>
-              <div className="flex shrink-0 items-center pr-0.5">
-                <SectionCreateMenu
-                  parentPath={paperPath}
-                  paperPath={paperPath}
-                  tree={tree}
-                  disabled={reordering}
-                  onCreate={requestCreate}
-                />
-              </div>
+              <SectionTreeRowMeta
+                parentPath={paperPath}
+                paperPath={paperPath}
+                tree={tree}
+                title={detail?.title ?? "Paper overview"}
+                disabled={reordering}
+                onCreate={requestCreate}
+                showRename={false}
+                showDelete={false}
+              />
             </div>
             {!hidePaperHeader ? (
               <p className="pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

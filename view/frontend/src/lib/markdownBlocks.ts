@@ -1,3 +1,5 @@
+import { expandEmbedBlocksInMarkdown } from "@/lib/embedBlocks";
+
 export type MarkdownBlock = {
   id: string;
   markdown: string;
@@ -36,7 +38,7 @@ function keepsHeadingWithList(current: string[]): boolean {
  * Split markdown into blocks on blank lines, respecting fenced code regions.
  */
 export function splitMarkdownIntoBlocks(markdown: string): MarkdownBlock[] {
-  const trimmed = markdown.trimEnd();
+  const trimmed = expandEmbedBlocksInMarkdown(markdown).trimEnd();
   if (!trimmed) return [];
 
   const lines = trimmed.split("\n");

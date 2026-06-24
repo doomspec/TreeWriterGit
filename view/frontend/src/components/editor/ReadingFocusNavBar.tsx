@@ -1,61 +1,18 @@
 import { useLayoutEffect } from "react";
-import { ArrowLeft, Minimize2 } from "lucide-react";
 
-import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
-import { Button } from "@/components/ui/button";
 import { useReadingFocus } from "@/lib/readingFocus";
+import type { DualPaneView } from "@/lib/workspacePreferences";
 import { cn } from "@/lib/utils";
 
-export function ReadingFocusNavBar({
-  path,
-  onNavigate,
-  breadcrumbVariant = "default",
-  canBack = false,
-  onBack,
-  backTitle = "Back",
-}: {
-  path: string;
-  onNavigate: (path: string) => void;
-  breadcrumbVariant?: "default" | "papers";
-  canBack?: boolean;
-  onBack?: () => void;
-  backTitle?: string;
-}) {
-  const { active, exit, extraChrome } = useReadingFocus();
+export function useReadingFocusSplitPaneTitles(paneView: DualPaneView): boolean {
+  const { active } = useReadingFocus();
+  return active && paneView === "split";
+}
 
-  if (!active) return null;
-
+export function ReadingFocusSplitPaneTitle({ label }: { label: string }) {
   return (
-    <div className="reading-focus-nav-bar" role="navigation" aria-label="Reading focus">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        {canBack && onBack ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0"
-            title={backTitle}
-            aria-label={backTitle}
-            onClick={onBack}
-          >
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
-        ) : null}
-        {extraChrome ? <div className="flex shrink-0 items-center gap-1">{extraChrome}</div> : null}
-        <Breadcrumbs path={path} onNavigate={onNavigate} compact variant={breadcrumbVariant} />
-      </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 shrink-0 px-2 text-[10px]"
-        title="Exit reading focus (Esc)"
-        aria-label="Exit reading focus"
-        onClick={exit}
-      >
-        <Minimize2 className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
-        Exit focus
-      </Button>
+    <div className="reading-focus-split-pane-title ui-pane-header shrink-0 min-h-8 py-1">
+      <span className="ui-label truncate">{label}</span>
     </div>
   );
 }

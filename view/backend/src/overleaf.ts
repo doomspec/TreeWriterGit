@@ -1,12 +1,12 @@
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
 import { ModelFsError, resolveModelPath } from "./modelFs.js";
-import { exportPaper } from "./export.js";
+import { copyModularBundleToDir, exportModularPaper } from "./exportModular.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +23,197 @@ export interface OverleafImportResult {
   paths: string[];
 }
 
+export interface OverleafStatus {
+  connected: boolean;
+  repoPath: string | null;
+  gitUrl: string | null;
+  projectId: string | null;
+}
+
+export interface OverleafConnectResult {
+  repoPath: string;
+  gitUrl: string;
+  projectId: string;
+  action: "cloned" | "pulled" | "linked";
+  message: string;
+}
+
+const OVERLEAF_PROJECT_ID = /[a-f0-9]{24}/i;
+
+export function overleafCloneDir(repoRoot: string, paperSlug: string): string {
+  return path.join(repoRoot, ".overleaf", paperSlug.trim());
+}
+
+/** Normalize Overleaf Git Bridge URLs and bare project ids. */
+export function parseOverleafGitUrl(raw: string): { projectId: string; httpsCloneUrl: string } {
+  let input = raw.trim().replace(/^git\s+clone\s+/i, "").trim();
+  input = input.replace(/^['"]|['"]$/g, "");
+
+  const bareId = input.match(new RegExp(`^(${OVERLEAF_PROJECT_ID.source})$`, "i"));
+  if (bareId) {
+    const projectId = bareId[1]!.toLowerCase();
+    return { projectId, httpsCloneUrl: `https://git.overleaf.com/${projectId}` };
+  }
+
+  const ssh = input.match(
+    new RegExp(`^(?:ssh://)?git@git\\.overleaf\\.com:(${OVERLEAF_PROJECT_ID.source})/?$`, "i"),
+  );
+  if (ssh) {
+    const projectId = ssh[1]!.toLowerCase();
+    return { projectId, httpsCloneUrl: `https://git.overleaf.com/${projectId}` };
+  }
+
+  const https = input.match(
+    new RegExp(`^https?://(?:git@)?git\\.overleaf\\.com/(${OVERLEAF_PROJECT_ID.source})/?$`, "i"),
+  );
+  if (https) {
+    const projectId = https[1]!.toLowerCase();
+    return { projectId, httpsCloneUrl: `https://git.overleaf.com/${projectId}` };
+  }
+
+  throw new ModelFsError(
+    "Invalid Overleaf Git URL. In Overleaf open Menu → Git and paste the clone URL here.",
+    400,
+  );
+}
+
+function cloneUrlWithToken(httpsCloneUrl: string, token?: string): string {
+  const trimmed = token?.trim();
+  if (!trimmed) return httpsCloneUrl;
+  return httpsCloneUrl.replace("https://", `https://git:${encodeURIComponent(trimmed)}@`);
+}
+
+async function readPaperIndex(modelRoot: string, paperSlug: string) {
+  const paperRel = `papers/${paperSlug.trim()}`;
+  resolveModelPath(modelRoot, paperRel);
+  const indexAbs = path.join(modelRoot, paperRel, "INDEX.md");
+  if (!existsSync(indexAbs)) {
+    throw new ModelFsError(`Paper not found: ${paperSlug}`, 404);
+  }
+  const parsed = matter(await readFile(indexAbs, "utf8"));
+  return { paperRel, indexAbs, parsed };
+}
+
+async function writeOverleafConnection(
+  indexAbs: string,
+  parsed: { content: string; data: Record<string, unknown> },
+  repoPath: string,
+  gitUrl: string,
+): Promise<void> {
+  const nextFrontmatter = {
+    ...parsed.data,
+    overleaf_repo_path: repoPath,
+    overleaf_git_url: gitUrl,
+  };
+  await writeFile(indexAbs, matter.stringify(parsed.content, nextFrontmatter), "utf8");
+}
+
+async function ensureOverleafClone(
+  httpsCloneUrl: string,
+  targetPath: string,
+  token?: string,
+): Promise<"cloned" | "pulled" | "linked"> {
+  const authUrl = cloneUrlWithToken(httpsCloneUrl, token);
+  const gitDir = path.join(targetPath, ".git");
+
+  if (existsSync(gitDir)) {
+    try {
+      await execFileAsync("git", ["-C", targetPath, "remote", "get-url", "origin"]);
+      await execFileAsync("git", ["-C", targetPath, "remote", "set-url", "origin", authUrl]);
+    } catch {
+      await execFileAsync("git", ["-C", targetPath, "remote", "add", "origin", authUrl]);
+    }
+    try {
+      await execFileAsync("git", ["-C", targetPath, "pull", "--ff-only"]);
+      return "pulled";
+    } catch {
+      return "linked";
+    }
+  }
+
+  if (existsSync(targetPath)) {
+    throw new ModelFsError(
+      `Cannot clone Overleaf project: ${targetPath} exists but is not a git repository`,
+      409,
+    );
+  }
+
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  await execFileAsync("git", ["clone", authUrl, targetPath]);
+  return "cloned";
+}
+
+export async function getOverleafStatus(
+  modelRoot: string,
+  paperSlug: string,
+): Promise<OverleafStatus> {
+  const { parsed } = await readPaperIndex(modelRoot, paperSlug);
+  const repoPath = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : null;
+  const gitUrl = parsed.data.overleaf_git_url ? String(parsed.data.overleaf_git_url) : null;
+  let projectId: string | null = null;
+  if (gitUrl) {
+    try {
+      projectId = parseOverleafGitUrl(gitUrl).projectId;
+    } catch {
+      projectId = null;
+    }
+  }
+  const connected = Boolean(repoPath && existsSync(path.join(repoPath, ".git")));
+  return { connected, repoPath, gitUrl, projectId };
+}
+
+/** Clone or link an Overleaf Git Bridge project and store paths on the paper INDEX. */
+export async function connectOverleafProject(
+  modelRoot: string,
+  repoRoot: string,
+  paperSlug: string,
+  gitUrlInput: string,
+  token?: string,
+): Promise<OverleafConnectResult> {
+  const { httpsCloneUrl, projectId } = parseOverleafGitUrl(gitUrlInput);
+  const { indexAbs, parsed } = await readPaperIndex(modelRoot, paperSlug);
+
+  const configuredPath = parsed.data.overleaf_repo_path
+    ? String(parsed.data.overleaf_repo_path)
+    : "";
+  const defaultPath = overleafCloneDir(repoRoot, paperSlug);
+  const targetPath =
+    configuredPath && (existsSync(configuredPath) || configuredPath.startsWith(repoRoot))
+      ? configuredPath
+      : defaultPath;
+
+  let action: OverleafConnectResult["action"];
+  try {
+    action = await ensureOverleafClone(httpsCloneUrl, targetPath, token);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (/Authentication failed|403|401|could not read Username/i.test(detail)) {
+      throw new ModelFsError(
+        "Overleaf git authentication failed. Add your Overleaf Git token (Account → Git integration) and try again.",
+        401,
+      );
+    }
+    throw error;
+  }
+
+  await writeOverleafConnection(indexAbs, parsed, targetPath, httpsCloneUrl);
+
+  const message =
+    action === "cloned"
+      ? "Connected — cloned Overleaf project locally"
+      : action === "pulled"
+        ? "Connected — pulled latest from Overleaf"
+        : "Connected — using existing local Overleaf clone";
+
+  return {
+    repoPath: targetPath,
+    gitUrl: httpsCloneUrl,
+    projectId,
+    action,
+    message,
+  };
+}
+
 const TODO_PATTERNS: RegExp[] = [
   /\\todo\{([^}]*)\}/gi,
   /\\TODO\{([^}]*)\}/g,
@@ -35,16 +226,13 @@ async function readOverleafRepoPath(
   modelRoot: string,
   paperSlug: string,
 ): Promise<{ overleafPath: string; paperRel: string }> {
-  const paperRel = `papers/${paperSlug.trim()}`;
-  resolveModelPath(modelRoot, paperRel);
-  const indexAbs = path.join(modelRoot, paperRel, "INDEX.md");
-  if (!existsSync(indexAbs)) {
-    throw new ModelFsError(`Paper not found: ${paperSlug}`, 404);
-  }
-  const parsed = matter(await readFile(indexAbs, "utf8"));
+  const { paperRel, parsed } = await readPaperIndex(modelRoot, paperSlug);
   const overleafPath = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
   if (!overleafPath) {
-    throw new ModelFsError("Paper has no overleaf_repo_path configured in INDEX.md", 400);
+    throw new ModelFsError(
+      "Paper is not connected to Overleaf. Use Export → Connect Overleaf first.",
+      400,
+    );
   }
   if (!existsSync(overleafPath)) {
     throw new ModelFsError(`Overleaf repo path does not exist: ${overleafPath}`, 404);
@@ -74,52 +262,40 @@ function extractTodoComments(tex: string): string[] {
   return [...found];
 }
 
-/** Copy exported .tex (+ .bib) into the paper's Overleaf Git Bridge clone and commit. */
+/** Copy modular export bundle into the paper's Overleaf Git Bridge clone and commit. */
 export async function pushToOverleaf(
   modelRoot: string,
   repoRoot: string,
   paperSlug: string,
   includeDrafts = false,
 ): Promise<OverleafPushResult> {
-  const paperRel = `papers/${paperSlug.trim()}`;
-  resolveModelPath(modelRoot, paperRel);
-  const indexAbs = path.join(modelRoot, paperRel, "INDEX.md");
-  if (!existsSync(indexAbs)) {
-    throw new ModelFsError(`Paper not found: ${paperSlug}`, 404);
-  }
-
-  const parsed = matter(await readFile(indexAbs, "utf8"));
+  const { parsed } = await readPaperIndex(modelRoot, paperSlug);
   const overleafPath = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
   if (!overleafPath) {
-    throw new ModelFsError("Paper has no overleaf_repo_path configured in INDEX.md", 400);
+    throw new ModelFsError(
+      "Paper is not connected to Overleaf. Use Export → Connect Overleaf first.",
+      400,
+    );
   }
   if (!existsSync(overleafPath)) {
     throw new ModelFsError(`Overleaf repo path does not exist: ${overleafPath}`, 404);
   }
 
-  const exportResult = await exportPaper(modelRoot, repoRoot, {
+  const bundle = await exportModularPaper(modelRoot, repoRoot, {
     paperSlug,
-    format: "latex",
     includeDrafts,
   });
 
-  const exportAbs = path.join(repoRoot, exportResult.path);
-  const bibSource = exportAbs.replace(/\.tex$/, ".bib");
-
-  await copyFile(exportAbs, path.join(overleafPath, "main.tex"));
-  if (existsSync(bibSource)) {
-    await copyFile(bibSource, path.join(overleafPath, "references.bib"));
-  }
+  const copied = await copyModularBundleToDir(repoRoot, bundle, overleafPath);
 
   let committed = false;
-  let message = "Copied main.tex to Overleaf repo";
+  let message = `Copied ${copied.length} files (main.tex, references.bib, sections/) to Overleaf repo`;
 
   try {
-    const filesToAdd = ["main.tex"];
-    if (existsSync(path.join(overleafPath, "references.bib"))) {
-      filesToAdd.push("references.bib");
+    await execFileAsync("git", ["-C", overleafPath, "add", "main.tex", "references.bib", "sections"]);
+    if (bundle.assetFiles.length > 0) {
+      await execFileAsync("git", ["-C", overleafPath, "add", ...bundle.assetFiles]);
     }
-    await execFileAsync("git", ["-C", overleafPath, "add", ...filesToAdd]);
     const { stdout } = await execFileAsync("git", ["-C", overleafPath, "status", "--porcelain"]);
     if (stdout.trim()) {
       await execFileAsync("git", [
@@ -130,10 +306,10 @@ export async function pushToOverleaf(
         "Sync from TreeWriter",
       ]);
       committed = true;
-      message = "Committed main.tex to Overleaf repo";
+      message = "Committed modular export to Overleaf repo";
       try {
         await execFileAsync("git", ["-C", overleafPath, "push"]);
-        message = "Pushed main.tex to Overleaf remote";
+        message = "Pushed modular export to Overleaf remote";
       } catch {
         message = "Committed locally; git push failed (check Overleaf remote credentials)";
       }
@@ -147,27 +323,42 @@ export async function pushToOverleaf(
     repoPath: overleafPath,
     committed,
     message,
-    exportPath: exportResult.path,
-    ...(exportResult.missingCitations?.length
-      ? { missingCitations: exportResult.missingCitations }
-      : {}),
+    exportPath: bundle.mainTex,
+    ...(bundle.missingCitations.length > 0 ? { missingCitations: bundle.missingCitations } : {}),
   };
 }
 
-/** Parse \\todo / TODO comments from main.tex and write feedback notes. */
+/** Parse \\todo / TODO comments from main.tex and section files; write feedback notes. */
 export async function importOverleafFeedback(
   modelRoot: string,
   paperSlug: string,
 ): Promise<OverleafImportResult> {
   const { overleafPath, paperRel } = await readOverleafRepoPath(modelRoot, paperSlug);
-  const texPath = path.join(overleafPath, "main.tex");
-  if (!existsSync(texPath)) {
+  const texPaths: string[] = [];
+  const mainPath = path.join(overleafPath, "main.tex");
+  if (existsSync(mainPath)) texPaths.push(mainPath);
+
+  const sectionsDir = path.join(overleafPath, "sections");
+  if (existsSync(sectionsDir)) {
+    const { readdir } = await import("node:fs/promises");
+    for (const file of await readdir(sectionsDir)) {
+      if (file.endsWith(".tex")) {
+        texPaths.push(path.join(sectionsDir, file));
+      }
+    }
+  }
+
+  if (texPaths.length === 0) {
     throw new ModelFsError("main.tex not found in Overleaf repo", 404);
   }
 
-  const tex = await readFile(texPath, "utf8");
-  const items = extractTodoComments(tex);
-  if (items.length === 0) {
+  const items = new Set<string>();
+  for (const texPath of texPaths) {
+    for (const item of extractTodoComments(await readFile(texPath, "utf8"))) {
+      items.add(item);
+    }
+  }
+  if (items.size === 0) {
     return { imported: 0, paths: [] };
   }
 
@@ -176,9 +367,9 @@ export async function importOverleafFeedback(
   const date = new Date().toISOString().slice(0, 10);
   const paths: string[] = [];
 
-  for (let i = 0; i < items.length; i++) {
+  for (let i = 0; i < items.size; i++) {
     const rel = `${paperRel}/notes/feedback/overleaf-${date}-${i + 1}.md`;
-    const body = `# Overleaf feedback\n\nImported from main.tex on ${date}.\n\n> ${items[i]}\n`;
+    const body = `# Overleaf feedback\n\nImported from Overleaf on ${date}.\n\n> ${[...items][i]}\n`;
     await writeFile(
       path.join(modelRoot, rel),
       matter.stringify(body, {

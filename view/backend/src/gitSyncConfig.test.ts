@@ -9,6 +9,7 @@ import {
   expandPathspecs,
   loadGitSyncConfig,
   otherRepoPathspecs,
+  saveGitSyncPreferences,
 } from "./gitSyncConfig.js";
 
 let repoRoot: string;
@@ -88,5 +89,27 @@ describe("loadGitSyncConfig", () => {
     );
     const config = await loadGitSyncConfig(repoRoot);
     expect(config.autoSync).toBe(false);
+  });
+
+  it("reads intervalMs from .treewriter.json", async () => {
+    await writeFile(
+      path.join(repoRoot, ".treewriter.json"),
+      JSON.stringify({ gitSync: { intervalMs: 3_600_000 } }),
+      "utf8",
+    );
+    const config = await loadGitSyncConfig(repoRoot);
+    expect(config.intervalMs).toBe(3_600_000);
+  });
+});
+
+describe("saveGitSyncPreferences", () => {
+  it("persists interval preset and normalizes unknown values", async () => {
+    await saveGitSyncPreferences(repoRoot, { intervalMs: 600_000 });
+    let config = await loadGitSyncConfig(repoRoot);
+    expect(config.intervalMs).toBe(600_000);
+
+    await saveGitSyncPreferences(repoRoot, { intervalMs: 999_999 });
+    config = await loadGitSyncConfig(repoRoot);
+    expect(config.intervalMs).toBe(120_000);
   });
 });

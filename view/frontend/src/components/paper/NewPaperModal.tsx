@@ -298,13 +298,16 @@ export function NewPaperModal({
                   </label>
 
                   <label className="block text-xs">
-                    <span className="mb-1 block font-medium">Overleaf repo path (optional)</span>
+                    <span className="mb-1 block font-medium">Overleaf (advanced)</span>
                     <input
                       className="h-8 w-full rounded-sm border border-border bg-background px-2 font-mono text-sm"
                       value={overleafRepoPath}
                       onChange={(e) => setOverleafRepoPath(e.target.value)}
-                      placeholder="/path/to/overleaf/project"
+                      placeholder="Local path — or use Export → Connect Overleaf"
                     />
+                    <span className="mt-1 block text-[11px] text-muted-foreground">
+                      Prefer connecting via <strong>Export → Connect Overleaf</strong> with your Git URL.
+                    </span>
                   </label>
                 </div>
               ) : null}

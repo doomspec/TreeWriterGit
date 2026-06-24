@@ -38,11 +38,10 @@ export function PendingApprovalChip({
 }) {
   const { summary } = usePendingChangesSummary(approvedBaseline, loadedContent, current);
 
-  if (!pendingSource) return null;
-
-  const Icon = pendingSource === "ai" || aiAssisted ? Bot : User;
+  const source = pendingSource ?? "human";
+  const Icon = source === "ai" || aiAssisted ? Bot : User;
   const handleLabel = formatPendingAuthorLabel({
-    pendingSource,
+    pendingSource: source,
     editedBy,
     aiAssisted,
     aiProvider,

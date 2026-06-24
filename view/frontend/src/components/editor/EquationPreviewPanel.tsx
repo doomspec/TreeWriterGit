@@ -69,7 +69,7 @@ export function EquationPreviewPanel({
   );
 
   return (
-    <div className="max-h-[45vh] shrink-0 overflow-auto border-t border-border bg-card">
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-card">
       <div className="grid gap-0 lg:grid-cols-2">
         <div className="border-b border-border px-4 py-3 lg:border-b-0 lg:border-r">
           <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">

@@ -94,4 +94,20 @@ Methods body.`;
     const reset = reconcileBlocks(initial, "A\n\nB", true);
     expect(reset[0].id).not.toBe(initial[0].id);
   });
+
+  it("keeps inline figure embeds in one paragraph block", () => {
+    const source = `(Fig.
+::figure[papers/vibecount/figures/fig1]
+). The user uploads images.`;
+    const blocks = splitMarkdownIntoBlocks(source);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].markdown).toContain("::figure[papers/vibecount/figures/fig1]");
+  });
+
+  it("splits standalone figure directives into their own block", () => {
+    const source = "Before.\n\n::figure[papers/vibecount/figures/fig1]\n\nAfter.";
+    const blocks = splitMarkdownIntoBlocks(source);
+    expect(blocks).toHaveLength(3);
+    expect(blocks[1].markdown).toBe("::figure[papers/vibecount/figures/fig1]");
+  });
 });

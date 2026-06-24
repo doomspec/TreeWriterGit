@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
+import type { SidebarPanel } from "@/lib/workspacePreferences";
 import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import { useCommandPalette } from "@/lib/CommandPaletteProvider";
 import type { AppCommand } from "@/lib/commandPaletteTypes";
@@ -19,6 +20,8 @@ export type AppCommandsContext = {
   showSectionViewBack: boolean;
   onSetAppView: (view: AppView) => void;
   onSetSidebarTab: (tab: WorkspaceNavTab) => void;
+  onSetSidebarPanel: (panel: SidebarPanel) => void;
+  onToggleSidebarPanel: () => void;
   onNavigateUp: () => void;
   onBack: () => void;
   onCreateChild: (kind: NodeKind) => void;
@@ -66,7 +69,7 @@ export function AppCommands(context: AppCommandsContext) {
         category: "Navigation",
         aliases: ["files", "model"],
         when: () => ctx().appView === "workspace",
-        run: () => ctx().onSetSidebarTab("explorer"),
+        run: () => ctx().onSetSidebarPanel("explorer"),
       },
       {
         id: "workspace.papers",
@@ -74,7 +77,39 @@ export function AppCommands(context: AppCommandsContext) {
         category: "Navigation",
         aliases: ["manuscript", "paper"],
         when: () => ctx().appView === "workspace",
-        run: () => ctx().onSetSidebarTab("papers"),
+        run: () => ctx().onSetSidebarPanel("papers"),
+      },
+      {
+        id: "sidebar.outline",
+        label: "Show document outline",
+        category: "Navigation",
+        aliases: ["headings", "table of contents", "toc"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("outline"),
+      },
+      {
+        id: "sidebar.graph",
+        label: "Show link graph",
+        category: "Navigation",
+        aliases: ["graph panel", "links"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("graph"),
+      },
+      {
+        id: "sidebar.export",
+        label: "Show export panel",
+        category: "Navigation",
+        aliases: ["export", "overleaf", "latex", "pdf", "download"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("export"),
+      },
+      {
+        id: "sidebar.toggle",
+        label: "Toggle sidebar panel",
+        category: "View",
+        aliases: ["collapse sidebar", "expand sidebar"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onToggleSidebarPanel(),
       },
       {
         id: "navigate.up",

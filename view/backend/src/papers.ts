@@ -37,6 +37,7 @@ export interface PaperDetail extends PaperSummary {
   targetWords: number;
   sectionOrder: string[];
   overleafRepoPath: string | null;
+  overleafGitUrl: string | null;
   sections: SectionRollup[];
   /** Unit approval rollups for every folder under the paper (sections, subsections, units). */
   containerCounts: Record<string, UnitStatusCounts>;
@@ -210,6 +211,18 @@ export async function collectContainerCounts(
 
   await walk(paperRel);
   return result;
+}
+
+export async function listPaperSections(
+  modelRoot: string,
+  paperRel: string,
+): Promise<Array<{ slug: string; path: string; title: string }>> {
+  const sections = await topLevelSections(modelRoot, paperRel);
+  return sections.map((section) => ({
+    slug: path.posix.basename(section.path),
+    path: section.path,
+    title: section.title,
+  }));
 }
 
 async function topLevelSections(modelRoot: string, paperRel: string): Promise<{ path: string; title: string }[]> {
@@ -510,6 +523,7 @@ export async function getPaperDetail(modelRoot: string, slug: string): Promise<P
   const targetWords = Number(data.target_words ?? 5000);
   const sectionOrder = paperSectionOrder(data);
   const overleafRepoPath = data.overleaf_repo_path ? String(data.overleaf_repo_path) : null;
+  const overleafGitUrl = data.overleaf_git_url ? String(data.overleaf_git_url) : null;
 
   const sections: SectionRollup[] = [];
   for (const section of await topLevelSections(modelRoot, paperRel)) {
@@ -530,6 +544,7 @@ export async function getPaperDetail(modelRoot: string, slug: string): Promise<P
     targetWords,
     sectionOrder,
     overleafRepoPath,
+    overleafGitUrl,
     sections,
     containerCounts,
     pendingApprovalPaths,

@@ -5,6 +5,7 @@ import type { Express } from "express";
 import { composeSectionView } from "../compose.js";
 import {
   approveDraftTarget,
+  approvePendingChildrenTarget,
   discardDraftTarget,
   findPendingAiProviderUnder,
   handleDraftFileSaved,
@@ -368,6 +369,25 @@ export function registerModelRoutes(app: Express, deps: ServerDeps) {
       }
       resolveModelPath(deps.modelRoot, pathParam);
       const result = await approveDraftTarget(deps.modelRoot, pathParam, approvedBy);
+      for (const rel of result.updated) {
+        deps.broadcastModelEvent({ type: "model-changed", path: rel });
+      }
+      response.json(result);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/model/draft-approve-children", async (request, response, next) => {
+    try {
+      const pathParam = String(request.body?.path ?? "");
+      const approvedBy = normalizeGitHubHandle(request.body?.approvedBy);
+      if (!pathParam) {
+        response.status(400).json({ error: "path is required" });
+        return;
+      }
+      resolveModelPath(deps.modelRoot, pathParam);
+      const result = await approvePendingChildrenTarget(deps.modelRoot, pathParam, approvedBy);
       for (const rel of result.updated) {
         deps.broadcastModelEvent({ type: "model-changed", path: rel });
       }

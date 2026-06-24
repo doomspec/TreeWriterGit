@@ -192,6 +192,32 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
     }
   }, []);
 
+  const waitForTerminalReady = useCallback((timeoutMs = 8000) => {
+    return new Promise<void>((resolve, reject) => {
+      const started = Date.now();
+      const poll = () => {
+        if (socketRef.current?.readyState === WebSocket.OPEN) {
+          resolve();
+          return;
+        }
+        if (Date.now() - started >= timeoutMs) {
+          reject(new Error("Terminal not connected — open the bottom panel and retry"));
+          return;
+        }
+        window.setTimeout(poll, 50);
+      };
+      poll();
+    });
+  }, []);
+
+  const sendToTerminalWhenReady = useCallback(
+    async (command: string) => {
+      await waitForTerminalReady();
+      sendToTerminal(command);
+    },
+    [sendToTerminal, waitForTerminalReady],
+  );
+
   const reconnectTerminal = useCallback(() => {
     const previousSessionId = loadTerminalSessionId();
     clearTerminalSessionId();
@@ -209,6 +235,8 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
     sessionKey,
     setSessionKey,
     sendToTerminal,
+    sendToTerminalWhenReady,
+    waitForTerminalReady,
     refitTerminal,
     reconnectTerminal,
   };

@@ -8,8 +8,71 @@
   display: grid;
   min-height: 0;
   min-width: 0;
-  grid-template-columns: var(--sidebar-width, 240px) 6px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-rail-width, 36px) var(--sidebar-width, 240px) 6px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.workspace-main--sidebar-collapsed {
+  grid-template-columns: var(--sidebar-rail-width, 36px) minmax(0, 1fr);
+}
+
+.workspace-sidebar-shell {
+  display: contents;
+}
+
+.workspace-sidebar-shell__panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: hsl(var(--sidebar-bg));
+  border-right: 1px solid hsl(var(--border));
+  container-type: inline-size;
+  container-name: sidebar-panel;
+}
+
+/* Section tree rows — keep titles visible when the sidebar is narrow */
+.section-tree-row {
+  position: relative;
+  min-width: 0;
+}
+
+.section-tree-row__nav {
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.section-tree-row__title {
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-tree-row__meta-menu {
+  display: none;
+}
+
+@container sidebar-panel (max-width: 280px) {
+  .section-tree-row__counts,
+  .section-tree-row__meta-label {
+    display: none;
+  }
+
+  .section-tree-row__meta-inline {
+    display: none !important;
+  }
+
+  .section-tree-row__meta-menu {
+    display: flex;
+    align-items: center;
+  }
+}
+
+.workspace-sidebar-shell__handle {
+  cursor: col-resize;
 }
 
 .workspace-main__sidebar {
@@ -26,6 +89,34 @@
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
+  grid-row: 1;
+}
+
+.workspace-main:not(.workspace-main--sidebar-collapsed) .workspace-main__main {
+  grid-column: 4;
+}
+
+.workspace-main--sidebar-collapsed .workspace-main__main {
+  grid-column: 2;
+}
+
+.workspace-sidebar-shell__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: 28px;
+  padding-inline: 4px;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--sidebar-bg));
+  grid-row: 2;
+}
+
+.workspace-main:not(.workspace-main--sidebar-collapsed) .workspace-sidebar-shell__bottom {
+  grid-column: 1 / 4;
+}
+
+.workspace-main--sidebar-collapsed .workspace-sidebar-shell__bottom {
+  grid-column: 1;
 }
 
 .workspace-main__handle {
@@ -34,8 +125,26 @@
 
 @media (max-width: 720px) {
   .workspace-main {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(140px, 22vh) minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-rail-width, 36px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .workspace-main--sidebar-collapsed {
+    grid-template-columns: var(--sidebar-rail-width, 36px) minmax(0, 1fr);
+  }
+
+  .workspace-sidebar-shell--open .workspace-sidebar-shell__panel {
+    position: absolute;
+    z-index: 40;
+    top: 0;
+    bottom: 0;
+    left: var(--sidebar-rail-width, 36px);
+    width: min(var(--sidebar-width, 240px), calc(100vw - 36px));
+    box-shadow: 4px 0 24px hsl(var(--foreground) / 0.08);
+  }
+
+  .workspace-sidebar-shell__handle {
+    display: none;
   }
 
   .workspace-main__handle {
@@ -44,7 +153,7 @@
 
   .workspace-main__sidebar {
     border-right: 0;
-    border-bottom: 1px solid hsl(var(--border));
+    border-bottom: 0;
   }
 }
 
@@ -214,6 +323,25 @@
   outline-offset: -2px;
 }
 
+.resizable-vertical-split {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, var(--vertical-split, 58%)) 6px minmax(0, 1fr);
+}
+
+.resizable-vertical-split__top,
+.resizable-vertical-split__bottom {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.resizable-vertical-split__handle {
+  cursor: row-resize;
+}
+
 .markdown-reading-edit {
   font-family: var(--reading-font-family);
   font-size: 1.05rem;
@@ -289,16 +417,20 @@
 
 /* Reading focus — hide chrome for minimalist editing (TypeMD-style) */
 .reading-focus-mode {
-  --reading-focus-nav-height: 2.5rem;
+  --reading-focus-nav-height: 2.75rem;
   --reading-focus-prose-width: 42rem;
   --reading-focus-graph-size: clamp(12rem, 26vmin, 18rem);
   --reading-focus-graph-gap: 0.75rem;
   --reading-focus-graph-shift: 2.5rem;
+  --reading-focus-outline-width: min(14rem, 30vw);
+  --reading-focus-outline-trigger: 14px;
 }
 
-.reading-focus-mode .app-chrome-header,
+.reading-focus-mode .workspace-sidebar-shell,
 .reading-focus-mode .workspace-main__sidebar,
 .reading-focus-mode .workspace-main__handle,
+.reading-focus-mode .workspace-sidebar-shell__handle,
+.reading-focus-mode .workspace-sidebar-shell__bottom,
 .reading-focus-mode .workspace-status-footer,
 .reading-focus-mode .bottom-panel-rail,
 .reading-focus-mode .bottom-panel {
@@ -307,13 +439,108 @@
 
 .reading-focus-mode .workspace-main {
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .reading-focus-mode .reading-focus-shell {
   padding-top: var(--reading-focus-nav-height);
 }
 
-.reading-focus-mode .workspace-main__main {
+.reading-focus-outline-gutter {
+  position: fixed;
+  left: 0;
+  top: var(--reading-focus-nav-height);
+  bottom: 0;
+  z-index: 45;
+  width: var(--reading-focus-outline-trigger);
+  overflow: visible;
+}
+
+.reading-focus-outline-gutter:hover,
+.reading-focus-outline-gutter:focus-within {
+  width: calc(var(--reading-focus-outline-width) + var(--reading-focus-outline-trigger));
+}
+
+.reading-focus-outline-trigger {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  width: var(--reading-focus-outline-trigger);
+  justify-content: center;
+  padding-top: 0.75rem;
+  background: linear-gradient(to right, hsl(var(--border) / 0.4), transparent);
+  pointer-events: auto;
+}
+
+.reading-focus-outline-trigger__icon {
+  color: hsl(var(--muted-foreground));
+  opacity: 0.45;
+  transition: opacity 150ms ease-out;
+}
+
+.reading-focus-outline-gutter:hover .reading-focus-outline-trigger__icon,
+.reading-focus-outline-gutter:focus-within .reading-focus-outline-trigger__icon {
+  opacity: 0;
+}
+
+.reading-focus-outline-panel {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  width: var(--reading-focus-outline-width);
+  min-width: 10rem;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  box-shadow: 2px 0 16px hsl(var(--foreground) / 0.08);
+  transform: translateX(-100%);
+  transition: transform 200ms ease-out, box-shadow 200ms ease-out;
+  pointer-events: auto;
+}
+
+.reading-focus-outline-gutter:hover .reading-focus-outline-panel,
+.reading-focus-outline-gutter:focus-within .reading-focus-outline-panel {
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reading-focus-outline-panel,
+  .reading-focus-outline-trigger__icon {
+    transition: none;
+  }
+}
+
+@media (hover: none) {
+  .reading-focus-outline-gutter {
+    width: calc(var(--reading-focus-outline-width) + var(--reading-focus-outline-trigger));
+  }
+
+  .reading-focus-outline-panel {
+    transform: translateX(0);
+  }
+
+  .reading-focus-outline-trigger {
+    display: none;
+  }
+}
+
+.reading-focus-shell__main {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.reading-focus-mode .workspace-main:not(.workspace-main--sidebar-collapsed) .workspace-main__main,
+.reading-focus-mode .workspace-main--sidebar-collapsed .workspace-main__main {
+  grid-column: 1;
+  grid-row: 1;
   padding-top: 0;
 }
 
@@ -482,22 +709,6 @@
   display: none !important;
 }
 
-.reading-focus-nav-bar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 50;
-  display: flex;
-  height: var(--reading-focus-nav-height);
-  align-items: center;
-  gap: 0.75rem;
-  border-bottom: 1px solid hsl(var(--border) / 0.8);
-  background: hsl(var(--card) / 0.96);
-  padding: 0 0.75rem;
-  backdrop-filter: blur(8px);
-}
-
 .reading-focus-approval-bar {
   position: static;
   flex-shrink: 0;
@@ -595,7 +806,7 @@
 
 .reading-focus-pane .block-markdown-editor__surface,
 .reading-focus-pane .block-markdown-editor__block,
-.reading-focus-pane .block-markdown-editor__block--editing,
+.reading-focus-pane .block-markdown-editor__block-surface,
 .reading-focus-pane .highlighting-textarea__input,
 .reading-focus-pane .highlighting-textarea__mirror {
   color: hsl(var(--foreground));

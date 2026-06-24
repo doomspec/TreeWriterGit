@@ -1,0 +1,237 @@
+import {
+  Bot,
+  CircleHelp,
+  Download,
+  FileStack,
+  FolderTree,
+  GitBranch,
+  ListTree,
+  Monitor,
+  Moon,
+  Network,
+  PanelLeft,
+  PanelLeftClose,
+  Settings,
+  Sun,
+  TerminalSquare,
+} from "lucide-react";
+
+import type { AppView } from "@/components/commands/AppCommands";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { formatGitSyncError, gitSyncHasError, type GitSyncState } from "@/lib/gitSync";
+import type { ThemePreference } from "@/lib/themePreferences";
+import type { SidebarPanel } from "@/lib/workspacePreferences";
+
+function gitSyncRailIconClass(gitSync: GitSyncState | null): string {
+  if (gitSync?.conflictDetected) return "text-destructive";
+  if (gitSync?.lastError) return "text-[hsl(var(--warning))]";
+  if (gitSync?.running) return "text-[hsl(var(--warning))]";
+  if (gitSync?.enabled) return "text-[hsl(var(--success))]";
+  return "text-muted-foreground";
+}
+
+const THEME_ICONS: Record<ThemePreference, typeof Sun> = {
+  light: Sun,
+  dark: Moon,
+  system: Monitor,
+};
+
+const THEME_LABELS: Record<ThemePreference, string> = {
+  light: "Light mode",
+  dark: "Dark mode",
+  system: "System theme",
+};
+
+const RAIL_ITEMS: {
+  id: SidebarPanel;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { id: "explorer", label: "Explorer", icon: FolderTree },
+  { id: "papers", label: "Papers", icon: FileStack },
+  { id: "graph", label: "Graph", icon: Network },
+  { id: "outline", label: "Document outline", icon: ListTree },
+  { id: "export", label: "Export & Overleaf", icon: Download },
+];
+
+export function SidebarIconRail({
+  activePanel,
+  panelOpen,
+  graphAvailable,
+  agentPanelOpen,
+  agentPanelFocus,
+  appView,
+  gitSync,
+  gitStatusLabel,
+  connectionState,
+  themePreference,
+  onSelectPanel,
+  onTogglePanel,
+  onOpenTerminalPanel,
+  onOpenDispatchPanel,
+  onGitClick,
+  onSetAppView,
+  onCycleTheme,
+  className,
+}: {
+  activePanel: SidebarPanel;
+  panelOpen: boolean;
+  graphAvailable: boolean;
+  agentPanelOpen: boolean;
+  agentPanelFocus: "terminal" | "dispatch" | null;
+  appView: AppView;
+  gitSync: GitSyncState | null;
+  gitStatusLabel: string;
+  connectionState: string;
+  themePreference: ThemePreference;
+  onSelectPanel: (panel: SidebarPanel) => void;
+  onTogglePanel: () => void;
+  onOpenTerminalPanel: () => void;
+  onOpenDispatchPanel: () => void;
+  onGitClick: () => void;
+  onSetAppView: (view: AppView) => void;
+  onCycleTheme: () => void;
+  className?: string;
+}) {
+  const gitTitle =
+    gitSync && gitSyncHasError(gitSync)
+      ? formatGitSyncError(gitSync)
+      : gitSync?.enabled
+        ? `Git: ${gitStatusLabel} (click to sync)`
+        : "Git sync disabled";
+
+  const ThemeIcon = THEME_ICONS[themePreference];
+
+  return (
+    <aside
+      className={cn(
+        "sidebar-icon-rail flex min-h-0 w-9 shrink-0 flex-col items-center gap-1 border-r border-border bg-[hsl(var(--sidebar-bg))] py-2",
+        className,
+      )}
+      aria-label="Sidebar navigation"
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cn("h-8 w-8", gitSyncRailIconClass(gitSync))}
+        title={gitTitle}
+        aria-label={gitTitle}
+        disabled={!gitSync?.enabled || gitSync?.running}
+        onClick={onGitClick}
+      >
+        <GitBranch className="h-4 w-4" aria-hidden="true" />
+      </Button>
+
+      <div className="my-0.5 h-px w-6 bg-border" aria-hidden="true" />
+
+      {RAIL_ITEMS.map(({ id, label, icon: Icon }) => {
+        if (id === "graph" && !graphAvailable) return null;
+        const active = appView === "workspace" && activePanel === id && panelOpen;
+        return (
+          <Button
+            key={id}
+            type="button"
+            variant={active ? "default" : "ghost"}
+            size="icon"
+            className="h-8 w-8"
+            title={label}
+            aria-label={label}
+            aria-pressed={active}
+            onClick={() => {
+              onSetAppView("workspace");
+              onSelectPanel(id);
+            }}
+          >
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        );
+      })}
+
+      <div className="mt-auto flex flex-col items-center gap-1 pt-2">
+        {!agentPanelOpen ? (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title={`Terminal (${connectionState})`}
+              aria-label={`Terminal (${connectionState})`}
+              onClick={onOpenTerminalPanel}
+            >
+              <TerminalSquare className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="AI dispatch"
+              aria-label="AI dispatch"
+              onClick={onOpenDispatchPanel}
+            >
+              <Bot className="h-4 w-4" aria-hidden="true" />
+            </Button>
+
+            <div className="my-0.5 h-px w-6 bg-border" aria-hidden="true" />
+          </>
+        ) : null}
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          title={`${THEME_LABELS[themePreference]} — click to change`}
+          aria-label={`Theme: ${themePreference}. Click to cycle.`}
+          onClick={onCycleTheme}
+        >
+          <ThemeIcon className="h-4 w-4" aria-hidden="true" />
+        </Button>
+        <Button
+          type="button"
+          variant={appView === "info" ? "default" : "ghost"}
+          size="icon"
+          className="h-8 w-8"
+          title="Guide & shortcuts"
+          aria-label="Guide and shortcuts"
+          aria-pressed={appView === "info"}
+          onClick={() => onSetAppView(appView === "info" ? "workspace" : "info")}
+        >
+          <CircleHelp className="h-4 w-4" aria-hidden="true" />
+        </Button>
+        <Button
+          type="button"
+          variant={appView === "settings" ? "default" : "ghost"}
+          size="icon"
+          className="h-8 w-8"
+          title="Settings"
+          aria-label="Settings"
+          aria-pressed={appView === "settings"}
+          onClick={() => onSetAppView(appView === "settings" ? "workspace" : "settings")}
+        >
+          <Settings className="h-4 w-4" aria-hidden="true" />
+        </Button>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          title={panelOpen ? "Collapse sidebar panel" : "Expand sidebar panel"}
+          aria-label={panelOpen ? "Collapse sidebar panel" : "Expand sidebar panel"}
+          aria-pressed={panelOpen}
+          onClick={onTogglePanel}
+        >
+          {panelOpen ? (
+            <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <PanelLeft className="h-4 w-4" aria-hidden="true" />
+          )}
+        </Button>
+      </div>
+    </aside>
+  );
+}

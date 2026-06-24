@@ -4,13 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import matter from "gray-matter";
 
+import { buildBibliography, buildCombinedMarkdown, buildSectionMarkdown, exportPaper, extractCiteKeys, findMissingCitations, formatSectionOutlineNoteForExport, resolveCslPath } from "./export.js";
 import {
-  buildBibliography,
-  buildCombinedMarkdown,
-  extractCiteKeys,
-  findMissingCitations,
-  resolveCslPath,
-} from "./export.js";
+  buildHighlightColorLatexPreamble,
+  prepareMarkdownForLatexExport,
+} from "./exportMarkdown.js";
 
 let root: string;
 
@@ -147,6 +145,37 @@ describe("buildCombinedMarkdown", () => {
     );
     const { unitCount } = await buildCombinedMarkdown(root, "papers/demo", false);
     expect(unitCount).toBe(0);
+  });
+
+  it("skips unit outlines when includeUnitOutlines is false", async () => {
+    await seedPaper();
+    await writeFile(path.join(root, "papers/demo/introduction/claim/draft.md"), "", "utf8");
+    await writeFile(
+      path.join(root, "papers/demo/introduction/claim/outline.md"),
+      "# Claim\n\nUnit outline only.\n",
+      "utf8",
+    );
+    const { markdown, unitCount } = await buildSectionMarkdown(
+      root,
+      "papers/demo/introduction",
+      "Introduction",
+      true,
+      { includeUnitOutlines: false },
+    );
+    expect(unitCount).toBe(0);
+    expect(markdown).not.toContain("Unit outline only");
+  });
+});
+
+describe("formatSectionOutlineNoteForExport", () => {
+  it("wraps section outline text in a LaTeX planning-note block", () => {
+    const note = formatSectionOutlineNoteForExport(
+      "## Summary\n\n- Planning bullet\n\n## Outline\n\n- [Background](background/INDEX.md)\n",
+    );
+    expect(note).toContain("\\begin{sectionoutline}");
+    expect(note).toContain("Planning bullet");
+    expect(note).toContain("Background");
+    expect(note).not.toContain("background/INDEX.md");
   });
 });
 

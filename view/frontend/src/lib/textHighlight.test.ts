@@ -6,10 +6,13 @@ import {
   enhanceTextHighlightBadges,
   hasTextHighlightMacros,
   isPendingTrackChangeHtml,
+  normalizeTextHighlightMacros,
   parseTextHighlightCodeSpan,
+  hasRawTextHighlights,
   preprocessTextHighlightsForMarkdown,
   replaceTextHighlightMacrosInHtml,
   restoreTextHighlightsFromMarkdown,
+  splitRawMirrorLine,
   wrapTextHighlight,
 } from "./textHighlight";
 import { editableHtmlToMarkdown, markdownToEditableHtml, renderBlockDisplayHtml } from "./markdownRoundtrip";
@@ -38,6 +41,49 @@ describe("textHighlight", () => {
   it("restores highlight macros after html roundtrip", () => {
     const input = "Text `⟦hl:green:claim⟧` here.";
     expect(restoreTextHighlightsFromMarkdown(input)).toBe("Text \\hl{green}{claim} here.");
+  });
+
+  it("restores corrupted highlight code spans", () => {
+    const input = "Text `[hl:yellow:claim]` here.";
+    expect(restoreTextHighlightsFromMarkdown(input)).toBe("Text \\hl{yellow}{claim} here.");
+  });
+
+  it("normalizes double-escaped and split-word highlight macros", () => {
+    const corrupted = "Supp\\\\hl{yellow}{lementary Information should} contain";
+    expect(normalizeTextHighlightMacros(corrupted)).toBe(
+      "\\hl{yellow}{Supplementary Information should} contain",
+    );
+  });
+
+  it("wraps bare encoded highlight spans for markdown preview", () => {
+    const input = "Supp⟦hl:yellow:lementary Information should⟧ contain";
+    expect(preprocessTextHighlightsForMarkdown(input)).toBe(
+      "Supp`⟦hl:yellow:lementary Information should⟧` contain",
+    );
+  });
+
+  it("renders corrupted supplementary-information highlight", () => {
+    const corrupted = "Supp\\\\hl{yellow}{lementary Information should} contain supporting material.";
+    const html = renderBlockDisplayHtml(corrupted);
+    expect(html).toContain("text-highlight-yellow");
+    expect(html).toContain("Supplementary Information should");
+    expect(html).not.toContain("\\\\hl");
+  });
+
+  it("detects raw text highlights in markdown", () => {
+    expect(hasRawTextHighlights("\\hl{yellow}{term}")).toBe(true);
+    expect(hasRawTextHighlights("Text `[hl:yellow:term]`")).toBe(true);
+    expect(hasRawTextHighlights("plain text")).toBe(false);
+  });
+
+  it("splits raw mirror lines with colored inner text", () => {
+    expect(splitRawMirrorLine("Read \\hl{yellow}{this} now.")).toEqual([
+      { text: "Read " },
+      { text: "\\hl{yellow}{" },
+      { text: "this", highlightColor: "yellow" },
+      { text: "}" },
+      { text: " now." },
+    ]);
   });
 
   it("applies highlight to a selection", () => {

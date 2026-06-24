@@ -1,22 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { resolvePendingSourceOnEdit } from "@/lib/useDraftAutosave";
+import { resolvePendingSourceOnEdit, showSessionApprovalChrome } from "@/lib/useDraftAutosave";
 
 describe("resolvePendingSourceOnEdit", () => {
   it("returns null when approval is not required", () => {
-    expect(resolvePendingSourceOnEdit("ai", true, false)).toBeNull();
+    expect(resolvePendingSourceOnEdit("ai", true, false, true)).toBeNull();
   });
 
   it("returns null when content matches approved baseline", () => {
-    expect(resolvePendingSourceOnEdit("human", false, true)).toBeNull();
+    expect(resolvePendingSourceOnEdit("human", false, true, true)).toBeNull();
   });
 
   it("keeps ai source sticky while pending", () => {
-    expect(resolvePendingSourceOnEdit("ai", true, true)).toBe("ai");
+    expect(resolvePendingSourceOnEdit("ai", true, true, false)).toBe("ai");
   });
 
-  it("defaults to human for pending human edits", () => {
-    expect(resolvePendingSourceOnEdit(null, true, true)).toBe("human");
-    expect(resolvePendingSourceOnEdit("human", true, true)).toBe("human");
+  it("defaults to human only after a session edit", () => {
+    expect(resolvePendingSourceOnEdit(null, true, true, false)).toBeNull();
+    expect(resolvePendingSourceOnEdit(null, true, true, true)).toBe("human");
+    expect(resolvePendingSourceOnEdit("human", true, true, false)).toBe("human");
+  });
+});
+
+describe("showSessionApprovalChrome", () => {
+  it("hides chrome for disk-only pending state", () => {
+    expect(showSessionApprovalChrome(true, false, null)).toBe(false);
+  });
+
+  it("shows chrome while editing or after a session edit", () => {
+    expect(showSessionApprovalChrome(true, true, null)).toBe(true);
+    expect(showSessionApprovalChrome(true, false, "human")).toBe(true);
+    expect(showSessionApprovalChrome(true, false, "ai")).toBe(true);
   });
 });

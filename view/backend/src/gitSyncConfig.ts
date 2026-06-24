@@ -1,6 +1,11 @@
 import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 
+import {
+  DEFAULT_GIT_SYNC_INTERVAL_MS,
+  normalizeGitSyncIntervalMs,
+} from "./intervalPresets.js";
+
 export type GitSyncConfig = {
   /** Git sync feature available (env kill switch). */
   enabled: boolean;
@@ -49,7 +54,9 @@ export function otherRepoPathspecs(commitPaths: string[], excludePaths: string[]
 
 export async function loadGitSyncConfig(repoRoot: string): Promise<GitSyncConfig> {
   const enabled = process.env.GIT_SYNC_ENABLED !== "false";
-  const intervalMs = Number(process.env.GIT_SYNC_INTERVAL_MS ?? 120_000);
+  let intervalMs = normalizeGitSyncIntervalMs(
+    Number(process.env.GIT_SYNC_INTERVAL_MS ?? DEFAULT_GIT_SYNC_INTERVAL_MS),
+  );
   let autoSync = process.env.GIT_SYNC_AUTO !== "false";
   let commitPaths = [...DEFAULT_COMMIT_PATHS];
   let excludePaths = [...DEFAULT_EXCLUDE_PATHS];
@@ -59,12 +66,16 @@ export async function loadGitSyncConfig(repoRoot: string): Promise<GitSyncConfig
     const parsed = JSON.parse(raw) as {
       gitSync?: {
         autoSync?: boolean;
+        intervalMs?: number;
         commitPaths?: string[];
         excludePaths?: string[];
       };
     };
     if (typeof parsed.gitSync?.autoSync === "boolean") {
       autoSync = parsed.gitSync.autoSync;
+    }
+    if (typeof parsed.gitSync?.intervalMs === "number" && Number.isFinite(parsed.gitSync.intervalMs)) {
+      intervalMs = normalizeGitSyncIntervalMs(parsed.gitSync.intervalMs);
     }
     if (Array.isArray(parsed.gitSync?.commitPaths) && parsed.gitSync.commitPaths.length > 0) {
       commitPaths = parsed.gitSync.commitPaths;
@@ -86,7 +97,7 @@ export async function loadGitSyncConfig(repoRoot: string): Promise<GitSyncConfig
 
 export async function saveGitSyncPreferences(
   repoRoot: string,
-  patch: { autoSync?: boolean },
+  patch: { autoSync?: boolean; intervalMs?: number },
 ): Promise<void> {
   const configPath = path.join(repoRoot, ".treewriter.json");
   let parsed: Record<string, unknown> = {};
@@ -101,6 +112,9 @@ export async function saveGitSyncPreferences(
       : {};
   if (patch.autoSync !== undefined) {
     gitSync.autoSync = patch.autoSync;
+  }
+  if (patch.intervalMs !== undefined) {
+    gitSync.intervalMs = normalizeGitSyncIntervalMs(patch.intervalMs);
   }
   parsed.gitSync = gitSync;
   await writeFile(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");

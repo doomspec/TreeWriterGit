@@ -1,6 +1,8 @@
+import { memo } from "react";
+
 import { FigureCard } from "@/components/editor/FigureCard";
 
-export function FigurePreviewPanel({
+export const FigurePreviewPanel = memo(function FigurePreviewPanel({
   unitPath,
   refreshVersion,
   liveCaption,
@@ -16,7 +18,7 @@ export function FigurePreviewPanel({
   onError?: (message: string) => void;
 }) {
   return (
-    <div className="max-h-[40vh] shrink-0 overflow-auto border-t border-border bg-card px-4 py-3">
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto bg-card px-4 py-3">
       <FigureCard
         targetPath={unitPath}
         refreshVersion={refreshVersion}
@@ -27,4 +29,4 @@ export function FigurePreviewPanel({
       />
     </div>
   );
-}
+});

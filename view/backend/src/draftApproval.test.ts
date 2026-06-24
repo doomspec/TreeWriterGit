@@ -6,7 +6,9 @@ import matter from "gray-matter";
 
 import {
   approveDraftTarget,
+  approvePendingChildrenTarget,
   collectPendingApprovalPaths,
+  isChildApprovalFilePath,
   discardDraftTarget,
   draftsMatchApproved,
   handleDraftFileSaved,
@@ -133,6 +135,31 @@ describe("draftApproval", () => {
     expect(await readFile(path.join(modelRoot, outlineRel), "utf8")).toBe("Approved outline.\n");
     const meta = await readOutlineEditMeta(modelRoot, "papers/demo/unit-a");
     expect(meta.aiAssisted).toBe(false);
+  });
+
+  it("isChildApprovalFilePath excludes the section's own draft and outline", () => {
+    const section = "papers/demo/intro";
+    expect(isChildApprovalFilePath(section, "papers/demo/intro/draft.md")).toBe(false);
+    expect(isChildApprovalFilePath(section, "papers/demo/intro/outline.md")).toBe(false);
+    expect(isChildApprovalFilePath(section, "papers/demo/intro/u1/draft.md")).toBe(true);
+    expect(isChildApprovalFilePath(section, "papers/demo/intro/u1/outline.md")).toBe(true);
+  });
+
+  it("approvePendingChildrenTarget approves pending child drafts and outlines only", async () => {
+    await createNode(modelRoot, "papers/demo", "intro", "section");
+    await createNode(modelRoot, "papers/demo/intro", "u1", "unit");
+    await createNode(modelRoot, "papers/demo/intro", "u2", "unit");
+    const childDraft = "papers/demo/intro/u1/draft.md";
+    const childOutline = "papers/demo/intro/u2/outline.md";
+    await writeFile(path.join(modelRoot, childDraft), "Child draft.\n", "utf8");
+    await writeFile(path.join(modelRoot, childOutline), "Child outline.\n", "utf8");
+    await writeFile(path.join(modelRoot, "papers/demo/intro/draft.md"), "Section draft.\n", "utf8");
+
+    const result = await approvePendingChildrenTarget(modelRoot, "papers/demo/intro", "reviewer");
+    expect(result.updated).toContain("papers/demo/intro/u1/draft.approved.md");
+    expect(result.updated).toContain("papers/demo/intro/u2/outline.approved.md");
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/intro/u1")).toBe(true);
+    expect(await outlinesMatchApproved(modelRoot, "papers/demo/intro/u2")).toBe(true);
   });
 
   it("approveDraftTarget approves all child drafts under a section path", async () => {

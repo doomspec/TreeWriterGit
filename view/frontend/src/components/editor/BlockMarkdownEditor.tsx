@@ -9,15 +9,20 @@ import {
   forwardRef,
 } from "react";
 
-import { markdownToEditableHtml, editableHtmlToMarkdown, renderBlockDisplayHtml } from "@/lib/markdownRoundtrip";
+import { editableHtmlToMarkdown, renderBlockDisplayHtml } from "@/lib/markdownRoundtrip";
 import { hasTextHighlightMacros } from "@/lib/textHighlight";
+import { resolveMarkdownSelectionRange } from "@/lib/markdownVisibleSelection";
+import { EquationCard } from "@/components/editor/EquationCard";
+import { FigureCard } from "@/components/editor/FigureCard";
+import { parseEmbedBlock, listInlineFigureEmbedPaths, replaceInlineFigureEmbedsWithRefs } from "@/lib/embedBlocks";
 import {
   joinMarkdownBlocks,
   reconcileBlocks,
   splitMarkdownIntoBlocks,
   type MarkdownBlock,
 } from "@/lib/markdownBlocks";
-import { continueListOnEnter } from "@/lib/listAutocomplete";
+import { buildBlockHeadingIdMap } from "@/lib/markdownOutline";
+import { continueListOnEnter, isSelectionInListItem } from "@/lib/listAutocomplete";
 import {
   alignBaselineBlocksToCurrent,
   applyPendingMarksToMarkdown,
@@ -41,10 +46,10 @@ function tryNavigateFromLink(
   if (!anchor) return false;
   const href = anchor.getAttribute("href");
   if (!href || href.startsWith("http://") || href.startsWith("https://")) return false;
-  event.preventDefault();
-  event.stopPropagation();
   const target = resolveNavigateTarget(linkContextPath, href);
   if (!target) return false;
+  event.preventDefault();
+  event.stopPropagation();
   onNavigate(target);
   return true;
 }
@@ -53,25 +58,58 @@ function renderBlockHtml(markdown: string): string {
   return renderBlockDisplayHtml(markdown);
 }
 
-function readMarkdownFromBlockElement(element: HTMLElement, richEdit: boolean): string {
-  if (richEdit || element.querySelector(".text-highlight-badge")) {
-    return editableHtmlToMarkdown(element.innerHTML);
-  }
-  return element.innerText.replace(/\u200b/gi, "").trimEnd();
+function readMarkdownFromBlockElement(element: HTMLElement): string {
+  return editableHtmlToMarkdown(element.innerHTML);
 }
 
-function textOffsetFromPoint(container: HTMLElement, x: number, y: number): number {
-  const doc = document;
+function textOffsetBeforeSelection(container: HTMLElement): number | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!container.contains(range.startContainer)) return null;
+  const preRange = range.cloneRange();
+  preRange.selectNodeContents(container);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  return preRange.toString().length;
+}
+
+function textOffsetFromPoint(container: HTMLElement, x: number, y: number): number | null {
+  const doc = container.ownerDocument;
+  let range: Range | null = null;
   if (doc.caretRangeFromPoint) {
-    const range = doc.caretRangeFromPoint(x, y);
-    if (range && container.contains(range.startContainer)) {
-      const preRange = range.cloneRange();
-      preRange.selectNodeContents(container);
-      preRange.setEnd(range.startContainer, range.startOffset);
-      return preRange.toString().length;
+    range = doc.caretRangeFromPoint(x, y);
+  } else {
+    const caretPositionFromPoint = (
+      doc as Document & {
+        caretPositionFromPoint?: (
+          clientX: number,
+          clientY: number,
+        ) => { offsetNode: Node; offset: number } | null;
+      }
+    ).caretPositionFromPoint;
+    const position = caretPositionFromPoint?.(x, y);
+    if (position) {
+      range = doc.createRange();
+      range.setStart(position.offsetNode, position.offset);
+      range.collapse(true);
     }
   }
-  return 0;
+  if (!range || !container.contains(range.startContainer)) return null;
+  const preRange = range.cloneRange();
+  preRange.selectNodeContents(container);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  return preRange.toString().length;
+}
+
+function blockMarkdownForRender(markdown: string): string {
+  if (!parseEmbedBlock(markdown) && listInlineFigureEmbedPaths(markdown).length > 0) {
+    return replaceInlineFigureEmbedsWithRefs(markdown).markdown;
+  }
+  return markdown;
+}
+
+function blockHydrationKey(markdown: string, html: string): string {
+  return `${markdown}\0${html}`;
 }
 
 function setTextCursorAtOffset(element: HTMLElement, offset: number): void {
@@ -102,38 +140,37 @@ function setTextCursorAtOffset(element: HTMLElement, offset: number): void {
   selection.addRange(range);
 }
 
-function selectionOffsets(element: HTMLElement): { start: number; end: number } | null {
+function findBlockIdForSelection(surface: HTMLElement): string | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
-  const range = selection.getRangeAt(0);
-  if (!element.contains(range.commonAncestorContainer)) return null;
-
-  const startRange = range.cloneRange();
-  startRange.selectNodeContents(element);
-  startRange.setEnd(range.startContainer, range.startOffset);
-  const endRange = range.cloneRange();
-  endRange.selectNodeContents(element);
-  endRange.setEnd(range.endContainer, range.endOffset);
-
-  return {
-    start: startRange.toString().length,
-    end: endRange.toString().length,
-  };
+  const node = selection.anchorNode;
+  const anchor = node instanceof Element ? node : node?.parentElement;
+  const block = anchor?.closest("[data-block-id]") as HTMLElement | null;
+  if (!block || !surface.contains(block)) return null;
+  return block.getAttribute("data-block-id");
 }
 
-export type BlockMarkdownEditorHandle = {
-  /** Apply a format transform to the active editing block selection. */
-  applyToActiveBlock: (
-    transform: (value: string, start: number, end: number) => {
-      value: string;
-      selectionStart: number;
-      selectionEnd: number;
-    },
-  ) => boolean;
-  isBlockEditing: () => boolean;
+type FormatTransform = (
+  value: string,
+  start: number,
+  end: number,
+) => {
+  value: string;
+  selectionStart: number;
+  selectionEnd: number;
 };
 
-/** MarkTwo-style block editor — rendered blocks toggle to raw markdown on focus. */
+export type BlockMarkdownEditorHandle = {
+  /** Apply a format transform to the active block selection. */
+  applyToActiveBlock: (transform: FormatTransform) => boolean;
+  /** Apply a format transform to the current rendered-block selection. */
+  applyToRenderedSelection: (transform: FormatTransform) => boolean;
+  isBlockEditing: () => boolean;
+  /** Insert asset markdown at the last cursor position, or append a new block. */
+  insertSnippet: (snippet: string) => boolean;
+};
+
+/** Block editor — always-on WYSIWYG contenteditable blocks (no raw-markdown toggle). */
 export const BlockMarkdownEditor = forwardRef<
   BlockMarkdownEditorHandle,
   {
@@ -149,6 +186,7 @@ export const BlockMarkdownEditor = forwardRef<
     linkContextPath?: string;
     linksClickable?: boolean;
     onNavigate?: (target: NavigateTarget) => void;
+    refreshVersion?: number;
     inputRef?: React.RefObject<HTMLTextAreaElement | null>;
     approvedBaseline?: string;
     loadedContent?: string;
@@ -179,6 +217,7 @@ export const BlockMarkdownEditor = forwardRef<
     linkContextPath = "",
     linksClickable = false,
     onNavigate,
+    refreshVersion = 0,
     inputRef,
     approvedBaseline = "",
     loadedContent = "",
@@ -191,14 +230,20 @@ export const BlockMarkdownEditor = forwardRef<
   const mirrorRef = inputRef ?? localMirrorRef;
   const lastEmittedRef = useRef(value);
   const debounceTimerRef = useRef<number | null>(null);
-  const activeEditRef = useRef<HTMLDivElement | null>(null);
-  const pendingCursorRef = useRef<{ blockId: string; offset: number } | null>(null);
-  const richEditBlockIdRef = useRef<string | null>(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const blockRefs = useRef(new Map<string, HTMLDivElement>());
+  const focusedBlockIdRef = useRef<string | null>(null);
+  const editedDuringFocusRef = useRef(false);
+  const lastInsertBlockIdRef = useRef<string | null>(null);
+  const lastInsertRangeRef = useRef<{ start: number; end: number } | null>(null);
+  const hydratedMarkdownRef = useRef(new Map<string, string>());
+  const pendingFocusCursorRef = useRef<{ blockId: string; offset: number | null } | null>(null);
   const blocksRef = useRef<MarkdownBlock[]>([]);
 
   const [blocks, setBlocks] = useState<MarkdownBlock[]>(() => splitMarkdownIntoBlocks(value));
   blocksRef.current = blocks;
-  const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  const blockHeadingIds = useMemo(() => buildBlockHeadingIdMap(blocks), [blocks]);
+  const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
   const [remotePending, setRemotePending] = useState(false);
 
   const syncMirror = useCallback(
@@ -243,25 +288,11 @@ export const BlockMarkdownEditor = forwardRef<
 
   const commitBlocks = useCallback(
     (nextBlocks: MarkdownBlock[], immediate = false) => {
+      if (focusedBlockIdRef.current !== null) {
+        editedDuringFocusRef.current = true;
+      }
       setBlocks(nextBlocks);
       flushToParent(joinMarkdownBlocks(nextBlocks), immediate);
-    },
-    [flushToParent],
-  );
-
-  const updateBlockFromElement = useCallback(
-    (blockId: string, element: HTMLElement, immediate = false) => {
-      const markdown = readMarkdownFromBlockElement(
-        element,
-        richEditBlockIdRef.current === blockId,
-      );
-      setBlocks((prev) => {
-        const next = prev.map((block) =>
-          block.id === blockId ? { ...block, markdown } : block,
-        );
-        flushToParent(joinMarkdownBlocks(next), immediate);
-        return next;
-      });
     },
     [flushToParent],
   );
@@ -275,7 +306,7 @@ export const BlockMarkdownEditor = forwardRef<
   }, []);
 
   useLayoutEffect(() => {
-    if (editingBlockId !== null) {
+    if (focusedBlockIdRef.current !== null) {
       if (value !== lastEmittedRef.current) {
         setRemotePending(true);
       }
@@ -287,67 +318,149 @@ export const BlockMarkdownEditor = forwardRef<
     lastEmittedRef.current = value;
     syncMirror(value);
     setRemotePending(false);
-  }, [editingBlockId, syncMirror, value]);
+  }, [syncMirror, value]);
+
+  const changedBlockIds = useMemo(() => {
+    if (!highlightPending || !pendingApproval) return new Set<string>();
+    const effectiveBaseline = effectivePendingHighlightBaseline(approvedBaseline, loadedContent);
+    const aligned = alignBaselineBlocksToCurrent(effectiveBaseline, blocks);
+    const ids = new Set<string>();
+    for (const block of blocks) {
+      const baselineBlock = aligned.get(block.id) ?? "";
+      if (baselineBlock !== block.markdown) ids.add(block.id);
+    }
+    return ids;
+  }, [approvedBaseline, blocks, highlightPending, loadedContent, pendingApproval]);
+
+  const reviewMode = highlightPending && Boolean(pendingApproval);
+
+  const baselineByBlockId = useMemo(() => {
+    if (!reviewMode) return new Map<string, string>();
+    const effectiveBaseline = effectivePendingHighlightBaseline(approvedBaseline, loadedContent);
+    return alignBaselineBlocksToCurrent(effectiveBaseline, blocks);
+  }, [approvedBaseline, blocks, loadedContent, reviewMode]);
+
+  const blockHtmlById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const block of blocks) {
+      const isFocused = focusedBlockId === block.id;
+      let markdownForRender = block.markdown;
+      if (!parseEmbedBlock(block.markdown) && listInlineFigureEmbedPaths(block.markdown).length > 0) {
+        markdownForRender = replaceInlineFigureEmbedsWithRefs(block.markdown).markdown;
+      }
+      if (reviewMode && !isFocused && changedBlockIds.has(block.id)) {
+        const baselineBlock = baselineByBlockId.get(block.id) ?? "";
+        const highlighted =
+          applyPendingMarksToMarkdown(baselineBlock, block.markdown) ?? block.markdown;
+        let highlightedForRender = highlighted;
+        if (!parseEmbedBlock(highlighted) && listInlineFigureEmbedPaths(highlighted).length > 0) {
+          highlightedForRender = replaceInlineFigureEmbedsWithRefs(highlighted).markdown;
+        }
+        map.set(block.id, renderBlockHtml(highlightedForRender));
+      } else {
+        map.set(block.id, renderBlockHtml(markdownForRender));
+      }
+    }
+    return map;
+  }, [baselineByBlockId, blocks, changedBlockIds, focusedBlockId, reviewMode]);
+
+  const hydrateBlock = useCallback((blockId: string, html: string, markdownKey: string) => {
+    const element = blockRefs.current.get(blockId);
+    if (!element) return;
+    if (hydratedMarkdownRef.current.get(blockId) === markdownKey) return;
+    element.innerHTML = html || "\u200b";
+    hydratedMarkdownRef.current.set(blockId, markdownKey);
+  }, []);
 
   useLayoutEffect(() => {
-    if (!editingBlockId || !activeEditRef.current) return;
-    const block = blocksRef.current.find((item) => item.id === editingBlockId);
-    if (!block) return;
-
-    const element = activeEditRef.current;
-    const markdown = block.markdown || "";
-    if (hasTextHighlightMacros(markdown)) {
-      element.innerHTML = markdownToEditableHtml(markdown) || "\u200b";
-      richEditBlockIdRef.current = editingBlockId;
-    } else {
-      element.textContent = markdown || "\u200b";
-      richEditBlockIdRef.current = null;
+    for (const block of blocks) {
+      const html = blockHtmlById.get(block.id) ?? "";
+      const markdownKey = blockHydrationKey(block.markdown, html);
+      if (focusedBlockIdRef.current === block.id) continue;
+      hydrateBlock(block.id, html, markdownKey);
     }
-    element.focus();
+  }, [blockHtmlById, blocks, hydrateBlock]);
 
-    const pending = pendingCursorRef.current;
-    if (pending && pending.blockId === editingBlockId) {
-      setTextCursorAtOffset(element, pending.offset);
-    } else {
-      setTextCursorAtOffset(element, element.textContent?.length ?? 0);
-    }
-    pendingCursorRef.current = null;
-  }, [editingBlockId]);
-
-  const enterEditMode = useCallback(
-    (blockId: string, event: React.MouseEvent<HTMLElement>) => {
-      if (editingBlockId === blockId) return;
-
-      if (editingBlockId && activeEditRef.current) {
-        updateBlockFromElement(editingBlockId, activeEditRef.current, true);
-      }
-
-      const target = event.currentTarget;
-      pendingCursorRef.current = {
-        blockId,
-        offset: textOffsetFromPoint(target, event.clientX, event.clientY),
-      };
-      setEditingBlockId(blockId);
+  const updateBlockFromElement = useCallback(
+    (blockId: string, element: HTMLElement, immediate = false) => {
+      const markdown = readMarkdownFromBlockElement(element);
+      hydratedMarkdownRef.current.set(blockId, markdown);
+      setBlocks((prev) => {
+        const next = prev.map((block) =>
+          block.id === blockId ? { ...block, markdown } : block,
+        );
+        flushToParent(joinMarkdownBlocks(next), immediate);
+        return next;
+      });
     },
-    [editingBlockId, updateBlockFromElement],
+    [flushToParent],
   );
 
-  const exitEditMode = useCallback(
-    (blockId: string, element: HTMLElement) => {
-      updateBlockFromElement(blockId, element, true);
-      richEditBlockIdRef.current = null;
-      setEditingBlockId(null);
-      activeEditRef.current = null;
+  const rememberInsertPoint = useCallback((blockId: string, element: HTMLElement) => {
+    const block = blocksRef.current.find((item) => item.id === blockId);
+    if (!block) return;
+    const range = resolveMarkdownSelectionRange(element, block.markdown);
+    lastInsertBlockIdRef.current = blockId;
+    lastInsertRangeRef.current = range ?? {
+      start: block.markdown.length,
+      end: block.markdown.length,
+    };
+  }, []);
+
+  const insertSnippet = useCallback(
+    (snippet: string): boolean => {
+      const trimmed = snippet.trim();
+      if (!trimmed) return false;
+
+      editedDuringFocusRef.current = true;
+      const blockId = focusedBlockIdRef.current ?? lastInsertBlockIdRef.current;
+      const blockIndex = blockId
+        ? blocksRef.current.findIndex((item) => item.id === blockId)
+        : -1;
+
+      if (blockId && blockIndex >= 0) {
+        const block = blocksRef.current[blockIndex];
+        const range = lastInsertRangeRef.current ?? {
+          start: block.markdown.length,
+          end: block.markdown.length,
+        };
+        const isBlockEmbed = /^::(figure|equation)\[/.test(trimmed);
+
+        if (isBlockEmbed && range.start === range.end) {
+          const nextBlocks = [...blocksRef.current];
+          nextBlocks.splice(blockIndex + 1, 0, {
+            id: `blk-${Date.now()}`,
+            markdown: trimmed,
+          });
+          commitBlocks(nextBlocks, true);
+          return true;
+        }
+
+        const nextMarkdown = `${block.markdown.slice(0, range.start)}${snippet}${block.markdown.slice(range.end)}`;
+        commitBlocks(
+          blocksRef.current.map((item) =>
+            item.id === blockId ? { ...item, markdown: nextMarkdown } : item,
+          ),
+          true,
+        );
+        return true;
+      }
+
+      commitBlocks(
+        [...blocksRef.current, { id: `blk-${Date.now()}`, markdown: trimmed }],
+        true,
+      );
+      return true;
     },
-    [updateBlockFromElement],
+    [commitBlocks],
   );
 
   const handleBlockInput = useCallback(
     (blockId: string, element: HTMLElement) => {
-      const markdown = readMarkdownFromBlockElement(
-        element,
-        richEditBlockIdRef.current === blockId,
-      );
+      editedDuringFocusRef.current = true;
+      rememberInsertPoint(blockId, element);
+      const markdown = readMarkdownFromBlockElement(element);
+      hydratedMarkdownRef.current.set(blockId, markdown);
       setBlocks((prev) => {
         const next = prev.map((block) =>
           block.id === blockId ? { ...block, markdown } : block,
@@ -356,7 +469,68 @@ export const BlockMarkdownEditor = forwardRef<
         return next;
       });
     },
-    [flushToParent],
+    [flushToParent, rememberInsertPoint],
+  );
+
+  const handleBlockFocus = useCallback(
+    (blockId: string) => {
+      editedDuringFocusRef.current = false;
+      focusedBlockIdRef.current = blockId;
+      setFocusedBlockId(blockId);
+      const block = blocksRef.current.find((item) => item.id === blockId);
+      const element = blockRefs.current.get(blockId);
+      if (block && element) {
+        const markdownForRender = blockMarkdownForRender(block.markdown);
+        const html = renderBlockHtml(markdownForRender);
+        const hydrationKey = blockHydrationKey(block.markdown, html);
+        if (hydratedMarkdownRef.current.get(blockId) !== hydrationKey) {
+          const pending = pendingFocusCursorRef.current;
+          const cursorOffset =
+            pending?.blockId === blockId
+              ? pending.offset
+              : textOffsetBeforeSelection(element);
+          pendingFocusCursorRef.current = null;
+          element.innerHTML = html || "\u200b";
+          hydratedMarkdownRef.current.set(blockId, hydrationKey);
+          if (cursorOffset !== null) {
+            requestAnimationFrame(() => {
+              setTextCursorAtOffset(element, cursorOffset);
+            });
+          }
+        } else {
+          pendingFocusCursorRef.current = null;
+        }
+      }
+      syncMirror(block?.markdown ?? value);
+    },
+    [syncMirror, value],
+  );
+
+  const handleBlockMouseDown = useCallback(
+    (blockId: string, event: React.MouseEvent<HTMLDivElement>) => {
+      if (tryNavigateFromLink(event, linksClickable, linkContextPath, onNavigate)) return;
+      const element = event.currentTarget;
+      if (focusedBlockIdRef.current === blockId) return;
+      const offset =
+        textOffsetFromPoint(element, event.clientX, event.clientY) ??
+        textOffsetBeforeSelection(element);
+      pendingFocusCursorRef.current = { blockId, offset };
+    },
+    [linkContextPath, linksClickable, onNavigate],
+  );
+
+  const handleBlockBlur = useCallback(
+    (blockId: string, element: HTMLElement) => {
+      rememberInsertPoint(blockId, element);
+      if (editedDuringFocusRef.current) {
+        updateBlockFromElement(blockId, element, true);
+      }
+      editedDuringFocusRef.current = false;
+      focusedBlockIdRef.current = null;
+      setFocusedBlockId(null);
+      onBlur?.(element as unknown as React.FocusEvent<HTMLTextAreaElement>);
+    },
+    [onBlur, rememberInsertPoint, updateBlockFromElement],
   );
 
   const handleBlockKeyDown = useCallback(
@@ -368,15 +542,18 @@ export const BlockMarkdownEditor = forwardRef<
         !event.metaKey &&
         !event.ctrlKey &&
         !event.altKey &&
-        !event.defaultPrevented
+        !event.defaultPrevented &&
+        !isSelectionInListItem(element)
       ) {
-        const markdown = element.innerText.replace(/\u200b/gi, "");
-        const textOffset = selectionOffsets(element)?.start ?? null;
+        const markdown = readMarkdownFromBlockElement(element);
+        const textOffset = textOffsetBeforeSelection(element);
         if (textOffset !== null) {
           const result = continueListOnEnter(markdown, textOffset, textOffset);
           if (result) {
             event.preventDefault();
-            element.textContent = result.value;
+            const html = renderBlockHtml(result.value);
+            element.innerHTML = html || "\u200b";
+            hydratedMarkdownRef.current.set(blockId, result.value);
             const nextBlocks = blocks.map((block) =>
               block.id === blockId ? { ...block, markdown: result.value } : block,
             );
@@ -392,7 +569,7 @@ export const BlockMarkdownEditor = forwardRef<
     [blocks, commitBlocks, onKeyDown],
   );
 
-  const handleRenderedClick = useCallback(
+  const handleBlockClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       tryNavigateFromLink(event, linksClickable, linkContextPath, onNavigate);
     },
@@ -402,92 +579,90 @@ export const BlockMarkdownEditor = forwardRef<
   const applyRemoteReload = useCallback(() => {
     setBlocks(reconcileBlocks(blocks, value, true));
     lastEmittedRef.current = value;
-    setEditingBlockId(null);
+    focusedBlockIdRef.current = null;
+    setFocusedBlockId(null);
+    hydratedMarkdownRef.current.clear();
     setRemotePending(false);
     syncMirror(value);
   }, [blocks, syncMirror, value]);
+
+  const applyTransformToBlock = useCallback(
+    (
+      blockId: string,
+      markdown: string,
+      range: { start: number; end: number },
+      transform: FormatTransform,
+    ) => {
+      const result = transform(markdown, range.start, range.end);
+      const nextBlocks = blocks.map((block) =>
+        block.id === blockId ? { ...block, markdown: result.value } : block,
+      );
+      commitBlocks(nextBlocks, true);
+
+      const element = blockRefs.current.get(blockId);
+      if (element) {
+        element.innerHTML = renderBlockHtml(result.value) || "\u200b";
+        hydratedMarkdownRef.current.set(blockId, result.value);
+        if (hasTextHighlightMacros(result.value)) {
+          setTextCursorAtOffset(element, result.selectionEnd);
+        } else {
+          setTextCursorAtOffset(element, result.selectionStart);
+        }
+      }
+      return true;
+    },
+    [blocks, commitBlocks],
+  );
+
+  const applySelectionTransform = useCallback(
+    (transform: FormatTransform) => {
+      const surface = surfaceRef.current;
+      if (!surface) return false;
+
+      const blockId = findBlockIdForSelection(surface);
+      if (!blockId) return false;
+
+      const block = blocks.find((item) => item.id === blockId);
+      if (!block) return false;
+
+      const blockSurface = blockRefs.current.get(blockId);
+      if (!blockSurface) return false;
+
+      const range = resolveMarkdownSelectionRange(blockSurface, block.markdown);
+      if (!range) return false;
+
+      return applyTransformToBlock(blockId, block.markdown, range, transform);
+    },
+    [applyTransformToBlock, blocks],
+  );
 
   useImperativeHandle(
     ref,
     () => ({
       applyToActiveBlock(transform) {
-        if (!editingBlockId || !activeEditRef.current) return false;
-        const element = activeEditRef.current;
-        const richEdit = richEditBlockIdRef.current === editingBlockId;
-        const markdown = readMarkdownFromBlockElement(element, richEdit);
-        const offsets = selectionOffsets(element);
-        const start = offsets?.start ?? markdown.length;
-        const end = offsets?.end ?? start;
-        const result = transform(markdown, start, end);
-        const nextBlocks = blocks.map((block) =>
-          block.id === editingBlockId ? { ...block, markdown: result.value } : block,
-        );
-        commitBlocks(nextBlocks, true);
-
-        if (hasTextHighlightMacros(result.value)) {
-          richEditBlockIdRef.current = null;
-          setEditingBlockId(null);
-          activeEditRef.current = null;
-          return true;
-        }
-
-        if (richEdit) {
-          element.innerHTML = markdownToEditableHtml(result.value) || "\u200b";
-          richEditBlockIdRef.current = editingBlockId;
-        } else {
-          element.textContent = result.value;
-        }
-        setTextCursorAtOffset(element, result.selectionStart);
-        return true;
+        return applySelectionTransform(transform);
+      },
+      applyToRenderedSelection(transform) {
+        return applySelectionTransform(transform);
       },
       isBlockEditing() {
-        return editingBlockId !== null;
+        return focusedBlockIdRef.current !== null;
       },
+      insertSnippet,
     }),
-    [blocks, commitBlocks, editingBlockId],
+    [applySelectionTransform, insertSnippet],
   );
 
-  const showPlaceholder = !value.trim() && editingBlockId === null && blocks.length === 0;
+  const showPlaceholder = !value.trim() && blocks.length === 0;
 
   const startEmptyBlock = useCallback(() => {
     const newBlock: MarkdownBlock = { id: `blk-${Date.now()}`, markdown: "" };
     setBlocks([newBlock]);
-    pendingCursorRef.current = { blockId: newBlock.id, offset: 0 };
-    setEditingBlockId(newBlock.id);
+    requestAnimationFrame(() => {
+      const element = blockRefs.current.get(newBlock.id);
+      element?.focus();
+    });
   }, []);
-
-  const blockHtmlById = useMemo(() => {
-    const map = new Map<string, string>();
-    if (!highlightPending) {
-      for (const block of blocks) {
-        map.set(block.id, renderBlockHtml(block.markdown));
-      }
-      return map;
-    }
-    const effectiveBaseline = effectivePendingHighlightBaseline(approvedBaseline, loadedContent);
-    const aligned = alignBaselineBlocksToCurrent(effectiveBaseline, blocks);
-    for (const block of blocks) {
-      const baselineBlock = aligned.get(block.id) ?? "";
-      const highlighted =
-        applyPendingMarksToMarkdown(baselineBlock, block.markdown) ?? block.markdown;
-      map.set(block.id, renderBlockHtml(highlighted));
-    }
-    return map;
-  }, [approvedBaseline, blocks, highlightPending, loadedContent]);
-
-  const changedBlockIds = useMemo(() => {
-    if (!highlightPending || !pendingApproval) return new Set<string>();
-    const effectiveBaseline = effectivePendingHighlightBaseline(approvedBaseline, loadedContent);
-    const aligned = alignBaselineBlocksToCurrent(effectiveBaseline, blocks);
-    const ids = new Set<string>();
-    for (const block of blocks) {
-      const baselineBlock = aligned.get(block.id) ?? "";
-      if (baselineBlock !== block.markdown) ids.add(block.id);
-    }
-    return ids;
-  }, [approvedBaseline, blocks, highlightPending, loadedContent, pendingApproval]);
-
-  const reviewMode = highlightPending && Boolean(pendingApproval);
 
   const renderApprovalChip = (blockId: string) =>
     changedBlockIds.has(blockId) && pendingApproval ? (
@@ -552,56 +727,97 @@ export const BlockMarkdownEditor = forwardRef<
       ) : null}
 
       <div
+        ref={surfaceRef}
         className="markdown-body markdown-reading block-markdown-editor__surface min-h-[8rem] w-full"
         role="textbox"
         aria-label={ariaLabel}
         aria-multiline="true"
-        onClick={handleRenderedClick}
       >
-        {blocks.map((block) =>
-          editingBlockId === block.id ? (
-            <div key={block.id} className="block-markdown-editor__block">
-              {renderApprovalChip(block.id)}
+        {blocks.map((block) => {
+          const embed = parseEmbedBlock(block.markdown);
+          if (embed) {
+            return (
               <div
-                ref={(node) => {
-                  activeEditRef.current = node;
-                }}
-                contentEditable
-                suppressContentEditableWarning
-                spellCheck
-                className="block-markdown-editor__block block-markdown-editor__block--editing"
-                onInput={(event) => handleBlockInput(block.id, event.currentTarget)}
-                onBlur={(event) => {
-                  exitEditMode(block.id, event.currentTarget);
-                  onBlur?.(event as unknown as React.FocusEvent<HTMLTextAreaElement>);
-                }}
-                onKeyDown={(event) => handleBlockKeyDown(block.id, event)}
-              />
-            </div>
-          ) : (
+                key={block.id}
+                data-block-id={block.id}
+                data-heading-id={blockHeadingIds[block.id]}
+                className={cn(
+                  "block-markdown-editor__block block-markdown-editor__embed my-3",
+                  reviewMode && changedBlockIds.has(block.id) && "block-markdown-editor__block--review",
+                )}
+              >
+                {renderApprovalChip(block.id)}
+                {embed.kind === "figure" ? (
+                  <FigureCard
+                    targetPath={embed.targetPath}
+                    embeddedInEditor
+                    linkContextPath={linkContextPath}
+                    linksClickable={linksClickable}
+                    onNavigate={onNavigate}
+                    refreshVersion={refreshVersion}
+                  />
+                ) : (
+                  <EquationCard
+                    targetPath={embed.targetPath}
+                    embeddedInEditor
+                    linkContextPath={linkContextPath}
+                    onNavigate={onNavigate}
+                    refreshVersion={refreshVersion}
+                  />
+                )}
+              </div>
+            );
+          }
+
+          const inlineFigurePaths = listInlineFigureEmbedPaths(block.markdown);
+
+          return (
+          <div
+            key={block.id}
+            data-block-id={block.id}
+            data-heading-id={blockHeadingIds[block.id]}
+            className={cn(
+              "block-markdown-editor__block",
+              inlineFigurePaths.length > 0 && "block-markdown-editor__block--inline-figures",
+              reviewMode && changedBlockIds.has(block.id) && "block-markdown-editor__block--review",
+            )}
+          >
+            {renderApprovalChip(block.id)}
             <div
-              key={block.id}
-              className={cn(
-                "block-markdown-editor__block cursor-text",
-                reviewMode && changedBlockIds.has(block.id) && "block-markdown-editor__block--review",
-              )}
-            >
-              {renderApprovalChip(block.id)}
-              <div
-                className="block-markdown-editor__block-surface"
-                onMouseDown={(event) => {
-                  if (event.button !== 0) return;
-                  if (tryNavigateFromLink(event, linksClickable, linkContextPath, onNavigate)) return;
-                  event.preventDefault();
-                  enterEditMode(block.id, event);
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: blockHtmlById.get(block.id) ?? "",
-                }}
-              />
-            </div>
-          ),
-        )}
+              ref={(node) => {
+                if (node) blockRefs.current.set(block.id, node);
+                else blockRefs.current.delete(block.id);
+              }}
+              contentEditable
+              suppressContentEditableWarning
+              spellCheck
+              className="block-markdown-editor__block-surface outline-none"
+              onInput={(event) => handleBlockInput(block.id, event.currentTarget)}
+              onMouseDown={(event) => handleBlockMouseDown(block.id, event)}
+              onFocus={() => handleBlockFocus(block.id)}
+              onBlur={(event) => handleBlockBlur(block.id, event.currentTarget)}
+              onKeyDown={(event) => handleBlockKeyDown(block.id, event)}
+              onKeyUp={() => syncMirror()}
+              onClick={handleBlockClick}
+            />
+            {inlineFigurePaths.length > 0 ? (
+              <div className="block-markdown-editor__deferred-figures">
+                {inlineFigurePaths.map((targetPath) => (
+                  <FigureCard
+                    key={`${block.id}-${targetPath}`}
+                    targetPath={targetPath}
+                    embeddedInEditor
+                    linkContextPath={linkContextPath}
+                    linksClickable={linksClickable}
+                    onNavigate={onNavigate}
+                    refreshVersion={refreshVersion}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+          );
+        })}
       </div>
     </div>
   );

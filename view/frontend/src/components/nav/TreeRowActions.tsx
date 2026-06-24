@@ -17,7 +17,7 @@ export function TreeRowActions({
   className?: string;
 }) {
   return (
-    <div className={cn("flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100", className)}>
+    <div className={cn("flex shrink-0 items-center opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto", className)}>
       {onRename ? (
         <Button
           type="button"
