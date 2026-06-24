@@ -42,6 +42,8 @@ export type WorkspacePreferences = {
   sidebarWidth: number;
   sidebarPanel: SidebarPanel;
   sidebarPanelOpen: boolean;
+  /** When false, the panel is shown on hover only; the icon rail stays visible. */
+  sidebarPinned: boolean;
   bottomPanelHeight: number;
   papersSidebar: PapersSidebarPanels;
 };
@@ -79,6 +81,7 @@ const DEFAULTS: WorkspacePreferences = {
   sidebarWidth: 240,
   sidebarPanel: "papers",
   sidebarPanelOpen: true,
+  sidebarPinned: true,
   bottomPanelHeight: BOTTOM_PANEL_HEIGHT_DEFAULT,
   papersSidebar: DEFAULT_PAPERS_SIDEBAR,
 };
@@ -124,6 +127,9 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     }
     if (typeof (parsed as { sidebarPanelOpen?: boolean }).sidebarPanelOpen !== "boolean") {
       delete (parsed as { sidebarPanelOpen?: boolean }).sidebarPanelOpen;
+    }
+    if (typeof (parsed as { sidebarPinned?: boolean }).sidebarPinned !== "boolean") {
+      delete (parsed as { sidebarPinned?: boolean }).sidebarPinned;
     }
     if (!(parsed as { sidebarPanel?: string }).sidebarPanel && parsed.sidebarTab) {
       (parsed as { sidebarPanel?: SidebarPanel }).sidebarPanel = parsed.sidebarTab;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelBottomClose } from "lucide-react";
 
 import type { AppView } from "@/components/commands/AppCommands";
@@ -11,9 +11,13 @@ import type { ThemePreference } from "@/lib/themePreferences";
 import { cn } from "@/lib/utils";
 import type { SidebarPanel } from "@/lib/workspacePreferences";
 
+const HOVER_REVEAL_LEAVE_MS = 220;
+
 export function WorkspaceSidebarShell({
   activePanel,
   panelOpen,
+  pinned,
+  readingFocusActive,
   graphAvailable,
   sidebarWidth,
   agentPanelOpen,
@@ -25,6 +29,7 @@ export function WorkspaceSidebarShell({
   themePreference,
   onSelectPanel,
   onTogglePanel,
+  onTogglePin,
   onWidthChange,
   onOpenTerminalPanel,
   onOpenDispatchPanel,
@@ -37,6 +42,8 @@ export function WorkspaceSidebarShell({
 }: {
   activePanel: SidebarPanel;
   panelOpen: boolean;
+  pinned: boolean;
+  readingFocusActive: boolean;
   graphAvailable: boolean;
   sidebarWidth: number;
   agentPanelOpen: boolean;
@@ -48,6 +55,7 @@ export function WorkspaceSidebarShell({
   themePreference: ThemePreference;
   onSelectPanel: (panel: SidebarPanel) => void;
   onTogglePanel: () => void;
+  onTogglePin: () => void;
   onWidthChange: (width: number) => void;
   onOpenTerminalPanel: () => void;
   onOpenDispatchPanel: () => void;
@@ -59,7 +67,57 @@ export function WorkspaceSidebarShell({
   className?: string;
 }) {
   const [dragging, setDragging] = useState(false);
+  const [hoverRevealed, setHoverRevealed] = useState(false);
+  const leaveTimerRef = useRef<number | undefined>(undefined);
   const effectiveWidth = panelOpen ? clampSidebarWidth(sidebarWidth) : 0;
+  const hoverReveal = panelOpen && !pinned && !readingFocusActive;
+  const readingFocusPanelReveal = readingFocusActive && panelOpen;
+  const railHoverReveal = hoverReveal || readingFocusPanelReveal;
+  const panelVisible = readingFocusPanelReveal
+    ? hoverRevealed
+    : panelOpen && (pinned || hoverRevealed);
+  const panelInGrid = panelOpen && pinned && !readingFocusActive;
+
+  const clearLeaveTimer = useCallback(() => {
+    window.clearTimeout(leaveTimerRef.current);
+    leaveTimerRef.current = undefined;
+  }, []);
+
+  const scheduleHide = useCallback(() => {
+    clearLeaveTimer();
+    leaveTimerRef.current = window.setTimeout(() => {
+      setHoverRevealed(false);
+    }, HOVER_REVEAL_LEAVE_MS);
+  }, [clearLeaveTimer]);
+
+  const revealPanel = useCallback(() => {
+    clearLeaveTimer();
+    setHoverRevealed(true);
+  }, [clearLeaveTimer]);
+
+  useEffect(() => {
+    if (pinned && !readingFocusActive) {
+      setHoverRevealed(false);
+      clearLeaveTimer();
+    }
+  }, [pinned, readingFocusActive, clearLeaveTimer]);
+
+  useEffect(() => {
+    if (!panelOpen) {
+      setHoverRevealed(false);
+      clearLeaveTimer();
+    }
+  }, [panelOpen, clearLeaveTimer]);
+
+  useEffect(() => () => clearLeaveTimer(), [clearLeaveTimer]);
+
+  const handleSelectPanel = useCallback(
+    (panel: SidebarPanel) => {
+      if (!pinned || readingFocusActive) revealPanel();
+      onSelectPanel(panel);
+    },
+    [onSelectPanel, pinned, readingFocusActive, revealPanel],
+  );
 
   const onPointerMove = useCallback(
     (event: PointerEvent) => {
@@ -91,12 +149,17 @@ export function WorkspaceSidebarShell({
       className={cn(
         "workspace-sidebar-shell min-h-0 min-w-0",
         panelOpen ? "workspace-sidebar-shell--open" : "workspace-sidebar-shell--collapsed",
+        pinned && "workspace-sidebar-shell--pinned",
+        hoverReveal && "workspace-sidebar-shell--hover-reveal",
+        panelVisible && "workspace-sidebar-shell--revealed",
+        readingFocusActive && "workspace-sidebar-shell--reading-focus",
         className,
       )}
     >
       <SidebarIconRail
         activePanel={activePanel}
         panelOpen={panelOpen}
+        pinned={pinned}
         graphAvailable={graphAvailable}
         agentPanelOpen={agentPanelOpen}
         agentPanelFocus={agentPanelFocus}
@@ -105,54 +168,69 @@ export function WorkspaceSidebarShell({
         gitStatusLabel={gitStatusLabel}
         connectionState={connectionState}
         themePreference={themePreference}
-        onSelectPanel={onSelectPanel}
+        onSelectPanel={handleSelectPanel}
         onTogglePanel={onTogglePanel}
+        onTogglePin={onTogglePin}
         onOpenTerminalPanel={onOpenTerminalPanel}
         onOpenDispatchPanel={onOpenDispatchPanel}
         onGitClick={onGitClick}
         onSetAppView={onSetAppView}
         onCycleTheme={onCycleTheme}
+        onPointerEnter={railHoverReveal ? revealPanel : undefined}
+        onPointerLeave={railHoverReveal ? scheduleHide : undefined}
       />
       {panelOpen ? (
         <>
-          <div className="workspace-sidebar-shell__panel min-h-0 min-w-0 overflow-hidden">
+          <div
+            className={cn(
+              "workspace-sidebar-shell__panel min-h-0 min-w-0 overflow-hidden",
+              !panelInGrid && "workspace-sidebar-shell__panel--overlay",
+              panelVisible && "workspace-sidebar-shell__panel--visible",
+            )}
+            onPointerEnter={railHoverReveal ? revealPanel : undefined}
+            onPointerLeave={railHoverReveal ? scheduleHide : undefined}
+          >
             <SidebarPanelHeader
               gitSync={gitSync}
               gitStatusLabel={gitStatusLabel}
               connectionState={connectionState}
               onGitClick={onGitClick}
+              pinned={pinned}
+              onTogglePin={onTogglePin}
             />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{panelContent}</div>
           </div>
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-valuenow={effectiveWidth}
-            aria-valuemin={180}
-            aria-valuemax={520}
-            aria-label="Resize sidebar"
-            tabIndex={0}
-            className={cn(
-              "workspace-sidebar-shell__handle resizable-dual-pane__handle",
-              dragging && "resizable-dual-pane__handle--active",
-            )}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.currentTarget.setPointerCapture(event.pointerId);
-              setDragging(true);
-            }}
-            onKeyDown={(event) => {
-              const step = event.shiftKey ? 24 : 12;
-              if (event.key === "ArrowLeft") {
+          {panelInGrid ? (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-valuenow={effectiveWidth}
+              aria-valuemin={180}
+              aria-valuemax={520}
+              aria-label="Resize sidebar"
+              tabIndex={0}
+              className={cn(
+                "workspace-sidebar-shell__handle resizable-dual-pane__handle",
+                dragging && "resizable-dual-pane__handle--active",
+              )}
+              onPointerDown={(event) => {
                 event.preventDefault();
-                onWidthChange(clampSidebarWidth(effectiveWidth - step));
-              }
-              if (event.key === "ArrowRight") {
-                event.preventDefault();
-                onWidthChange(clampSidebarWidth(effectiveWidth + step));
-              }
-            }}
-          />
+                event.currentTarget.setPointerCapture(event.pointerId);
+                setDragging(true);
+              }}
+              onKeyDown={(event) => {
+                const step = event.shiftKey ? 24 : 12;
+                if (event.key === "ArrowLeft") {
+                  event.preventDefault();
+                  onWidthChange(clampSidebarWidth(effectiveWidth - step));
+                }
+                if (event.key === "ArrowRight") {
+                  event.preventDefault();
+                  onWidthChange(clampSidebarWidth(effectiveWidth + step));
+                }
+              }}
+            />
+          ) : null}
         </>
       ) : null}
       {agentPanelOpen ? (

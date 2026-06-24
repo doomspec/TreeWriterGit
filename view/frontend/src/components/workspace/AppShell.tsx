@@ -15,7 +15,6 @@ import { BottomPanel, type DispatchPaneTab } from "@/components/layout/BottomPan
 import { WorkspaceSidebarShell } from "@/components/layout/WorkspaceSidebarShell";
 import { WorkspaceNav } from "@/components/nav/WorkspaceNav";
 import { DocumentOutlinePanel } from "@/components/nav/DocumentOutlinePanel";
-import { ReadingFocusOutlineRail } from "@/components/editor/ReadingFocusOutlineRail";
 import { PaperExportPanel } from "@/components/paper/PaperExportPanel";
 import { GraphPanel } from "@/components/graph/GraphPanel";
 import { WorkspaceRouter } from "@/components/workspace/WorkspaceRouter";
@@ -86,6 +85,12 @@ function AppShell({
     errorRef.current = ws.setError;
   }, [errorRef, ws.setError]);
   const readingFocus = useReadingFocus();
+
+  useEffect(() => {
+    if (readingFocus.active) {
+      ws.setSidebarPanelOpen(false);
+    }
+  }, [readingFocus.active, ws.setSidebarPanelOpen]);
   const { preference: themePreference, setPreference: setThemePreference, cyclePreference } =
     useTheme();
   const [agentPanelFocus, setAgentPanelFocus] = useState<"terminal" | "dispatch" | null>(null);
@@ -231,6 +236,9 @@ function AppShell({
     ws.setCreatePrompt({ kind });
   };
 
+  const sidebarInGrid =
+    ws.sidebarPanelOpen && ws.sidebarPinned && !readingFocus.active;
+
   return (
     <AgentDispatchPanelContext.Provider value={agentDispatchPanelValue}>
       <ReadingFocusGraphProvider config={focusGraphConfig}>
@@ -301,24 +309,25 @@ function AppShell({
                 readingFocus.active && "reading-focus-shell",
               )}
             >
-              {readingFocus.active ? <ReadingFocusOutlineRail /> : null}
               <div className="reading-focus-shell__main flex min-h-0 min-w-0 flex-1 flex-col">
               <div className="workspace-shell flex min-h-0 min-w-0 flex-1 flex-col">
                 <div
                   className={cn(
                     "workspace-main min-h-0 flex-1",
-                    !ws.sidebarPanelOpen && "workspace-main--sidebar-collapsed",
+                    !sidebarInGrid && "workspace-main--sidebar-collapsed",
                   )}
                   style={
                     {
                       "--sidebar-rail-width": "36px",
-                      "--sidebar-width": `${ws.sidebarPanelOpen ? ws.sidebarWidth : 0}px`,
+                      "--sidebar-width": `${ws.sidebarWidth}px`,
                     } as React.CSSProperties
                   }
                 >
                   <WorkspaceSidebarShell
                     activePanel={ws.sidebarPanel}
                     panelOpen={ws.sidebarPanelOpen}
+                    pinned={ws.sidebarPinned}
+                    readingFocusActive={readingFocus.active}
                     graphAvailable={Boolean(ws.graphFetchRoot)}
                     sidebarWidth={ws.sidebarWidth}
                     agentPanelOpen={ws.agentPanelOpen}
@@ -330,6 +339,7 @@ function AppShell({
                     themePreference={themePreference}
                     onSelectPanel={ws.setSidebarPanel}
                     onTogglePanel={ws.toggleSidebarPanel}
+                    onTogglePin={ws.toggleSidebarPin}
                     onWidthChange={ws.setSidebarWidth}
                     onOpenTerminalPanel={openTerminalPanel}
                     onOpenDispatchPanel={openDispatchPanel}
@@ -394,8 +404,8 @@ function AppShell({
                       )
                     }
                   />
-                  <div className="workspace-main__main min-h-0 min-w-0">
-                  <section className="relative flex min-h-0 flex-1 flex-col bg-workspace">
+                  <div className="workspace-main__main flex min-h-0 min-w-0 flex-col">
+                  <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace">
                     <div className="flex min-h-0 flex-1 flex-col">
                       <WorkspaceRouter
                         onError={ws.setError}
@@ -481,29 +491,28 @@ function AppShell({
                       ) : null}
                     </footer>
                   </section>
+                  <BottomPanel
+                    open={ws.agentPanelOpen}
+                    onOpenChange={handleAgentPanelOpenChange}
+                    currentPath={ws.browsePath}
+                    refreshVersion={ws.refreshVersion}
+                    height={ws.bottomPanelHeight}
+                    onHeightChange={ws.setBottomPanelHeight}
+                    isUnit={ws.isUnit}
+                    canFanOut={ws.isPaperSection && !ws.isUnit}
+                    dispatchIntent={ws.dispatchIntent}
+                    initialDispatchTab={
+                      requestedDispatchTab ?? (ws.dispatchIntent ? "run" : undefined)
+                    }
+                    onDispatchIntentConsumed={ws.clearDispatchIntent}
+                    onSendToTerminal={sendToTerminal}
+                    onError={ws.setError}
+                    onReconnect={reconnectTerminal}
+                    onLayoutChange={refitTerminal}
+                    terminalHostRef={terminalHostRef}
+                  />
                   </div>
                 </div>
-
-                <BottomPanel
-                  open={ws.agentPanelOpen}
-                  onOpenChange={handleAgentPanelOpenChange}
-                  currentPath={ws.browsePath}
-                  refreshVersion={ws.refreshVersion}
-                  height={ws.bottomPanelHeight}
-                  onHeightChange={ws.setBottomPanelHeight}
-                  isUnit={ws.isUnit}
-                  canFanOut={ws.isPaperSection && !ws.isUnit}
-                  dispatchIntent={ws.dispatchIntent}
-                  initialDispatchTab={
-                    requestedDispatchTab ?? (ws.dispatchIntent ? "run" : undefined)
-                  }
-                  onDispatchIntentConsumed={ws.clearDispatchIntent}
-                  onSendToTerminal={sendToTerminal}
-                  onError={ws.setError}
-                  onReconnect={reconnectTerminal}
-                  onLayoutChange={refitTerminal}
-                  terminalHostRef={terminalHostRef}
-                />
               </div>
               </div>
             </div>

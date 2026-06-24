@@ -1,164 +1,49 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FilePlus, FolderPlus, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
-import { TreeRowActions } from "@/components/nav/TreeRowActions";
+import {
+  TREE_ROW_CREATE_ICONS,
+  TreeRowActions,
+  type TreeRowCreateOption,
+} from "@/components/nav/TreeRowActions";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { UNIT_STATUS_COUNTS_HINT } from "@/lib/unapprovedHighlight";
+import { computeFloatingMenuTop } from "@/lib/floatingMenuPosition";
 import { canAddManuscriptChildren, findNode, type ModelNode } from "@/lib/modelTree";
 import type { NodeKind } from "@/modelApi";
 import type { UnitStatusCounts } from "@/modelApi";
 
-type CreateMenuOption = {
-  kind: NodeKind;
-  label: string;
-  Icon: typeof FolderPlus;
-};
-
 function createMenuOptions(
-  parentPath: string,
+  createParentPath: string,
   paperPath: string,
   tree: ModelNode[],
-): CreateMenuOption[] | null {
-  const node = findNode(tree, parentPath);
-  if (!canAddManuscriptChildren(node, parentPath, paperPath)) return null;
-  const atPaperRoot = parentPath === paperPath;
+): TreeRowCreateOption[] | null {
+  const node = findNode(tree, createParentPath);
+  if (!canAddManuscriptChildren(node, createParentPath, paperPath)) return null;
+  const atPaperRoot = createParentPath === paperPath;
   return atPaperRoot
-    ? [{ kind: "section", label: "Add section", Icon: FolderPlus }]
+    ? [{ kind: "section", label: "Add section", Icon: TREE_ROW_CREATE_ICONS.section }]
     : [
-        { kind: "unit", label: "Add unit", Icon: FilePlus },
-        { kind: "subsection", label: "Add subsection", Icon: FolderPlus },
+        { kind: "unit", label: "Add unit", Icon: TREE_ROW_CREATE_ICONS.unit },
+        { kind: "subsection", label: "Add subsection", Icon: TREE_ROW_CREATE_ICONS.subsection },
       ];
 }
 
-function SectionCreateMenu({
-  parentPath,
-  paperPath,
-  tree,
-  disabled,
-  onCreate,
-}: {
-  parentPath: string;
-  paperPath: string;
-  tree: ModelNode[];
-  disabled?: boolean;
-  onCreate: (parentPath: string, kind: NodeKind) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
-
-  const options = createMenuOptions(parentPath, paperPath, tree);
-  if (!options) return null;
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setMenuPosition(null);
-      return;
-    }
-
-    const updatePosition = () => {
-      const button = buttonRef.current;
-      if (!button) return;
-      const rect = button.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.bottom + 4,
-        right: window.innerWidth - rect.right,
-      });
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [open]);
-
-  const choose = (kind: NodeKind) => {
-    setOpen(false);
-    onCreate(parentPath, kind);
-  };
-
-  return (
-    <div ref={rootRef} className="relative shrink-0">
-      <Button
-        ref={buttonRef}
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-6 w-6 text-muted-foreground hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-400"
-        title="Add to section"
-        aria-label="Add to section"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (options.length === 1) {
-            choose(options[0]!.kind);
-            return;
-          }
-          setOpen((value) => !value);
-        }}
-      >
-        <Plus className="h-3 w-3" aria-hidden="true" />
-      </Button>
-      {open && menuPosition
-        ? createPortal(
-            <div
-              ref={menuRef}
-              role="menu"
-              style={{ top: menuPosition.top, right: menuPosition.right }}
-              className="fixed z-overlay min-w-[9.5rem] rounded-md border border-border bg-card py-1 text-card-foreground shadow-lg"
-            >
-              {options.map(({ kind, label, Icon }) => (
-                <button
-                  key={kind}
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2 bg-card px-2.5 py-1.5 text-left text-xs hover:bg-accent"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    choose(kind);
-                  }}
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  {label}
-                </button>
-              ))}
-            </div>,
-            document.body,
-          )
-        : null}
-    </div>
-  );
+/** Where new manuscript nodes should be created for a tree row. */
+export function resolveSectionTreeCreateParent(
+  rowPath: string,
+  listParentPath: string,
+  tree: ModelNode[],
+  paperPath: string,
+): string {
+  const rowNode = findNode(tree, rowPath);
+  if (canAddManuscriptChildren(rowNode, rowPath, paperPath)) return rowPath;
+  return listParentPath;
 }
 
 function SectionRowOverflowMenu({
-  parentPath,
+  createParentPath,
   paperPath,
   tree,
   title,
@@ -169,7 +54,7 @@ function SectionRowOverflowMenu({
   showRename = true,
   showDelete = true,
 }: {
-  parentPath: string;
+  createParentPath: string;
   paperPath: string;
   tree: ModelNode[];
   title: string;
@@ -186,7 +71,7 @@ function SectionRowOverflowMenu({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
 
-  const createOptions = createMenuOptions(parentPath, paperPath, tree);
+  const createOptions = createMenuOptions(createParentPath, paperPath, tree);
   const hasRename = showRename && onRename;
   const hasDelete = showDelete && onDelete;
   const hasActions = createOptions?.length || hasRename || hasDelete;
@@ -217,18 +102,23 @@ function SectionRowOverflowMenu({
 
     const updatePosition = () => {
       const button = buttonRef.current;
+      const menu = menuRef.current;
       if (!button) return;
       const rect = button.getBoundingClientRect();
+      const menuWidth = menu?.offsetWidth ?? 160;
+      const menuHeight = menu?.offsetHeight ?? 140;
       setMenuPosition({
-        top: rect.bottom + 4,
-        left: Math.max(8, rect.right - 160),
+        top: computeFloatingMenuTop(rect, menuHeight),
+        left: Math.max(8, rect.right - menuWidth),
       });
     };
 
     updatePosition();
+    const frame = requestAnimationFrame(updatePosition);
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
@@ -238,7 +128,7 @@ function SectionRowOverflowMenu({
 
   const chooseCreate = (kind: NodeKind) => {
     setOpen(false);
-    onCreate(parentPath, kind);
+    onCreate(createParentPath, kind);
   };
 
   return (
@@ -326,7 +216,7 @@ function SectionRowOverflowMenu({
 }
 
 export function SectionTreeRowMeta({
-  parentPath,
+  createParentPath,
   paperPath,
   tree,
   title,
@@ -338,7 +228,7 @@ export function SectionTreeRowMeta({
   showRename = true,
   showDelete = true,
 }: {
-  parentPath: string;
+  createParentPath: string;
   paperPath: string;
   tree: ModelNode[];
   title: string;
@@ -350,7 +240,7 @@ export function SectionTreeRowMeta({
   showRename?: boolean;
   showDelete?: boolean;
 }) {
-  const showCreate = createMenuOptions(parentPath, paperPath, tree) !== null;
+  const createOptions = createMenuOptions(createParentPath, paperPath, tree);
 
   return (
     <>
@@ -363,27 +253,23 @@ export function SectionTreeRowMeta({
             {counts.approved}/{counts.drafted}/{counts.outline}
           </span>
         ) : null}
-        {showCreate ? (
-          <SectionCreateMenu
-            parentPath={parentPath}
-            paperPath={paperPath}
-            tree={tree}
-            disabled={disabled}
-            onCreate={onCreate}
-          />
-        ) : null}
-        {(showRename && onRename) || (showDelete && onDelete) ? (
+        {(createOptions && createOptions.length > 0) ||
+        (showRename && onRename) ||
+        (showDelete && onDelete) ? (
           <TreeRowActions
+            createOptions={createOptions ?? undefined}
+            onCreate={createOptions ? (kind) => onCreate(createParentPath, kind) : undefined}
             onRename={showRename ? onRename : undefined}
             renameLabel={`Rename ${title}`}
-            onDelete={showDelete && onDelete ? onDelete : () => {}}
+            onDelete={showDelete ? onDelete : undefined}
             deleteLabel={`Delete ${title}`}
+            disabled={disabled}
           />
         ) : null}
       </div>
       <div className="section-tree-row__meta section-tree-row__meta-menu shrink-0 pr-0.5">
         <SectionRowOverflowMenu
-          parentPath={parentPath}
+          createParentPath={createParentPath}
           paperPath={paperPath}
           tree={tree}
           title={title}

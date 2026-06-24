@@ -45,6 +45,56 @@ const DEFAULT_PROVIDERS: AiProvider[] = [
 /** CLIs that refuse to run when stdout is redirected (e.g. codex interactive mode). */
 const TTY_STDOUT_COMMANDS = new Set(["codex"]);
 
+const GEMINI_WORKSPACE_PREAMBLE = `IMPORTANT — TreeWriter workspace scope:
+- Your shell cwd is the model/ directory (the manuscript tree).
+- Every path in this task is relative to model/ (example: papers/my-paper/intro/draft.md).
+- Read and write only under model/. Do not list or access the repository root or paths outside model/.
+
+`;
+
+function isGeminiProvider(provider: AiProvider): boolean {
+  return provider.command === "gemini";
+}
+
+function promptsDirectory(modelRoot: string): string {
+  return path.join(modelRoot, ".treewriter-prompts");
+}
+
+function promptFileRelFromModelCwd(sessionId: string): string {
+  return `.treewriter-prompts/${sessionId}.txt`;
+}
+
+function buildProviderCommand(
+  provider: AiProvider,
+  promptRefFromModelCwd: string,
+  outputRelPath: string,
+): string {
+  const catPrompt = `cat ${shellQuote(promptRefFromModelCwd)}`;
+
+  if (isGeminiProvider(provider)) {
+    const extraArgs = provider.args.filter((arg) => arg !== "{prompt}").join(" ");
+    let command = `${catPrompt} | ${provider.command}${extraArgs ? ` ${extraArgs}` : ""}`;
+    if (!provider.writesFiles && !TTY_STDOUT_COMMANDS.has(provider.command)) {
+      command += ` > ${shellQuote(outputRelPath)}`;
+    }
+    return command;
+  }
+
+  const argStr = provider.args
+    .map((arg) =>
+      arg === "{prompt}"
+        ? `"$(${catPrompt})"`
+        : arg.replace("{files}", outputRelPath),
+    )
+    .join(" ");
+
+  let command = `${provider.command} ${argStr}`;
+  if (!provider.writesFiles && !TTY_STDOUT_COMMANDS.has(provider.command)) {
+    command += ` > ${shellQuote(outputRelPath)}`;
+  }
+  return command;
+}
+
 export async function loadProviders(repoRoot: string): Promise<ProviderConfig> {
   const configPath = path.join(repoRoot, ".treewriter.json");
   try {
@@ -745,27 +795,18 @@ export async function buildPreview(
     prompt = `${prompt}\n\n${MANUSCRIPT_MARKUP}`;
   }
 
+  if (isGeminiProvider(provider)) {
+    prompt = `${GEMINI_WORKSPACE_PREAMBLE}${prompt}`;
+  }
+
   const id = sessionId ?? promptSessionId();
-  const promptsDir = path.join(repoRoot, ".treewriter-prompts");
+  const promptsDir = promptsDirectory(modelRoot);
   await mkdir(promptsDir, { recursive: true });
   const promptFile = path.join(promptsDir, `${id}.txt`);
   await writeFile(promptFile, prompt, "utf8");
-  const promptRef = path.relative(modelRoot, promptFile).split(path.sep).join("/");
+  const promptRef = promptFileRelFromModelCwd(id);
 
-  const quotedOutput = shellQuote(outputRelPath);
-
-  const argStr = provider.args
-    .map((a) =>
-      a === "{prompt}"
-        ? `"$(cat ${shellQuote(promptRef)})"`
-        : a.replace("{files}", outputRelPath),
-    )
-    .join(" ");
-
-  let command = `${provider.command} ${argStr}`;
-  if (!provider.writesFiles && !TTY_STDOUT_COMMANDS.has(provider.command)) {
-    command += ` > ${quotedOutput}`;
-  }
+  const command = buildProviderCommand(provider, promptRef, outputRelPath);
 
   return {
     prompt,
@@ -908,21 +949,22 @@ export async function buildGitSyncResolvePreview(
 ): Promise<PreviewResult> {
   const modelRoot = path.join(repoRoot, "model");
   const id = sessionId ?? promptSessionId();
-  const promptsDir = path.join(repoRoot, ".treewriter-prompts");
+  const promptsDir = promptsDirectory(modelRoot);
   await mkdir(promptsDir, { recursive: true });
   const promptFile = path.join(promptsDir, `${id}.txt`);
   await writeFile(promptFile, GIT_SYNC_RESOLVE_PROMPT, "utf8");
-  const promptRef = path.relative(modelRoot, promptFile).split(path.sep).join("/");
+  const promptRefFromModel = promptFileRelFromModelCwd(id);
 
-  const argStr = provider.args
-    .map((a) =>
-      a === "{prompt}"
-        ? `"$(cat ${shellQuote(promptRef)})"`
-        : a.replace("{files}", ""),
-    )
-    .join(" ");
-
-  const command = `${provider.command} ${argStr}`.trim();
+  let command: string;
+  if (isGeminiProvider(provider)) {
+    const extraArgs = provider.args.filter((arg) => arg !== "{prompt}").join(" ");
+    const promptRefFromRepo = path.join("model", promptRefFromModel).split(path.sep).join("/");
+    command =
+      `cd ${shellQuote(repoRoot)} && cat ${shellQuote(promptRefFromRepo)} | ${provider.command}` +
+      (extraArgs ? ` ${extraArgs}` : "");
+  } else {
+    command = buildProviderCommand(provider, promptRefFromModel, "view/");
+  }
 
   return {
     prompt: GIT_SYNC_RESOLVE_PROMPT,

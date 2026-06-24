@@ -7,11 +7,13 @@ export function ReadingFocusTitleLink({
   title,
   contextPath,
   onNavigate,
+  headingId,
   className,
 }: {
   title: string;
   contextPath: string;
   onNavigate?: (target: NavigateTarget) => void;
+  headingId?: string | null;
   className?: string;
 }) {
   const { active } = useReadingFocus();
@@ -25,6 +27,7 @@ export function ReadingFocusTitleLink({
           "font-serif text-2xl font-semibold tracking-tight text-foreground",
           className,
         )}
+        data-heading-id={headingId ?? undefined}
       >
         {title}
       </h1>
@@ -37,6 +40,7 @@ export function ReadingFocusTitleLink({
         "font-serif text-2xl font-semibold tracking-tight text-foreground",
         className,
       )}
+      data-heading-id={headingId ?? undefined}
     >
       <button
         type="button"

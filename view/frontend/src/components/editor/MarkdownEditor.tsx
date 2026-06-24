@@ -120,12 +120,15 @@ export function MarkdownEditor({
   enableDispatch = true,
   showFocusGraph = true,
   syncDocumentOutline = false,
+  splitPaneTitle,
 }: {
   filePath: string;
   refreshVersion: number;
   layout: EditorLayout;
   compact?: boolean;
   paneLabel?: string;
+  /** Short label shown in the focus edit bar when both panes are visible. */
+  splitPaneTitle?: string;
   defaultPaneMode?: PaneEditMode;
   onSaveStateChange?: (state: SaveState) => void;
   onContentChange?: (content: string) => void;
@@ -526,6 +529,7 @@ export function MarkdownEditor({
     content,
     previewScrollRef,
     syncDocumentOutline && renderedEditable && showPreview,
+    linkContextPath,
   );
 
   const getActiveTextarea = useCallback((): HTMLTextAreaElement | null => {
@@ -892,6 +896,7 @@ export function MarkdownEditor({
 
   const focusEditBar = readingFocus.active ? (
     <ReadingFocusEditBar
+      title={splitPaneTitle}
       toolbar={
         <MarkdownToolbar
           {...toolbarProps}

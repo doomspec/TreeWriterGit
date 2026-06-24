@@ -16,6 +16,7 @@ import { ReadingFocusFloatingBar } from "@/components/editor/ReadingFocusFloatin
 import { ReadingFocusDocumentLayout } from "@/components/editor/ReadingFocusDocumentLayout";
 import { ReadingFocusTitleLink } from "@/components/editor/ReadingFocusTitleLink";
 import { useSyncDocumentOutline } from "@/lib/documentOutline";
+import { headingIdFromLine } from "@/lib/markdownOutline";
 import { applyMarkdownFormat, type MarkdownFormatAction } from "@/lib/markdownFormat";
 import { handleFormatShortcut } from "@/lib/editor/formatShortcut";
 import { draftSaveMeta, draftStatusLabel, loadDraftApprovalState, type DraftEditMeta } from "@/lib/draftApproval";
@@ -70,6 +71,7 @@ export function ComposedDraftEditor({
   className,
   showFocusGraph = true,
   syncDocumentOutline = false,
+  splitPaneTitle,
 }: {
   containerPath: string;
   title: string;
@@ -84,6 +86,8 @@ export function ComposedDraftEditor({
   onError: (message: string) => void;
   onSynced?: () => void;
   paneLabel?: string;
+  /** Short label shown in the focus edit bar when both panes are visible. */
+  splitPaneTitle?: string;
   subtitle?: string;
   headerExtra?: React.ReactNode;
   /** Inline bulk-approve chip for pending child unit drafts/outlines. */
@@ -128,10 +132,15 @@ export function ComposedDraftEditor({
   const blockRef = useRef<BlockMarkdownEditorHandle | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const outlineMarkdown = useMemo(() => buildDraftMarkdown(title, content), [title, content]);
+  const documentTitleHeadingId = useMemo(
+    () => (title.trim() ? headingIdFromLine(`# ${title.trim()}`, new Map()) : null),
+    [title],
+  );
   const bindOutlineScroll = useSyncDocumentOutline(
     outlineMarkdown,
     scrollContainerRef,
     syncDocumentOutline && paneMode !== "raw",
+    linkContextPath,
   );
   const editorSessionKey = sessionKeyForComposedDraft(containerPath);
   const { restore, persist } = usePersistedEditorSession(editorSessionKey);
@@ -551,6 +560,7 @@ export function ComposedDraftEditor({
 
   const focusEditBar = readingFocus.active ? (
     <ReadingFocusEditBar
+      title={splitPaneTitle}
       toolbar={
         <MarkdownToolbar
           embedded
@@ -675,6 +685,7 @@ export function ComposedDraftEditor({
                     <ReadingFocusTitleLink
                       title={title}
                       contextPath={linkContextPath || containerPath}
+                      headingId={documentTitleHeadingId}
                       onNavigate={onNavigate}
                     />
                   ) : null

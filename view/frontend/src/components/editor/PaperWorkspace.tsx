@@ -4,7 +4,6 @@ import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
 import {
   ReadingFocusExtra,
-  ReadingFocusSplitPaneTitle,
   useReadingFocusSplitPaneTitles,
 } from "@/components/editor/ReadingFocusNavBar";
 import { SectionApproveChildrenButton } from "@/components/editor/SectionApproveChildrenButton";
@@ -118,7 +117,6 @@ export function PaperWorkspace({
       onFocusCapture={() => onActivePaneChange("outline")}
       onMouseDown={() => onActivePaneChange("outline")}
     >
-      {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Outline" /> : null}
       <MarkdownEditor
         key={outlinePath}
         filePath={outlinePath}
@@ -126,6 +124,7 @@ export function PaperWorkspace({
         layout="preview"
         compact
         showFocusGraph
+        splitPaneTitle={showSplitPaneTitles ? "Outline" : undefined}
         syncDocumentOutline={
           paneView === "outline" || (paneView === "split" && activePane === "outline")
         }
@@ -154,7 +153,6 @@ export function PaperWorkspace({
       onFocusCapture={() => onActivePaneChange("draft")}
       onMouseDown={() => onActivePaneChange("draft")}
     >
-      {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Draft" /> : null}
       <ComposedDraftEditor
         containerPath={paperPath}
         title={compose.title}
@@ -166,6 +164,7 @@ export function PaperWorkspace({
         pendingAiProvider={compose.pendingAiProvider ?? null}
         refreshVersion={refreshVersion}
         showFocusGraph={paneView === "draft"}
+        splitPaneTitle={showSplitPaneTitles ? "Draft" : undefined}
         syncDocumentOutline={
           paneView === "draft" || (paneView === "split" && activePane === "draft")
         }

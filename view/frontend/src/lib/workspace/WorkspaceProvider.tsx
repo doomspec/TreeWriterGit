@@ -53,6 +53,9 @@ export type WorkspaceContextValue = {
   setSidebarPanel: (panel: SidebarPanel) => void;
   setSidebarPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   toggleSidebarPanel: () => void;
+  sidebarPinned: boolean;
+  setSidebarPinned: (pinned: boolean | ((prev: boolean) => boolean)) => void;
+  toggleSidebarPin: () => void;
   currentPath: string;
   activeFile: string | null;
   editorLayout: EditorLayout;
@@ -146,6 +149,7 @@ export function WorkspaceProvider({
   );
   const [sidebarPanel, setSidebarPanelState] = useState<SidebarPanel>(savedPrefs.sidebarPanel);
   const [sidebarPanelOpen, setSidebarPanelOpen] = useState(savedPrefs.sidebarPanelOpen);
+  const [sidebarPinned, setSidebarPinned] = useState(savedPrefs.sidebarPinned);
   const [searchQuery, setSearchQuery] = useState(savedPrefs.searchQuery);
   const [appView, setAppView] = useState<AppView>("workspace");
   const [error, setError] = useState<string | null>(null);
@@ -231,6 +235,10 @@ export function WorkspaceProvider({
     setSidebarPanelOpen((open) => !open);
   }, []);
 
+  const toggleSidebarPin = useCallback(() => {
+    setSidebarPinned((pinned) => !pinned);
+  }, []);
+
   const files = useMemo(() => flattenFiles(tree), [tree]);
   const browsePath =
     sidebarTab === "papers"
@@ -284,6 +292,7 @@ export function WorkspaceProvider({
       sidebarWidth,
       sidebarPanel,
       sidebarPanelOpen,
+      sidebarPinned,
       bottomPanelHeight,
     });
   }, [
@@ -302,6 +311,7 @@ export function WorkspaceProvider({
     sidebarTab,
     sidebarPanel,
     sidebarPanelOpen,
+    sidebarPinned,
     sidebarWidth,
   ]);
 
@@ -404,6 +414,9 @@ export function WorkspaceProvider({
       setSidebarPanel,
       setSidebarPanelOpen,
       toggleSidebarPanel,
+      sidebarPinned,
+      setSidebarPinned,
+      toggleSidebarPin,
       currentPath,
       activeFile,
       editorLayout,
@@ -524,6 +537,7 @@ export function WorkspaceProvider({
       sidebarTab,
       sidebarPanel,
       sidebarPanelOpen,
+      sidebarPinned,
       setSidebarPanel,
       sidebarWidth,
       submitCreateChild,

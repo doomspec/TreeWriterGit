@@ -7,7 +7,6 @@ import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
 import {
   ReadingFocusExtra,
-  ReadingFocusSplitPaneTitle,
   useReadingFocusSplitPaneTitles,
 } from "@/components/editor/ReadingFocusNavBar";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
@@ -115,7 +114,6 @@ function LeafUnitEditor({
         onFocusCapture={() => onActivePaneChange("outline")}
         onMouseDown={() => onActivePaneChange("outline")}
       >
-        {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Outline" /> : null}
         <MarkdownEditor
           key={outlinePath}
           filePath={outlinePath}
@@ -123,6 +121,7 @@ function LeafUnitEditor({
           layout="preview"
           compact
           showFocusGraph
+          splitPaneTitle={showSplitPaneTitles ? "Outline" : undefined}
           paneLabel={isPaperEditor ? "Paper outline" : "Outline"}
           defaultPaneMode="rendered"
           className="min-h-0 flex-1"
@@ -162,7 +161,6 @@ function LeafUnitEditor({
         onFocusCapture={() => onActivePaneChange("draft")}
         onMouseDown={() => onActivePaneChange("draft")}
       >
-        {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Draft" /> : null}
         <MarkdownEditor
           key={draftPath}
           filePath={draftPath}
@@ -170,6 +168,7 @@ function LeafUnitEditor({
           layout="preview"
           compact
           showFocusGraph={paneView === "draft"}
+          splitPaneTitle={showSplitPaneTitles ? "Draft" : undefined}
           paneLabel={isPaperEditor ? "Paper draft" : "Draft"}
           defaultPaneMode="rendered"
           className="min-h-0 flex-1"

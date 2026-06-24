@@ -8,6 +8,7 @@ view/frontend/vite.config.js
 .treewriter-exports/
 .treewriter-prompt.txt
 .treewriter-prompts/
+model/.treewriter-prompts/
 .overleaf/
 
 # Python bytecode

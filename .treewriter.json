@@ -39,7 +39,7 @@
       "writesFiles": true
     }
   ],
-  "defaultProvider": "Codex",
+  "defaultProvider": "Gemini",
   "gitSync": {
     "autoSync": false
   },

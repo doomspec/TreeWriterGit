@@ -49,7 +49,7 @@ export function AppChromeHeader({
     <header
       className={cn(
         "app-chrome-header flex h-11 items-center gap-2 overflow-hidden border-b border-border bg-card px-2 shadow-sm sm:gap-3 sm:px-4",
-        readingFocusActive ? "fixed inset-x-0 top-0 z-50" : "relative z-20 shrink-0",
+        readingFocusActive ? "fixed inset-x-0 top-0 z-[60]" : "relative z-[60] shrink-0",
       )}
     >
       <div className="app-chrome-header__lead flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-3">

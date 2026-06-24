@@ -1,14 +1,32 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 import { useDocumentOutline } from "@/lib/documentOutline";
+import type { MarkdownHeading } from "@/lib/markdownOutline";
+import { useWorkspace } from "@/lib/workspace/WorkspaceProvider";
 
 export function DocumentOutlinePanel({ className }: { className?: string }) {
   const outline = useDocumentOutline();
+  const ws = useWorkspace();
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   const headings = outline?.headings ?? [];
   const activeId = outline?.activeHeadingId ?? null;
+
+  const handleNavigate = useCallback(
+    (heading: MarkdownHeading) => {
+      if (!outline) return;
+      if (outline.scrollToHeading(heading.id)) return;
+      outline.navigateHeading(heading, (target) => {
+        if (target.type === "file") {
+          ws.openFile(target.path);
+          return;
+        }
+        ws.navigateTo(target.path);
+      });
+    },
+    [outline, ws],
+  );
 
   useEffect(() => {
     if (!outline?.scrollContainer || headings.length === 0) {
@@ -66,6 +84,8 @@ export function DocumentOutlinePanel({ className }: { className?: string }) {
     );
   }
 
+  const minLevel = Math.min(...headings.map((heading) => heading.level));
+
   return (
     <nav
       className={cn("flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-2", className)}
@@ -83,9 +103,11 @@ export function DocumentOutlinePanel({ className }: { className?: string }) {
                 "ui-nav-row",
                 activeId === heading.id && "ui-nav-row-active",
               )}
-              style={{ paddingInlineStart: `${(heading.level - 1) * 0.65 + 0.5}rem` }}
+              style={{
+                paddingInlineStart: `${(heading.level - minLevel) * 0.65 + 0.5}rem`,
+              }}
               title={heading.text}
-              onClick={() => outline.scrollToHeading(heading.id)}
+              onClick={() => handleNavigate(heading)}
             >
               <span className="truncate">{heading.text}</span>
             </button>

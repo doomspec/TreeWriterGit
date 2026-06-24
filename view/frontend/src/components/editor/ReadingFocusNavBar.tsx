@@ -9,14 +9,6 @@ export function useReadingFocusSplitPaneTitles(paneView: DualPaneView): boolean 
   return active && paneView === "split";
 }
 
-export function ReadingFocusSplitPaneTitle({ label }: { label: string }) {
-  return (
-    <div className="reading-focus-split-pane-title ui-pane-header shrink-0 min-h-8 py-1">
-      <span className="ui-label truncate">{label}</span>
-    </div>
-  );
-}
-
 export function ReadingFocusExtra({
   focusedPane,
   onPaneChange,

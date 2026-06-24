@@ -24,7 +24,54 @@ describe("extractMarkdownHeadings", () => {
         level: 2,
         text: "Results",
         lineIndex: 0,
+        href: "papers/demo/results",
       },
+    ]);
+  });
+
+  it("extracts outline list links under ## Outline", () => {
+    const md = `# Introduction
+
+## Summary
+
+Intro summary.
+
+## Outline
+- [Background](background/INDEX.md)
+- [Solution](solution/INDEX.md)
+
+## Notes
+
+Other.`;
+
+    const headings = extractMarkdownHeadings(md);
+    expect(headings.map((h) => h.text)).toEqual([
+      "Introduction",
+      "Summary",
+      "Outline",
+      "Background",
+      "Solution",
+      "Notes",
+    ]);
+    expect(headings.find((h) => h.text === "Background")).toMatchObject({
+      level: 3,
+      href: "background/INDEX.md",
+    });
+  });
+
+  it("extracts list links under ## Sections", () => {
+    const md = `# Paper
+
+## Sections
+- [Introduction](introduction/INDEX.md)
+- [Results](results/INDEX.md)`;
+
+    const headings = extractMarkdownHeadings(md);
+    expect(headings.map((h) => h.text)).toEqual([
+      "Paper",
+      "Sections",
+      "Introduction",
+      "Results",
     ]);
   });
 

@@ -40,9 +40,10 @@ describe("workspacePreferences sidebar panel", () => {
   });
 
   it("persists sidebar panel prefs", () => {
-    saveWorkspacePreferences({ sidebarPanel: "outline", sidebarPanelOpen: false });
+    saveWorkspacePreferences({ sidebarPanel: "outline", sidebarPanelOpen: false, sidebarPinned: false });
     const loaded = mergeWorkspaceDefaults(loadWorkspacePreferences());
     expect(loaded.sidebarPanel).toBe("outline");
     expect(loaded.sidebarPanelOpen).toBe(false);
+    expect(loaded.sidebarPinned).toBe(false);
   });
 });

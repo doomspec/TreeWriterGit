@@ -204,6 +204,19 @@ describe("canAddManuscriptChildren", () => {
     expect(canAddManuscriptChildren(intro, intro.path, paperPath)).toBe(true);
   });
 
+  it("allows subsection containers marked in INDEX even without child folders in tree", () => {
+    const subsection: ModelNode = {
+      name: "methods",
+      path: "papers/demo/introduction/methods",
+      type: "directory",
+      kind: "subsection",
+      children: [
+        { name: "outline.md", path: "papers/demo/introduction/methods/outline.md", type: "file" },
+      ],
+    };
+    expect(canAddManuscriptChildren(subsection, subsection.path, paperPath)).toBe(true);
+  });
+
   it("blocks asset folders and leaf units", () => {
     const unit: ModelNode = {
       name: "background",

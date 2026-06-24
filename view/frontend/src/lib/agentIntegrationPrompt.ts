@@ -31,7 +31,7 @@ Workflow:
 1. Open a unit folder (or a section for fan-out).
 2. Open the bottom panel → AI dispatch.
 3. Choose provider and action, then Preview (⌘⇧P) or Run (⌘⇧R).
-4. The command writes to \`.treewriter-prompts/<session>.txt\` and runs your CLI.
+4. The command writes to \`model/.treewriter-prompts/<session>.txt\` and runs your CLI from the \`model/\` directory.
 5. Review changes in the editor; approve when ready for export.
 
 Configure providers in \`.treewriter.json\` at the repo root (\`aiProviders\`, \`defaultProvider\`).`;

@@ -5,11 +5,15 @@ export type MarkdownHeading = {
   level: number;
   text: string;
   lineIndex: number;
+  /** Internal link target for outline list items and linked headings. */
+  href?: string;
 };
 
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
 const ATX_HEADING = /^(#{1,6})\s+(.+)$/;
-const LINKED_HEADING = /^(#{2,6})\s+\[([^\]]+)\]\([^)]+\)\s*$/;
+const LINKED_HEADING = /^(#{1,6})\s+\[([^\]]+)\]\(([^)]+)\)\s*$/;
+const LIST_LINK = /^(\s*)([-*+]|\d+\.)\s+\[([^\]]+)\]\(([^)]+)\)\s*$/;
+const OUTLINE_SECTION_TITLE = /^(outline|sections|subsections)$/i;
 
 function slugify(text: string): string {
   const base = text
@@ -26,14 +30,58 @@ function stripFrontmatter(markdown: string): string {
   return markdown.replace(FRONTMATTER, "");
 }
 
-function parseHeadingText(line: string): { level: number; text: string } | null {
+function nextHeadingId(text: string, slugCounts: Map<string, number>, prefix = "heading"): string {
+  const baseSlug = slugify(text);
+  const count = slugCounts.get(baseSlug) ?? 0;
+  slugCounts.set(baseSlug, count + 1);
+  return count === 0 ? `${prefix}-${baseSlug}` : `${prefix}-${baseSlug}-${count + 1}`;
+}
+
+function parseHeadingText(line: string): { level: number; text: string; href?: string } | null {
   const linked = LINKED_HEADING.exec(line.trim());
   if (linked) {
-    return { level: linked[1].length, text: linked[2].trim() };
+    return { level: linked[1].length, text: linked[2].trim(), href: linked[3].trim() };
   }
   const atx = ATX_HEADING.exec(line.trim());
   if (!atx) return null;
   return { level: atx[1].length, text: atx[2].replace(/\s+#+\s*$/, "").trim() };
+}
+
+function isOutlineSectionHeading(text: string): boolean {
+  return OUTLINE_SECTION_TITLE.test(text.trim());
+}
+
+function pushHeading(
+  headings: MarkdownHeading[],
+  slugCounts: Map<string, number>,
+  parsed: { level: number; text: string; href?: string },
+  lineIndex: number,
+): void {
+  if (!parsed.text) return;
+  headings.push({
+    id: nextHeadingId(parsed.text, slugCounts),
+    level: parsed.level,
+    text: parsed.text,
+    lineIndex,
+    href: parsed.href,
+  });
+}
+
+function pushListLink(
+  headings: MarkdownHeading[],
+  slugCounts: Map<string, number>,
+  text: string,
+  href: string,
+  level: number,
+  lineIndex: number,
+): void {
+  headings.push({
+    id: nextHeadingId(text, slugCounts, "outline-link"),
+    level,
+    text,
+    lineIndex,
+    href,
+  });
 }
 
 /** Walk markdown lines, skipping fenced code blocks. */
@@ -43,6 +91,7 @@ export function extractMarkdownHeadings(markdown: string): MarkdownHeading[] {
   const headings: MarkdownHeading[] = [];
   const slugCounts = new Map<string, number>();
   let fenceOpen: string | null = null;
+  let listBaseLevel: number | null = null;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const line = lines[lineIndex] ?? "";
@@ -59,19 +108,27 @@ export function extractMarkdownHeadings(markdown: string): MarkdownHeading[] {
     if (fenceOpen !== null) continue;
 
     const parsed = parseHeadingText(line);
-    if (!parsed || !parsed.text) continue;
+    if (parsed?.text) {
+      pushHeading(headings, slugCounts, parsed, lineIndex);
+      listBaseLevel = isOutlineSectionHeading(parsed.text) ? parsed.level + 1 : null;
+      continue;
+    }
 
-    const baseSlug = slugify(parsed.text);
-    const count = slugCounts.get(baseSlug) ?? 0;
-    slugCounts.set(baseSlug, count + 1);
-    const id = count === 0 ? `heading-${baseSlug}` : `heading-${baseSlug}-${count + 1}`;
+    if (listBaseLevel === null) continue;
 
-    headings.push({
-      id,
-      level: parsed.level,
-      text: parsed.text,
-      lineIndex,
-    });
+    const listMatch = LIST_LINK.exec(line);
+    if (!listMatch) {
+      if (line.trim() !== "") listBaseLevel = null;
+      continue;
+    }
+
+    const indent = listMatch[1] ?? "";
+    const text = listMatch[3].trim();
+    const href = listMatch[4].trim();
+    if (!text || !href) continue;
+
+    const level = listBaseLevel + Math.floor(indent.replace(/\t/g, "  ").length / 2);
+    pushListLink(headings, slugCounts, text, href, level, lineIndex);
   }
 
   return headings;
@@ -94,8 +151,5 @@ export function buildBlockHeadingIdMap(
 export function headingIdFromLine(line: string, slugCounts: Map<string, number>): string | null {
   const parsed = parseHeadingText(line);
   if (!parsed) return null;
-  const baseSlug = slugify(parsed.text);
-  const count = slugCounts.get(baseSlug) ?? 0;
-  slugCounts.set(baseSlug, count + 1);
-  return count === 0 ? `heading-${baseSlug}` : `heading-${baseSlug}-${count + 1}`;
+  return nextHeadingId(parsed.text, slugCounts);
 }

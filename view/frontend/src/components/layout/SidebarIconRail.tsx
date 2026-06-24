@@ -11,6 +11,8 @@ import {
   Network,
   PanelLeft,
   PanelLeftClose,
+  Pin,
+  PinOff,
   Settings,
   Sun,
   TerminalSquare,
@@ -58,6 +60,7 @@ const RAIL_ITEMS: {
 export function SidebarIconRail({
   activePanel,
   panelOpen,
+  pinned,
   graphAvailable,
   agentPanelOpen,
   agentPanelFocus,
@@ -68,15 +71,19 @@ export function SidebarIconRail({
   themePreference,
   onSelectPanel,
   onTogglePanel,
+  onTogglePin,
   onOpenTerminalPanel,
   onOpenDispatchPanel,
   onGitClick,
   onSetAppView,
   onCycleTheme,
+  onPointerEnter,
+  onPointerLeave,
   className,
 }: {
   activePanel: SidebarPanel;
   panelOpen: boolean;
+  pinned: boolean;
   graphAvailable: boolean;
   agentPanelOpen: boolean;
   agentPanelFocus: "terminal" | "dispatch" | null;
@@ -87,11 +94,14 @@ export function SidebarIconRail({
   themePreference: ThemePreference;
   onSelectPanel: (panel: SidebarPanel) => void;
   onTogglePanel: () => void;
+  onTogglePin: () => void;
   onOpenTerminalPanel: () => void;
   onOpenDispatchPanel: () => void;
   onGitClick: () => void;
   onSetAppView: (view: AppView) => void;
   onCycleTheme: () => void;
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
   className?: string;
 }) {
   const gitTitle =
@@ -110,6 +120,8 @@ export function SidebarIconRail({
         className,
       )}
       aria-label="Sidebar navigation"
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
     >
       <Button
         type="button"
@@ -213,6 +225,23 @@ export function SidebarIconRail({
           onClick={() => onSetAppView(appView === "settings" ? "workspace" : "settings")}
         >
           <Settings className="h-4 w-4" aria-hidden="true" />
+        </Button>
+
+        <Button
+          type="button"
+          variant={pinned ? "default" : "ghost"}
+          size="icon"
+          className="h-8 w-8"
+          title={pinned ? "Unpin sidebar (show on hover)" : "Pin sidebar open"}
+          aria-label={pinned ? "Unpin sidebar panel" : "Pin sidebar panel open"}
+          aria-pressed={pinned}
+          onClick={onTogglePin}
+        >
+          {pinned ? (
+            <Pin className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <PinOff className="h-4 w-4" aria-hidden="true" />
+          )}
         </Button>
 
         <Button

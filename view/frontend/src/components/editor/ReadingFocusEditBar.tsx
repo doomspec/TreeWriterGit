@@ -1,10 +1,12 @@
 import { cn } from "@/lib/utils";
 
 export function ReadingFocusEditBar({
+  title,
   toolbar,
   trailing,
   className,
 }: {
+  title?: string;
   toolbar: React.ReactNode;
   trailing?: React.ReactNode;
   className?: string;
@@ -16,7 +18,12 @@ export function ReadingFocusEditBar({
       aria-label="Focus mode editing"
     >
       <div className="reading-focus-edit-bar__inner">
-        <div className="reading-focus-edit-bar__toolbar">{toolbar}</div>
+        <div className="reading-focus-edit-bar__toolbar">
+          {title ? (
+            <span className="reading-focus-edit-bar__title ui-label shrink-0 truncate">{title}</span>
+          ) : null}
+          {toolbar}
+        </div>
         {trailing ? <div className="reading-focus-edit-bar__actions">{trailing}</div> : null}
       </div>
     </div>

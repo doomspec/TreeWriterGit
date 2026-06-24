@@ -4,7 +4,7 @@ import { GripVertical } from "lucide-react";
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
-import { SectionTreeRowMeta } from "@/components/paper/SectionTreeRowMeta";
+import { SectionTreeRowMeta, resolveSectionTreeCreateParent } from "@/components/paper/SectionTreeRowMeta";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { UnapprovedIndicator } from "@/components/nav/UnapprovedIndicator";
 import { cn } from "@/lib/utils";
@@ -268,7 +268,12 @@ function ChildOrderList({
                 </span>
               </button>
               <SectionTreeRowMeta
-                parentPath={child.path}
+                createParentPath={resolveSectionTreeCreateParent(
+                  child.path,
+                  parentPath,
+                  tree,
+                  paperPath,
+                )}
                 paperPath={paperPath}
                 tree={tree}
                 title={child.title}
@@ -474,7 +479,7 @@ function SectionOrderList({
                 </span>
               </button>
               <SectionTreeRowMeta
-                parentPath={section.path}
+                createParentPath={section.path}
                 paperPath={paperPath}
                 tree={tree}
                 title={section.title}
@@ -784,7 +789,7 @@ export function PapersPanel({
                 </span>
               </button>
               <SectionTreeRowMeta
-                parentPath={paperPath}
+                createParentPath={paperPath}
                 paperPath={paperPath}
                 tree={tree}
                 title={detail?.title ?? "Paper overview"}
@@ -824,7 +829,7 @@ export function PapersPanel({
             )}
             {sections.length > 0 ? (
               <p className="text-[10px] text-muted-foreground">
-                Drag to reorder · + to add · hover to rename or remove ·{" "}
+                Drag to reorder · hover for + rename remove · ⋯ on narrow sidebar ·{" "}
                 <span className="text-amber-700 dark:text-amber-300">amber = unapproved text</span>
               </p>
             ) : null}

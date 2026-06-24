@@ -282,7 +282,7 @@ describe("buildPreview", () => {
     expect(result.command).not.toContain(">");
   });
 
-  it("gemini uses headless prompt without stdout redirect", async () => {
+  it("gemini uses stdin pipe and workspace preamble without stdout redirect", async () => {
     const geminiProvider = {
       name: "Gemini",
       command: "gemini",
@@ -297,17 +297,20 @@ describe("buildPreview", () => {
       "draft",
       geminiProvider,
     );
-    expect(result.command).toContain("gemini");
+    expect(result.command).toMatch(/cat '\.treewriter-prompts\//);
+    expect(result.command).toContain("| gemini");
     expect(result.command).toContain("--approval-mode");
     expect(result.command).not.toMatch(/>\s*'/);
+    expect(result.prompt).toContain("Your shell cwd is the model/ directory");
+    expect(result.promptFile).toMatch(/^model\/\.treewriter-prompts\//);
   });
 
-  it("writes per-session prompt file under .treewriter-prompts/", async () => {
+  it("writes per-session prompt file under model/.treewriter-prompts/", async () => {
     await makeUnit("intro/problem", "State the gap.");
     const sessionId = "test-session-a";
     await buildPreview(modelRoot, repoRoot, "intro/problem", "draft", provider, undefined, sessionId);
     const saved = await readFile(
-      path.join(repoRoot, ".treewriter-prompts", `${sessionId}.txt`),
+      path.join(modelRoot, ".treewriter-prompts", `${sessionId}.txt`),
       "utf8",
     );
     expect(saved).toContain("State the gap.");
@@ -318,8 +321,14 @@ describe("buildPreview", () => {
     await buildPreview(modelRoot, repoRoot, "intro/problem", "draft", provider, undefined, "session-a");
     await makeUnit("intro/other", "Prompt B idea.");
     await buildPreview(modelRoot, repoRoot, "intro/other", "draft", provider, undefined, "session-b");
-    const promptA = await readFile(path.join(repoRoot, ".treewriter-prompts", "session-a.txt"), "utf8");
-    const promptB = await readFile(path.join(repoRoot, ".treewriter-prompts", "session-b.txt"), "utf8");
+    const promptA = await readFile(
+      path.join(modelRoot, ".treewriter-prompts", "session-a.txt"),
+      "utf8",
+    );
+    const promptB = await readFile(
+      path.join(modelRoot, ".treewriter-prompts", "session-b.txt"),
+      "utf8",
+    );
     expect(promptA).toContain("Prompt A idea.");
     expect(promptB).toContain("Prompt B idea.");
     expect(promptA).not.toContain("Prompt B idea.");

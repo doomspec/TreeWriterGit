@@ -134,6 +134,9 @@ export function canAddManuscriptChildren(
   // Top-level sections (abstract, introduction, …) also carry outline/draft but hold children.
   if (!rel.includes("/")) return true;
 
+  const kind = folderNodeKind(node);
+  if (kind === "section" || kind === "subsection" || kind === "paper") return true;
+
   // Nested subsection containers may look like units until they gain child folders.
   if (node?.children?.some((child) => child.type === "directory")) return true;
 

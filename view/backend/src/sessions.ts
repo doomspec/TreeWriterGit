@@ -189,8 +189,13 @@ export async function advanceUnitStatusOnSessionComplete(
 export async function deleteSessionPrompt(repoRoot: string, sessionId: string): Promise<void> {
   const safeId = path.basename(sessionId);
   if (!safeId || safeId !== sessionId) return;
-  const promptPath = path.join(repoRoot, ".treewriter-prompts", `${safeId}.txt`);
-  if (existsSync(promptPath)) {
-    await rm(promptPath, { force: true });
+  const candidates = [
+    path.join(repoRoot, "model", ".treewriter-prompts", `${safeId}.txt`),
+    path.join(repoRoot, ".treewriter-prompts", `${safeId}.txt`),
+  ];
+  for (const promptPath of candidates) {
+    if (existsSync(promptPath)) {
+      await rm(promptPath, { force: true });
+    }
   }
 }

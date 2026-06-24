@@ -6,7 +6,6 @@ import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { SectionApproveChildrenButton } from "@/components/editor/SectionApproveChildrenButton";
 import {
   ReadingFocusExtra,
-  ReadingFocusSplitPaneTitle,
   useReadingFocusSplitPaneTitles,
 } from "@/components/editor/ReadingFocusNavBar";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
@@ -239,7 +238,6 @@ export function SectionWorkspace({
       onFocusCapture={() => onActivePaneChange("outline")}
       onMouseDown={() => onActivePaneChange("outline")}
     >
-      {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Outline" /> : null}
       <MarkdownEditor
         key={outlinePath}
         filePath={outlinePath}
@@ -247,6 +245,7 @@ export function SectionWorkspace({
         layout="preview"
         compact
         showFocusGraph
+        splitPaneTitle={showSplitPaneTitles ? "Outline" : undefined}
         syncDocumentOutline={
           paneView === "outline" || (paneView === "split" && activePane === "outline")
         }
@@ -274,7 +273,6 @@ export function SectionWorkspace({
       onFocusCapture={() => onActivePaneChange("draft")}
       onMouseDown={() => onActivePaneChange("draft")}
     >
-      {showSplitPaneTitles ? <ReadingFocusSplitPaneTitle label="Draft" /> : null}
       <ComposedDraftEditor
         containerPath={sectionPath}
         title={compose.title}
@@ -283,6 +281,7 @@ export function SectionWorkspace({
         pendingAiProvider={compose.pendingAiProvider ?? null}
         refreshVersion={refreshVersion}
         showFocusGraph={paneView === "draft"}
+        splitPaneTitle={showSplitPaneTitles ? "Draft" : undefined}
         syncDocumentOutline={
           paneView === "draft" || (paneView === "split" && activePane === "draft")
         }
