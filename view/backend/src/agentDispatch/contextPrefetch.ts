@@ -1,6 +1,5 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import matter from "gray-matter";
 
 import { isUnitDir, orderedChildren, resolveChildPath } from "../modelFs.js";
@@ -160,21 +159,22 @@ export async function gatherAutomaticContextPrefetch(
 }
 
 /** Tell dispatch agents how to pull more context on demand (no MCP tax). */
-export function buildDispatchContextCliBlock(repoRoot: string): string {
-  const scriptRel = "scripts/tw-context.mjs";
-  const scriptAbs = path.join(repoRoot, scriptRel);
-  if (!existsSync(scriptAbs)) return "";
-
+export function buildDispatchContextCliBlock(_repoRoot: string): string {
   return [
     "ON-DEMAND CONTEXT (use only if the sections above are insufficient):",
-    "Run from repo root or model/ — no project MCP required.",
+    "Terminal cwd is model/ — paths in this task are relative to model/.",
     "",
-    `  node ${scriptRel} search "keywords" --root papers/{slug}`,
-    `  node ${scriptRel} read papers/{slug}/section/unit/draft.md`,
-    `  node ${scriptRel} tree papers/{slug} --depth 1`,
-    `  node ${scriptRel} compose papers/{slug}/sections/{section}`,
+    "Read-only lookup (from model/):",
+    "  node ../scripts/tw-context.mjs search \"keywords\" --root papers/{slug}",
+    "  node ../scripts/tw-context.mjs read papers/{slug}/section/unit/draft.md",
+    "  node ../scripts/tw-context.mjs tree papers/{slug} --depth 1",
+    "  node ../scripts/tw-context.mjs compose papers/{slug}/sections/{section}",
     "",
-    "Search uses the local backend FTS index when http://localhost:4000 is up; read/tree work offline.",
-    "Prefer read for full files; search for cross-paper or keyword discovery within a scope.",
+    "Bulk import (from repo root only):",
+    "  pnpm import-docx papers/{slug} /path/to/file.docx",
+    "  pnpm import-references papers/{slug} /path/to/refs.bib",
+    "",
+    "Search/compose need pnpm dev (localhost:4000); read/tree work offline.",
+    "Full guide: .treewriter-skills/treewriter-context-cli.md",
   ].join("\n");
 }

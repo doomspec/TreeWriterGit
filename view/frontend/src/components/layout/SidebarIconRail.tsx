@@ -3,6 +3,7 @@ import {
   CircleHelp,
   Download,
   FileStack,
+  FileUp,
   FolderTree,
   GitBranch,
   ListTree,
@@ -54,6 +55,7 @@ const RAIL_ITEMS: {
   { id: "papers", label: "Papers", icon: FileStack },
   { id: "graph", label: "Graph", icon: Network },
   { id: "outline", label: "Document outline", icon: ListTree },
+  { id: "import", label: "Import from Word", icon: FileUp },
   { id: "export", label: "Export & Overleaf", icon: Download },
 ];
 

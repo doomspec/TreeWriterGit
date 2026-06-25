@@ -27,10 +27,11 @@ describe("extractSearchTerms", () => {
 });
 
 describe("buildDispatchContextCliBlock", () => {
-  it("includes tw-context commands when script exists", () => {
+  it("includes tw-context and import commands", () => {
     const block = buildDispatchContextCliBlock(repoRoot);
     expect(block).toContain("tw-context.mjs");
-    expect(block).toContain("search");
+    expect(block).toContain("import-docx");
+    expect(block).toContain("model/");
   });
 });
 

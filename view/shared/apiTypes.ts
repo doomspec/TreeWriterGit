@@ -80,6 +80,14 @@ export type ExportPaperResult = {
   cslPath?: string;
 };
 
+export type DocxImportResult = {
+  sectionsCreated: number;
+  unitsCreated: number;
+  paths: string[];
+  paperTitle?: string;
+  notice?: string;
+};
+
 export type CommentAssigneeType = "human" | "ai";
 
 export type CommentAssignee = {

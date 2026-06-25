@@ -11,6 +11,7 @@ import type {
   PresenceEntry,
   SectionRollup,
   UnitStatusCounts,
+  DocxImportResult,
 } from "@treewriter/shared";
 
 export { ApiError, getApiBaseUrl, request };
@@ -25,6 +26,7 @@ export type {
   PresenceEntry,
   SectionRollup,
   UnitStatusCounts,
+  DocxImportResult,
 };
 
 export {
@@ -35,6 +37,8 @@ export {
   importOverleafFeedback,
   pushToOverleaf,
 } from "./exportApi";
+
+export { importDocxIntoPaper } from "./importApi";
 
 export {
   claimPresence,

@@ -15,6 +15,7 @@ import { WorkspaceSidebarShell } from "@/components/layout/WorkspaceSidebarShell
 import { WorkspaceNav } from "@/components/nav/WorkspaceNav";
 import { DocumentOutlinePanel } from "@/components/nav/DocumentOutlinePanel";
 import { PaperExportPanel } from "@/components/paper/PaperExportPanel";
+import { DocxImportPanel } from "@/components/paper/DocxImportPanel";
 import { WorkspaceRouter } from "@/components/workspace/WorkspaceRouter";
 import { ErrorToast } from "@/components/layout/ErrorToast";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
@@ -417,6 +418,15 @@ function AppShell({
                         </div>
                       ) : nav.sidebarPanel === "export" ? (
                         <PaperExportPanel
+                          className="h-full"
+                          paperSlug={nav.exportPaperSlug}
+                          onError={ws.setError}
+                          onComplete={() =>
+                            nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)
+                          }
+                        />
+                      ) : nav.sidebarPanel === "import" ? (
+                        <DocxImportPanel
                           className="h-full"
                           paperSlug={nav.exportPaperSlug}
                           onError={ws.setError}

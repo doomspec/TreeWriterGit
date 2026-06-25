@@ -109,6 +109,14 @@ export function AppCommands(context: AppCommandsContext) {
         run: () => ctx().onSetSidebarPanel("export"),
       },
       {
+        id: "sidebar.import",
+        label: "Show import panel",
+        category: "Navigation",
+        aliases: ["import", "docx", "word", "upload document"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("import"),
+      },
+      {
         id: "sidebar.toggle",
         label: "Toggle sidebar panel",
         category: "View",

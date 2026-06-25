@@ -10,7 +10,9 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "import-docx": "tsx ../../scripts/import-docx.mjs",
+    "import-references": "tsx ../../scripts/import-references.mjs"
   },
   "dependencies": {
     "@treewriter/shared": "workspace:*",

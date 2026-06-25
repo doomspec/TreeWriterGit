@@ -14,7 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const SKILLS_HELP =
-  "Upload markdown skill files for dispatch-only rules (structure, writing, context CLI). Enabled skills are appended to each preview prompt — not loaded into every IDE session (unlike project MCP). Auto-prefetch adds sibling outlines and search hits before the agent runs.";
+  "Upload markdown skill files for dispatch-only rules. Enable treewriter-context-cli.md first (AI usage, terminal scope, tw-context, import scripts), then structure/writing skills. Appended to each preview — not loaded into every IDE session (unlike project MCP). Auto-prefetch adds sibling outlines and search hits before the agent runs.";
 
 function formatSkillSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -160,7 +160,7 @@ export function DispatchSkillsPanel({
             No skills yet. Upload a <code className="rounded bg-muted px-1">.md</code> file with a{" "}
             <code className="rounded bg-muted px-1"># Title</code> heading. Include{" "}
             <code className="rounded bg-muted px-1">treewriter-context-cli.md</code> from{" "}
-            <code className="rounded bg-muted px-1">.treewriter-skills/</code> for on-demand context lookup.
+            <code className="rounded bg-muted px-1">.treewriter-skills/</code> for the AI usage and context CLI guide.
           </p>
         ) : (
           <ul className="dispatch-skills-panel__items" role="list">

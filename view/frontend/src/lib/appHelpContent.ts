@@ -133,9 +133,9 @@ export const HELP_FEATURES: HelpFeature[] = [
   },
   {
     title: "Terminal & AI dispatch",
-    body: "The bottom panel combines a terminal with AI dispatch. Each preview bundles outline, draft, links, sibling units, and paper search hits. Optional file checklist overrides defaults; agents can run node ../scripts/tw-context.mjs from model/ for more context (no project MCP).",
+    body: "The bottom panel combines a terminal with AI dispatch. Each preview bundles outline, draft, links, sibling units, and paper search hits. Terminal cwd is model/; agents use tw-context for read-only lookup and pnpm import-docx from repo root for bulk Word import.",
     hints: [
-      "Dispatch → Skills: enable treewriter-context-cli.md and writing skills.",
+      "Dispatch → Skills: enable treewriter-context-cli.md first (AI usage + CLI), then writing skills.",
       "Dispatch → Integration: copy system prompt or context CLI cheatsheet.",
       "Configure AI providers in Settings; keep pnpm dev running for FTS search.",
     ],

@@ -14,17 +14,18 @@ export function buildContextCliExamples(unitPath?: string): string[] {
     `node ../scripts/tw-context.mjs read ${unit}/draft.md`,
     `node ../scripts/tw-context.mjs tree ${paper} --depth 1`,
     `node ../scripts/tw-context.mjs compose ${paper}/sections/{section}`,
+    `pnpm import-docx ${paper} /path/to/file.docx   # repo root only`,
   ];
 }
 
 export function buildContextCliQuickRef(unitPath?: string): string {
   const examples = buildContextCliExamples(unitPath);
   return [
-    "TreeWriter context CLI (run from model/ — no project MCP required):",
+    "TreeWriter AI usage (terminal cwd = model/ for file paths; run import scripts from repo root):",
     "",
     ...examples.map((line) => `  ${line}`),
     "",
-    "Search/compose need the dev backend (pnpm dev). read/tree work offline.",
+    "Search/compose need pnpm dev. read/tree work offline.",
     "Full guide: .treewriter-skills/treewriter-context-cli.md",
   ].join("\n");
 }

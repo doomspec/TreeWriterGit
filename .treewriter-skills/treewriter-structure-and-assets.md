@@ -148,7 +148,8 @@ TreeWriter uses **Pandoc-oriented markdown**, not LaTeX shortcuts.
 
 | Source | Destination | Notes |
 |--------|-------------|-------|
-| **BibTeX** (`.bib`) | `papers/{slug}/notes/literature/*.md` | One markdown note per entry; preserves `cite_key`. Import via the References UI or `POST /api/model/references/import`. |
+| **BibTeX** (`.bib`) | `papers/{slug}/notes/literature/*.md` | One markdown note per entry; preserves `cite_key`. UI, `POST /api/model/references/import`, or `pnpm import-references papers/{slug} refs.bib`. |
+| **Word** (`.docx`) | New section/unit folders under `papers/{slug}/` | Pandoc converts to GFM; `##` → sections, `###`/paragraphs → units. UI Import panel or `pnpm import-docx papers/{slug} file.docx`. Auto-approves by default. |
 | **Figure image** | `papers/{slug}/figures/{name}/` | Upload attaches preview/source files to the figure unit; reference in draft via `::figure[…]`. |
 | **Overleaf `\todo` / `TODO` comments** | `papers/{slug}/notes/feedback/*.md` | Pulled from the connected Overleaf Git clone; for author triage, not export body text. |
 | **Git sync** | Whole repo | Optional periodic pull/push of the TreeWriter repo (separate from Overleaf push). |
@@ -201,11 +202,11 @@ Unit / container `INDEX.md` `links:` array holds wikilink targets to other nodes
 
 ## Need more context during dispatch?
 
-Prefetched context may not cover everything. Use the **context CLI** skill (`treewriter-context-cli.md`):
+Prefetched context may not cover everything. Use the **AI usage** skill (`treewriter-context-cli.md`):
 
 ```bash
 node ../scripts/tw-context.mjs search "keywords" --root papers/{slug}
 node ../scripts/tw-context.mjs read papers/{slug}/…/draft.md
 ```
 
-Do not load the whole paper — scope `search` to one paper and `read` only what you need.
+Bulk import (repo root): `pnpm import-docx`, `pnpm import-references`. Do not load the whole paper — scope search to one paper and read only what you need.

@@ -16,6 +16,7 @@ import {
   registerAgentRoutes,
   registerCommentsRoutes,
   registerExportRoutes,
+  registerImportRoutes,
   registerModelRoutes,
   registerPapersRoutes,
   registerPresenceRoutes,
@@ -102,6 +103,7 @@ export function createApp(config: AppConfig): AppRuntime {
   const json25mb = express.json({ limit: "25mb" });
   app.use("/api/model/figure/upload", json25mb);
   app.use("/api/model/references/import", json25mb);
+  app.use("/api/import/docx", json25mb);
   app.use(express.json({ limit: "2mb" }));
 
   const modelEventClients = new Set<WebSocket>();
@@ -141,6 +143,7 @@ export function createApp(config: AppConfig): AppRuntime {
   registerPresenceRoutes(app, deps);
   registerPapersRoutes(app, deps);
   registerExportRoutes(app, deps);
+  registerImportRoutes(app, deps);
   registerAgentRoutes(app, deps);
   registerModelAssetRoutes(app, deps);
   registerModelRoutes(app, deps);

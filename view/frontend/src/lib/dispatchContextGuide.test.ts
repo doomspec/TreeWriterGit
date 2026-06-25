@@ -18,7 +18,9 @@ describe("dispatchContextGuide", () => {
     expect(lines[1]).toContain("papers/demo/intro/unit/draft.md");
   });
 
-  it("quick ref mentions context skill", () => {
-    expect(buildContextCliQuickRef("papers/demo/x")).toContain("treewriter-context-cli.md");
+  it("quick ref mentions context skill and import", () => {
+    const ref = buildContextCliQuickRef("papers/demo/x");
+    expect(ref).toContain("treewriter-context-cli.md");
+    expect(ref).toContain("import-docx");
   });
 });

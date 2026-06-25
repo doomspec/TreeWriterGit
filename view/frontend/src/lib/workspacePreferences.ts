@@ -1,7 +1,7 @@
 export type WorkspaceNavTab = "explorer" | "papers";
 
-/** Left rail panel: explorer/papers reuse WorkspaceNav; graph/outline/export are dedicated panels. */
-export type SidebarPanel = "explorer" | "papers" | "graph" | "outline" | "export";
+/** Left rail panel: explorer/papers reuse WorkspaceNav; graph/outline/export/import are dedicated panels. */
+export type SidebarPanel = "explorer" | "papers" | "graph" | "outline" | "export" | "import";
 
 export type DualPaneActive = "outline" | "draft" | "notes";
 
@@ -167,7 +167,8 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
       panel !== "papers" &&
       panel !== "graph" &&
       panel !== "outline" &&
-      panel !== "export"
+      panel !== "export" &&
+      panel !== "import"
     ) {
       delete (parsed as { sidebarPanel?: string }).sidebarPanel;
     }

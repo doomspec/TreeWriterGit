@@ -53,16 +53,17 @@ Layer 2 — Auto prefetch (default, no checklist)
   Sibling unit outlines + FTS search hits in the same paper.
 
 Layer 3 — On demand (agent runs in terminal)
-  node ../scripts/tw-context.mjs search|read|tree|compose
+  node ../scripts/tw-context.mjs search|read|tree|compose  (cwd = model/)
+  pnpm import-docx / import-references  (repo root, bulk import)
   Documented in .treewriter-skills/treewriter-context-cli.md
 
 Workflow:
 1. Open a unit (or section for fan-out).
 2. Bottom panel → AI dispatch → choose provider and action → Preview (⌘⇧P) or Run (⌘⇧R).
-3. Prompt writes to model/.treewriter-prompts/<session>.txt; CLI runs from model/.
-4. Review in the editor; approve when ready for export.
+3. Prompt writes to model/.treewriter-prompts/<session>.txt; terminal cwd = model/.
+4. Edit only the output path named in the prompt; author approves for export.
 
-Skills (.treewriter-skills/, enabled in .treewriter.json) append writing rules to each dispatch prompt only — not to every IDE session.
+Skills (.treewriter-skills/, enabled in .treewriter.json) append rules to each dispatch prompt only — not to every IDE session. Enable treewriter-context-cli.md first (AI usage + CLI).
 
 Providers: .treewriter.json at repo root (aiProviders, defaultProvider).
 Keep pnpm dev running for FTS search and section compose via tw-context.`;
