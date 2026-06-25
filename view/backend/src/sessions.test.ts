@@ -107,6 +107,30 @@ describe("session wiki storage", () => {
     expect(raw.match(/<!-- tw-session/g)?.length).toBe(2);
   });
 
+  it("lists sessions for paper and section containers", async () => {
+    await seedUnit("papers/vibecount/introduction/background");
+    await createSession(modelRoot, "papers/vibecount/introduction/background", {
+      at: "2026-06-23T04:00:00.000Z",
+      provider: "Gemini",
+      action: "draft",
+      command: "gemini draft",
+      status: "dispatched",
+    });
+
+    const unitSessions = await listSessions(
+      modelRoot,
+      "papers/vibecount/introduction/background",
+    );
+    expect(unitSessions).toHaveLength(1);
+
+    const sectionSessions = await listSessions(modelRoot, "papers/vibecount/introduction");
+    expect(sectionSessions).toHaveLength(1);
+    expect(sectionSessions[0]?.unitPath).toBe("papers/vibecount/introduction/background");
+
+    const paperSessions = await listSessions(modelRoot, "papers/vibecount");
+    expect(paperSessions).toHaveLength(1);
+  });
+
   it("updates session status inside the daily wiki file", async () => {
     await seedUnit("papers/vibecount/abstract");
     await createSession(modelRoot, "papers/vibecount/abstract", {

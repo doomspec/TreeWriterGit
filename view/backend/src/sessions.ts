@@ -24,6 +24,7 @@ export interface SessionFile extends SessionRecord {
   filename: string;
   body: string;
   wikiPath?: string;
+  unitPath?: string;
 }
 
 function validatedUnitPath(modelRoot: string, unitPath: string): string {
@@ -82,6 +83,7 @@ export async function listSessions(
   const wikiSessions = (await listSessionWikiEntries(modelRoot, unitPath)).map((entry) => ({
     filename: entry.filename,
     wikiPath: entry.wikiPath,
+    unitPath: entry.unitPath,
     body: entry.body,
     at: entry.at,
     provider: entry.provider,
@@ -99,6 +101,7 @@ export async function listSessions(
     if (seen.has(session.filename)) continue;
     merged.push({
       ...session,
+      unitPath: session.unitPath ?? unitPath,
       wikiPath: session.wikiPath ?? `${unitPath}/notes/sessions/${session.filename}`,
     });
   }

@@ -7,6 +7,7 @@ export function parentPath(pathValue: string): string {
 export const INDEX_DOC = "INDEX.md";
 export const OUTLINE_DOC = "outline.md";
 export const DRAFT_DOC = "draft.md";
+export const TEMP_NOTES_DOC = "temp-notes.md";
 export const PAPERS_ROOT = "papers";
 
 export function indexPathFor(directoryPath: string): string {
@@ -21,8 +22,12 @@ export function draftPathFor(directoryPath: string): string {
   return directoryPath ? `${directoryPath}/${DRAFT_DOC}` : DRAFT_DOC;
 }
 
+export function tempNotesPathFor(directoryPath: string): string {
+  return directoryPath ? `${directoryPath}/${TEMP_NOTES_DOC}` : TEMP_NOTES_DOC;
+}
+
 export function isHiddenModelFile(fileName: string): boolean {
-  return fileName === INDEX_DOC;
+  return fileName === INDEX_DOC || fileName === TEMP_NOTES_DOC;
 }
 
 export function isOutlineDocPath(pathValue: string): boolean {
@@ -31,6 +36,26 @@ export function isOutlineDocPath(pathValue: string): boolean {
 
 export function isDraftPath(pathValue: string): boolean {
   return pathValue.endsWith(`/${DRAFT_DOC}`);
+}
+
+export function isManuscriptDocPath(pathValue: string): boolean {
+  return isOutlineDocPath(pathValue) || isDraftPath(pathValue);
+}
+
+/** Container folder for an outline.md or draft.md file path. */
+export function manuscriptContainerPathFromFile(
+  filePath: string | null | undefined,
+): string | null {
+  if (!filePath || !isManuscriptDocPath(filePath)) return null;
+  return parentPath(filePath);
+}
+
+export function isManuscriptFileForContainer(filePath: string, containerPath: string): boolean {
+  return manuscriptContainerPathFromFile(filePath) === containerPath;
+}
+
+export function isTempNotesPath(pathValue: string): boolean {
+  return pathValue.endsWith(`/${TEMP_NOTES_DOC}`) || pathValue === TEMP_NOTES_DOC;
 }
 
 /** @deprecated use isHiddenModelFile */

@@ -2,12 +2,15 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 
 import App from "./App";
+import { migrateWorkspaceStorage } from "@/lib/workspaceStorageSchema";
 import { AppErrorBoundary } from "@/components/layout/AppErrorBoundary";
 import { CommandPaletteProvider } from "./lib/CommandPaletteProvider";
 import { ReadingFocusProvider } from "./lib/readingFocus";
 import { ReadingTypographyProvider } from "./lib/ReadingTypographyProvider";
 import "./index.css";
 import "@xterm/xterm/css/xterm.css";
+
+migrateWorkspaceStorage();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

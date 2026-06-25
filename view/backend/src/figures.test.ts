@@ -50,9 +50,44 @@ describe("uploadFigureImage", () => {
     const indexRaw = await readFile(path.join(root, paperRel, "figures/fig1/INDEX.md"), "utf8");
     const indexData = matter(indexRaw).data as Record<string, unknown>;
     expect(indexData.figure_preview).toBe("preview.png");
-    expect(indexData.figure_source).toBe("preview.png");
+    expect(indexData.figure_source).toBe("source.mmd");
 
     const meta = await resolveFigureMetadata(root, `${paperRel}/figures/fig1`);
     expect(meta?.previewPath).toBe(`${paperRel}/figures/fig1/preview.png`);
+  });
+
+  it("updates only figure_source when role is source", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tw-fig-up-"));
+    const paperRel = "papers/demo";
+    await mkdir(path.join(root, paperRel, "figures"), { recursive: true });
+    await createNode(root, `${paperRel}/figures`, "fig1", "figure");
+    await writeFile(
+      path.join(root, paperRel, "figures/fig1/INDEX.md"),
+      "---\nkind: figure\ntitle: Fig1\nfigure_source: diagram.mmd\nfigure_preview: export.png\n---\n",
+      "utf8",
+    );
+
+    const png = Buffer.from("fakepng");
+    await uploadFigureImage(root, `${paperRel}/figures/fig1`, "export-v2.png", png, "preview");
+
+    const indexRaw = await readFile(path.join(root, paperRel, "figures/fig1/INDEX.md"), "utf8");
+    const indexData = matter(indexRaw).data as Record<string, unknown>;
+    expect(indexData.figure_preview).toBe("export-v2.png");
+    expect(indexData.figure_source).toBe("diagram.mmd");
+  });
+
+  it("updates both fields when role is both", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "tw-fig-up-"));
+    const paperRel = "papers/demo";
+    await mkdir(path.join(root, paperRel, "figures"), { recursive: true });
+    await createNode(root, `${paperRel}/figures`, "fig1", "figure");
+
+    const png = Buffer.from("fakepng");
+    await uploadFigureImage(root, `${paperRel}/figures/fig1`, "chart.png", png, "both");
+
+    const indexRaw = await readFile(path.join(root, paperRel, "figures/fig1/INDEX.md"), "utf8");
+    const indexData = matter(indexRaw).data as Record<string, unknown>;
+    expect(indexData.figure_preview).toBe("chart.png");
+    expect(indexData.figure_source).toBe("chart.png");
   });
 });

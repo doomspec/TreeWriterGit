@@ -12,16 +12,17 @@ type UseDocumentEditorOptions = {
   sessionKey: string;
   defaultPaneMode?: EditorPaneMode;
   targetPath: string;
-  requiresApproval: boolean;
   loadedContent: string;
   setLoadedContent: (content: string) => void;
   approvedBaseline: string;
   setApprovedBaseline: (baseline: string) => void;
   saveContent: (content: string, pendingSource: import("@/lib/draftApproval").DraftPendingSource | null) => Promise<void>;
-  reloadAfterDiscard: () => Promise<string>;
+  reloadAfterDiscard?: () => Promise<string>;
   onError?: (message: string) => void;
+  onSaved?: () => void;
   onApproved?: () => void | Promise<void>;
   onDiscarded?: (restored: string) => void;
+  requiresApproval?: boolean;
 };
 
 export function useDocumentEditor(options: UseDocumentEditorOptions) {
@@ -29,7 +30,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions) {
     sessionKey,
     defaultPaneMode = "rendered",
     targetPath,
-    requiresApproval,
+    requiresApproval = true,
     loadedContent,
     setLoadedContent,
     approvedBaseline,
@@ -37,6 +38,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions) {
     saveContent,
     reloadAfterDiscard,
     onError,
+    onSaved,
     onApproved,
     onDiscarded,
   } = options;
@@ -56,8 +58,10 @@ export function useDocumentEditor(options: UseDocumentEditorOptions) {
     setSaveState,
     isDirty,
     isPendingApproval,
+    sessionApprovalActive,
     pendingSource,
     setPendingSource,
+    githubHandle,
     flushSave,
     handleApprove,
     handleDiscard,
@@ -71,8 +75,12 @@ export function useDocumentEditor(options: UseDocumentEditorOptions) {
     saveContent,
     reloadAfterDiscard,
     onError,
+    onSaved,
     onApproved,
-    onDiscarded,
+    onDiscarded: (restored) => {
+      resetHistory(restored);
+      onDiscarded?.(restored);
+    },
     requiresApproval,
   });
 
@@ -112,8 +120,10 @@ export function useDocumentEditor(options: UseDocumentEditorOptions) {
     setSaveState,
     isDirty,
     isPendingApproval,
+    sessionApprovalActive,
     pendingSource,
     setPendingSource,
+    githubHandle,
     flushSave,
     handleApprove,
     handleDiscard,

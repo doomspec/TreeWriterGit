@@ -1,16 +1,8 @@
 import { request } from "@/lib/apiClient";
+import type { GitSyncState } from "@treewriter/shared";
 
-export type GitSyncStatus = {
-  enabled: boolean;
-  running: boolean;
-  lastRunAt: string | null;
-  lastSuccessAt: string | null;
-  lastError: string | null;
-  lastOutput?: string | null;
-  conflictDetected?: boolean;
-  pendingStashRestore?: boolean;
-  viewChangesBlocked?: boolean;
-};
+/** Runtime git-sync status from `/api/git-sync/status`. */
+export type GitSyncStatus = GitSyncState;
 
 export type GitSyncSettings = {
   enabled: boolean;
@@ -46,6 +38,9 @@ export type ExportSettings = {
   includeDrafts: boolean;
   pushOverleaf: boolean;
   debounceMs: number;
+  blockOnOrphanRefs: boolean;
+  blockOnUnapproved: boolean;
+  blockOnMissingCitations: boolean;
   status: AutoExportStatus;
 };
 
@@ -79,6 +74,9 @@ export function updateExportSettings(patch: {
   includeDrafts?: boolean;
   pushOverleaf?: boolean;
   debounceMs?: number;
+  blockOnOrphanRefs?: boolean;
+  blockOnUnapproved?: boolean;
+  blockOnMissingCitations?: boolean;
 }): Promise<Omit<ExportSettings, "status"> & { status: AutoExportStatus }> {
   return request("/api/settings/export", {
     method: "PATCH",

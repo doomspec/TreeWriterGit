@@ -1,24 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { loadIndexChildOrder } from "@/lib/indexChildOrder";
+import { childOrderForFolder, type ModelNode } from "@/lib/modelTree";
 
 /** Load INDEX child_order for a single folder (breadcrumb nav menu). */
-export function useFolderChildOrder(folderPath: string, refreshVersion = 0): string[] {
-  const [childOrder, setChildOrder] = useState<string[]>([]);
+export function useFolderChildOrder(
+  folderPath: string,
+  refreshVersion = 0,
+  tree?: ModelNode[],
+): string[] {
+  const fromTree = useMemo(
+    () => (tree ? childOrderForFolder(tree, folderPath) : undefined),
+    [folderPath, tree],
+  );
+  const [fetched, setFetched] = useState<string[]>([]);
 
   useEffect(() => {
+    if (fromTree !== undefined) return;
     if (!folderPath) {
-      setChildOrder([]);
+      setFetched([]);
       return;
     }
     let cancelled = false;
     void loadIndexChildOrder(folderPath).then((order) => {
-      if (!cancelled) setChildOrder(order);
+      if (!cancelled) setFetched(order);
     });
     return () => {
       cancelled = true;
     };
-  }, [folderPath, refreshVersion]);
+  }, [folderPath, fromTree, refreshVersion]);
 
-  return childOrder;
+  return fromTree ?? fetched;
 }

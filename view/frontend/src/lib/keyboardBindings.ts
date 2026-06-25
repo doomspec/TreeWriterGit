@@ -24,6 +24,9 @@ export const DEFAULT_COMMAND_CHORDS: CommandBindingDefaults = {
   "editor.layout.source": "Mod+Shift+1",
   "editor.layout.split": "Mod+Shift+2",
   "editor.layout.preview": "Mod+Shift+3",
+  "editor.pane.outline": "Shift+Alt+1",
+  "editor.pane.draft": "Shift+Alt+2",
+  "editor.pane.notes": "Shift+Alt+3",
   "theme.cycle": "Mod+Shift+T",
 };
 

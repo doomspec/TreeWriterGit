@@ -10,18 +10,29 @@ import {
 } from "react";
 
 import { editableHtmlToMarkdown, renderBlockDisplayHtml } from "@/lib/markdownRoundtrip";
-import { hasTextHighlightMacros } from "@/lib/textHighlight";
+import type { FigureMetadata } from "@/lib/figures";
+import { computeScopedRefFigurePlacementsByBlockIndex, resolveFigureByRefKey } from "@/lib/figureLabelIndex";
+import { hasTextHighlightMacros, stripTextHighlightMacrosForDiff } from "@/lib/textHighlight";
 import { resolveMarkdownSelectionRange } from "@/lib/markdownVisibleSelection";
 import { EquationCard } from "@/components/editor/EquationCard";
 import { FigureCard } from "@/components/editor/FigureCard";
-import { parseEmbedBlock, listInlineFigureEmbedPaths, replaceInlineFigureEmbedsWithRefs } from "@/lib/embedBlocks";
 import {
+  listDeferredFigurePaths,
+  listInlineFigureEmbedPaths,
+  parseEmbedBlock,
+  replaceInlineFigureEmbedsWithRefs,
+} from "@/lib/embedBlocks";
+import { buildMarkdownVisibleOffsetMap } from "@/lib/markdownVisibleSelection";
+import {
+  globalLineFromBlockPosition,
   joinMarkdownBlocks,
   reconcileBlocks,
   splitMarkdownIntoBlocks,
   type MarkdownBlock,
 } from "@/lib/markdownBlocks";
 import { buildBlockHeadingIdMap } from "@/lib/markdownOutline";
+import { applyOutlineNavLinkHighlight } from "@/lib/outlineNavHighlight";
+import { isLinkedHeadingLine } from "@/lib/composedDraftStructure";
 import { continueListOnEnter, isSelectionInListItem } from "@/lib/listAutocomplete";
 import {
   alignBaselineBlocksToCurrent,
@@ -29,6 +40,7 @@ import {
   effectivePendingHighlightBaseline,
 } from "@/lib/pendingHighlightMarkdown";
 import { PendingApprovalChip } from "@/components/editor/PendingApprovalChip";
+import { BlockUnitInsertButton } from "@/components/editor/BlockUnitInsertButton";
 import type { DraftPendingSource } from "@/lib/draftApproval";
 import { resolveNavigateTarget, type NavigateTarget } from "@/lib/modelTree";
 import { cn } from "@/lib/utils";
@@ -46,6 +58,21 @@ function tryNavigateFromLink(
   if (!anchor) return false;
   const href = anchor.getAttribute("href");
   if (!href || href.startsWith("http://") || href.startsWith("https://")) return false;
+
+  if (href.startsWith("figure://")) {
+    event.preventDefault();
+    event.stopPropagation();
+    onNavigate({ type: "folder", path: href.slice("figure://".length) });
+    return true;
+  }
+
+  if (href.startsWith("equation://")) {
+    event.preventDefault();
+    event.stopPropagation();
+    onNavigate({ type: "folder", path: href.slice("equation://".length) });
+    return true;
+  }
+
   const target = resolveNavigateTarget(linkContextPath, href);
   if (!target) return false;
   event.preventDefault();
@@ -99,6 +126,15 @@ function textOffsetFromPoint(container: HTMLElement, x: number, y: number): numb
   preRange.selectNodeContents(container);
   preRange.setEnd(range.startContainer, range.startOffset);
   return preRange.toString().length;
+}
+
+function domCaretToMarkdownOffset(element: HTMLElement, markdown: string): number {
+  const domOffset = textOffsetBeforeSelection(element);
+  if (domOffset === null) return markdown.length;
+  const map = buildMarkdownVisibleOffsetMap(markdown);
+  if (map.startToMarkdown.length === 0) return 0;
+  const idx = Math.min(Math.max(0, domOffset), map.startToMarkdown.length - 1);
+  return map.startToMarkdown[idx] ?? 0;
 }
 
 function blockMarkdownForRender(markdown: string): string {
@@ -166,6 +202,8 @@ export type BlockMarkdownEditorHandle = {
   /** Apply a format transform to the current rendered-block selection. */
   applyToRenderedSelection: (transform: FormatTransform) => boolean;
   isBlockEditing: () => boolean;
+  /** 1-based line number of the caret within the editor value. */
+  getCursorLineNumber: () => number | null;
   /** Insert asset markdown at the last cursor position, or append a new block. */
   insertSnippet: (snippet: string) => boolean;
 };
@@ -191,6 +229,10 @@ export const BlockMarkdownEditor = forwardRef<
     approvedBaseline?: string;
     loadedContent?: string;
     highlightPending?: boolean;
+    /** When set, \\ref{fig:…} badges link to matching paper figures. */
+    figureLabelIndex?: Map<string, FigureMetadata>;
+    /** Highlight section/subsection links matching the current workspace path. */
+    activeOutlineNavPath?: string | null;
     pendingApproval?: {
       pendingSource: DraftPendingSource | null;
       editedBy?: string | null;
@@ -201,6 +243,11 @@ export const BlockMarkdownEditor = forwardRef<
       onDiscard: () => void;
       approving?: boolean;
       approveLabel?: string;
+    } | null;
+    /** Show add unit/subsection control on the focused paragraph block. */
+    composedDraftActions?: {
+      onAddUnitAfter: (blockId: string, blockIndex: number) => void;
+      onAddSubsectionAfter: (blockId: string, blockIndex: number) => void;
     } | null;
   }
 >(function BlockMarkdownEditor(
@@ -222,7 +269,10 @@ export const BlockMarkdownEditor = forwardRef<
     approvedBaseline = "",
     loadedContent = "",
     highlightPending = false,
+    figureLabelIndex,
+    activeOutlineNavPath = null,
     pendingApproval = null,
+    composedDraftActions = null,
   },
   ref,
 ) {
@@ -327,12 +377,24 @@ export const BlockMarkdownEditor = forwardRef<
     const ids = new Set<string>();
     for (const block of blocks) {
       const baselineBlock = aligned.get(block.id) ?? "";
-      if (baselineBlock !== block.markdown) ids.add(block.id);
+      if (
+        stripTextHighlightMacrosForDiff(baselineBlock) !== stripTextHighlightMacrosForDiff(block.markdown)
+      ) {
+        ids.add(block.id);
+      }
     }
     return ids;
   }, [approvedBaseline, blocks, highlightPending, loadedContent, pendingApproval]);
 
   const reviewMode = highlightPending && Boolean(pendingApproval);
+
+  const refFigurePlacements = useMemo(
+    () =>
+      figureLabelIndex && figureLabelIndex.size > 0
+        ? computeScopedRefFigurePlacementsByBlockIndex(value, figureLabelIndex)
+        : new Map<number, FigureMetadata[]>(),
+    [figureLabelIndex, value],
+  );
 
   const baselineByBlockId = useMemo(() => {
     if (!reviewMode) return new Map<string, string>();
@@ -364,13 +426,24 @@ export const BlockMarkdownEditor = forwardRef<
     return map;
   }, [baselineByBlockId, blocks, changedBlockIds, focusedBlockId, reviewMode]);
 
-  const hydrateBlock = useCallback((blockId: string, html: string, markdownKey: string) => {
-    const element = blockRefs.current.get(blockId);
-    if (!element) return;
-    if (hydratedMarkdownRef.current.get(blockId) === markdownKey) return;
-    element.innerHTML = html || "\u200b";
-    hydratedMarkdownRef.current.set(blockId, markdownKey);
-  }, []);
+  useLayoutEffect(() => {
+    blockRefs.current.forEach((element) => {
+      applyOutlineNavLinkHighlight(element, linkContextPath, activeOutlineNavPath);
+    });
+  }, [activeOutlineNavPath, blockHtmlById, linkContextPath]);
+
+  const hydrateBlock = useCallback(
+    (blockId: string, html: string, markdownKey: string) => {
+      const element = blockRefs.current.get(blockId);
+      if (!element) return;
+      if (hydratedMarkdownRef.current.get(blockId) !== markdownKey) {
+        element.innerHTML = html || "\u200b";
+        hydratedMarkdownRef.current.set(blockId, markdownKey);
+      }
+      applyOutlineNavLinkHighlight(element, linkContextPath, activeOutlineNavPath);
+    },
+    [activeOutlineNavPath, linkContextPath],
+  );
 
   useLayoutEffect(() => {
     for (const block of blocks) {
@@ -380,6 +453,45 @@ export const BlockMarkdownEditor = forwardRef<
       hydrateBlock(block.id, html, markdownKey);
     }
   }, [blockHtmlById, blocks, hydrateBlock]);
+
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface || !figureLabelIndex) return;
+    for (const badge of surface.querySelectorAll<HTMLElement>("[data-latex-ref]")) {
+      const refKey = badge.dataset.latexRef?.trim();
+      if (!refKey) continue;
+      const figure = resolveFigureByRefKey(refKey, figureLabelIndex);
+      if (!figure) {
+        badge.classList.remove("latex-ref-badge--linked");
+        badge.removeAttribute("data-figure-path");
+        badge.removeAttribute("title");
+        continue;
+      }
+      badge.classList.add("latex-ref-badge--linked");
+      badge.dataset.figurePath = figure.path;
+      badge.title = `Open ${figure.title} — scroll to preview below`;
+    }
+  }, [blockHtmlById, blocks, figureLabelIndex, value]);
+
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface || !figureLabelIndex || !onNavigate) return;
+
+    const handleClick = (event: MouseEvent) => {
+      const badge = (event.target as HTMLElement).closest<HTMLElement>("[data-figure-path]");
+      if (!badge || !surface.contains(badge)) return;
+      const figurePath = badge.dataset.figurePath?.trim();
+      if (!figurePath) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onNavigate({ type: "folder", path: figurePath });
+      const preview = document.getElementById(`figure-preview-${figurePath.replace(/\//g, "--")}`);
+      preview?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+
+    surface.addEventListener("click", handleClick);
+    return () => surface.removeEventListener("click", handleClick);
+  }, [figureLabelIndex, onNavigate]);
 
   const updateBlockFromElement = useCallback(
     (blockId: string, element: HTMLElement, immediate = false) => {
@@ -399,12 +511,14 @@ export const BlockMarkdownEditor = forwardRef<
   const rememberInsertPoint = useCallback((blockId: string, element: HTMLElement) => {
     const block = blocksRef.current.find((item) => item.id === blockId);
     if (!block) return;
-    const range = resolveMarkdownSelectionRange(element, block.markdown);
+    const range =
+      resolveMarkdownSelectionRange(element, block.markdown) ??
+      (() => {
+        const offset = domCaretToMarkdownOffset(element, block.markdown);
+        return { start: offset, end: offset };
+      })();
     lastInsertBlockIdRef.current = blockId;
-    lastInsertRangeRef.current = range ?? {
-      start: block.markdown.length,
-      end: block.markdown.length,
-    };
+    lastInsertRangeRef.current = range;
   }, []);
 
   const insertSnippet = useCallback(
@@ -500,10 +614,11 @@ export const BlockMarkdownEditor = forwardRef<
         } else {
           pendingFocusCursorRef.current = null;
         }
+        applyOutlineNavLinkHighlight(element, linkContextPath, activeOutlineNavPath);
       }
       syncMirror(block?.markdown ?? value);
     },
-    [syncMirror, value],
+    [activeOutlineNavPath, linkContextPath, syncMirror, value],
   );
 
   const handleBlockMouseDown = useCallback(
@@ -628,13 +743,27 @@ export const BlockMarkdownEditor = forwardRef<
       const blockSurface = blockRefs.current.get(blockId);
       if (!blockSurface) return false;
 
-      const range = resolveMarkdownSelectionRange(blockSurface, block.markdown);
-      if (!range) return false;
+      const range =
+        resolveMarkdownSelectionRange(blockSurface, block.markdown) ??
+        (() => {
+          const offset = domCaretToMarkdownOffset(blockSurface, block.markdown);
+          return { start: offset, end: offset };
+        })();
 
       return applyTransformToBlock(blockId, block.markdown, range, transform);
     },
     [applyTransformToBlock, blocks],
   );
+
+  const getCursorLineNumber = useCallback((): number | null => {
+    const blockId = focusedBlockIdRef.current ?? lastInsertBlockIdRef.current;
+    if (!blockId) return null;
+    const block = blocksRef.current.find((item) => item.id === blockId);
+    const element = blockRefs.current.get(blockId);
+    if (!block || !element) return null;
+    const inBlockOffset = domCaretToMarkdownOffset(element, block.markdown);
+    return globalLineFromBlockPosition(blocksRef.current, blockId, inBlockOffset);
+  }, []);
 
   useImperativeHandle(
     ref,
@@ -648,9 +777,10 @@ export const BlockMarkdownEditor = forwardRef<
       isBlockEditing() {
         return focusedBlockIdRef.current !== null;
       },
+      getCursorLineNumber,
       insertSnippet,
     }),
-    [applySelectionTransform, insertSnippet],
+    [applySelectionTransform, getCursorLineNumber, insertSnippet],
   );
 
   const showPlaceholder = !value.trim() && blocks.length === 0;
@@ -733,7 +863,7 @@ export const BlockMarkdownEditor = forwardRef<
         aria-label={ariaLabel}
         aria-multiline="true"
       >
-        {blocks.map((block) => {
+        {blocks.map((block, blockIndex) => {
           const embed = parseEmbedBlock(block.markdown);
           if (embed) {
             return (
@@ -769,7 +899,14 @@ export const BlockMarkdownEditor = forwardRef<
             );
           }
 
-          const inlineFigurePaths = listInlineFigureEmbedPaths(block.markdown);
+          const deferredFigurePaths = listDeferredFigurePaths(block.markdown);
+          const placedRefFigures = refFigurePlacements.get(blockIndex) ?? [];
+          const afterBlockFigurePaths = [
+            ...deferredFigurePaths,
+            ...placedRefFigures
+              .map((item) => item.path)
+              .filter((path) => !deferredFigurePaths.includes(path)),
+          ];
 
           return (
           <div
@@ -778,7 +915,8 @@ export const BlockMarkdownEditor = forwardRef<
             data-heading-id={blockHeadingIds[block.id]}
             className={cn(
               "block-markdown-editor__block",
-              inlineFigurePaths.length > 0 && "block-markdown-editor__block--inline-figures",
+              focusedBlockId === block.id && "block-markdown-editor__block--focused",
+              afterBlockFigurePaths.length > 0 && "block-markdown-editor__block--inline-figures",
               reviewMode && changedBlockIds.has(block.id) && "block-markdown-editor__block--review",
             )}
           >
@@ -794,24 +932,42 @@ export const BlockMarkdownEditor = forwardRef<
               className="block-markdown-editor__block-surface outline-none"
               onInput={(event) => handleBlockInput(block.id, event.currentTarget)}
               onMouseDown={(event) => handleBlockMouseDown(block.id, event)}
+              onMouseUp={(event) => {
+                rememberInsertPoint(block.id, event.currentTarget);
+                syncMirror();
+              }}
               onFocus={() => handleBlockFocus(block.id)}
               onBlur={(event) => handleBlockBlur(block.id, event.currentTarget)}
               onKeyDown={(event) => handleBlockKeyDown(block.id, event)}
               onKeyUp={() => syncMirror()}
               onClick={handleBlockClick}
             />
-            {inlineFigurePaths.length > 0 ? (
+            {composedDraftActions &&
+            focusedBlockId === block.id &&
+            !isLinkedHeadingLine(block.markdown) ? (
+              <BlockUnitInsertButton
+                onAddUnit={() => composedDraftActions.onAddUnitAfter(block.id, blockIndex)}
+                onAddSubsection={() =>
+                  composedDraftActions.onAddSubsectionAfter(block.id, blockIndex)
+                }
+              />
+            ) : null}
+            {afterBlockFigurePaths.length > 0 ? (
               <div className="block-markdown-editor__deferred-figures">
-                {inlineFigurePaths.map((targetPath) => (
-                  <FigureCard
+                {afterBlockFigurePaths.map((targetPath) => (
+                  <div
                     key={`${block.id}-${targetPath}`}
-                    targetPath={targetPath}
-                    embeddedInEditor
-                    linkContextPath={linkContextPath}
-                    linksClickable={linksClickable}
-                    onNavigate={onNavigate}
-                    refreshVersion={refreshVersion}
-                  />
+                    id={`figure-preview-${targetPath.replace(/\//g, "--")}`}
+                  >
+                    <FigureCard
+                      targetPath={targetPath}
+                      embeddedInEditor
+                      linkContextPath={linkContextPath}
+                      linksClickable={linksClickable}
+                      onNavigate={onNavigate}
+                      refreshVersion={refreshVersion}
+                    />
+                  </div>
                 ))}
               </div>
             ) : null}

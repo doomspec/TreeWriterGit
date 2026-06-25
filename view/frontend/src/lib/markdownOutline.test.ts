@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildBlockHeadingIdMap,
   extractMarkdownHeadings,
+  filterDocumentOutlineHeadings,
 } from "@/lib/markdownOutline";
 import { splitMarkdownIntoBlocks } from "@/lib/markdownBlocks";
 
@@ -86,6 +87,64 @@ Other.`;
     const md = `# Intro\n\n## Intro\n\n### Intro`;
     const ids = extractMarkdownHeadings(md).map((h) => h.id);
     expect(ids).toEqual(["heading-intro", "heading-intro-2", "heading-intro-3"]);
+  });
+});
+
+describe("filterDocumentOutlineHeadings", () => {
+  it("keeps title and outline list links, dropping meta headings", () => {
+    const md = `# Introduction
+
+## Summary
+
+Intro summary.
+
+## Outline
+- [Background](background/INDEX.md)
+- [Solution](solution/INDEX.md)
+
+## Notes
+
+Other.`;
+
+    expect(filterDocumentOutlineHeadings(extractMarkdownHeadings(md)).map((h) => h.text)).toEqual([
+      "Introduction",
+      "Background",
+      "Solution",
+    ]);
+  });
+
+  it("keeps composed-draft sections and subsections", () => {
+    const md = `# Paper
+
+## Introduction
+
+Body.
+
+### Background
+
+More.
+
+#### Deep detail
+
+## Methods`;
+
+    expect(filterDocumentOutlineHeadings(extractMarkdownHeadings(md)).map((h) => h.text)).toEqual([
+      "Paper",
+      "Introduction",
+      "Background",
+      "Methods",
+    ]);
+  });
+
+  it("keeps only the title when no outline links or section headings remain", () => {
+    const md = `# VibeCount
+
+## Summary
+
+Planning notes only.`;
+    expect(filterDocumentOutlineHeadings(extractMarkdownHeadings(md)).map((h) => h.text)).toEqual([
+      "VibeCount",
+    ]);
   });
 });
 

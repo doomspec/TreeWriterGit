@@ -44,8 +44,9 @@ By default, the frontend runs on port `5173` and connects to the backend websock
 * `GET /api/model/graph?root=`
 * `GET /api/model/section-compose?path=` — stitched section outline + draft for `SectionWorkspace`
 * `GET /api/model/search?q=&root=` — full-text search with path, line, excerpt
-* `GET /api/comments?path=` · `POST /api/comments` · `PATCH/DELETE /api/comments/:id` — sidecar comments on `.md` files
-* `GET /api/comments/summary?paperSlug=` — unresolved comment counts
+* `GET /api/comments?path=` · `POST /api/comments` · `PATCH/DELETE /api/comments/:id` — sidecar comments on `.md` files (optional `assigned_to`)
+* `GET /api/comments/summary?paperSlug=` — unresolved + assigned comment counts
+* `GET /api/comments/assigned?paperSlug=&assigneeId=&assigneeType=` — assigned comments for inbox/filter views
 * `GET /api/presence?path=` · `POST/DELETE /api/presence/claim` · `POST /api/presence/heartbeat` — edit locks (in-memory)
 * `POST /api/overleaf/push` — export `.tex` + copy to `overleaf_repo_path`, git commit/push
 * `POST /api/overleaf/import` — parse `\\todo` from Overleaf `main.tex` into `notes/feedback/`
@@ -97,3 +98,24 @@ LaTeX export requires [pandoc](https://pandoc.org/) (`brew install pandoc`). PDF
 Per-journal export styling lives in `model/templates/{journal}.md` under an `export:` frontmatter block (document class, geometry, CSL, pandoc variables). Drop venue `.csl` files into `model/templates/` to match.
 
 Exports are written to `.treewriter-exports/` at the repo root (gitignored).
+
+## CI and local checks
+
+From `view/`:
+
+```sh
+pnpm ci:backend:lint    # tsc --noEmit (backend)
+pnpm ci:backend:test
+pnpm ci:backend:build
+pnpm ci:frontend:lint   # tsc --noEmit (frontend)
+pnpm ci:frontend:test
+pnpm ci:frontend:build
+```
+
+Or run everything:
+
+```sh
+pnpm lint && pnpm test && pnpm build
+```
+
+Shared API contracts live in `shared/apiTypes.ts` (`@treewriter/shared`). See [COLLABORATION.md](./COLLABORATION.md) for model conventions and multi-author Git workflow.

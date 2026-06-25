@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { UNIT_STATUS_COUNTS_HINT } from "@/lib/unapprovedHighlight";
 import { computeFloatingMenuTop } from "@/lib/floatingMenuPosition";
 import { canAddManuscriptChildren, findNode, type ModelNode } from "@/lib/modelTree";
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import type { NodeKind } from "@/modelApi";
 import type { UnitStatusCounts } from "@/modelApi";
 
@@ -220,6 +221,7 @@ export function SectionTreeRowMeta({
   paperPath,
   tree,
   title,
+  rowPath,
   counts,
   disabled,
   onCreate,
@@ -232,6 +234,7 @@ export function SectionTreeRowMeta({
   paperPath: string;
   tree: ModelNode[];
   title: string;
+  rowPath: string;
   counts?: UnitStatusCounts;
   disabled?: boolean;
   onCreate: (parentPath: string, kind: NodeKind) => void;
@@ -240,6 +243,8 @@ export function SectionTreeRowMeta({
   showRename?: boolean;
   showDelete?: boolean;
 }) {
+  const { assignedCountsByFolder } = useWorkspaceNavigationContext();
+  const assignedUnresolvedCount = assignedCountsByFolder.get(rowPath) ?? 0;
   const createOptions = createMenuOptions(createParentPath, paperPath, tree);
 
   return (
@@ -251,6 +256,14 @@ export function SectionTreeRowMeta({
             title={UNIT_STATUS_COUNTS_HINT}
           >
             {counts.approved}/{counts.drafted}/{counts.outline}
+          </span>
+        ) : null}
+        {assignedUnresolvedCount && assignedUnresolvedCount > 0 ? (
+          <span
+            className="rounded bg-primary/10 px-1 font-mono text-[9px] text-primary"
+            title={`${assignedUnresolvedCount} assigned comment${assignedUnresolvedCount === 1 ? "" : "s"}`}
+          >
+            {assignedUnresolvedCount}↗
           </span>
         ) : null}
         {(createOptions && createOptions.length > 0) ||

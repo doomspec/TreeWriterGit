@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { effectiveDiffBaseline } from "@/lib/draftDiff";
 import { repairEditorMacroSyntax } from "@/lib/editorMacroRepair";
+import { normalizeLoadedContentForPath } from "@/lib/tempNotes";
 import {
   loadDraftApprovalState,
   loadModelFileContent,
@@ -79,8 +80,9 @@ export function useEditorFileSync({
     }
 
     void loadModelFileContent(filePath)
-      .then(async (diskContent) => {
+      .then(async (rawContent) => {
         if (cancelled) return;
+        const diskContent = normalizeLoadedContentForPath(filePath, rawContent);
         const snapshot = dispatchSnapshotRef.current;
         dispatchSnapshotRef.current = null;
         const baseline = effectiveDiffBaseline(approvedBaselineRef.current, loadedContentRef.current);

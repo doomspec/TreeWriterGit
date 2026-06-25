@@ -1,11 +1,21 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 
-import { fetchComments } from "@/modelApi";
+import { fetchComments } from "@/lib/api/commentsApi";
+import { WorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 
-export function useEditorComments(filePath: string, refreshVersion: number, pathVersion = 0) {
+export function useEditorComments(
+  filePath: string,
+  refreshVersion: number,
+  pathVersion = 0,
+  options?: { fetchEnabled?: boolean },
+) {
+  const nav = useContext(WorkspaceNavigationContext);
+  const effectiveRefreshVersion = nav?.refreshVersion ?? refreshVersion;
+  const fetchEnabled = options?.fetchEnabled ?? true;
   const [unresolvedComments, setUnresolvedComments] = useState(0);
 
   useEffect(() => {
+    if (!fetchEnabled) return;
     let cancelled = false;
     fetchComments(filePath)
       .then(({ comments }) => {
@@ -17,7 +27,7 @@ export function useEditorComments(filePath: string, refreshVersion: number, path
     return () => {
       cancelled = true;
     };
-  }, [filePath, refreshVersion, pathVersion]);
+  }, [fetchEnabled, filePath, effectiveRefreshVersion, pathVersion]);
 
-  return { unresolvedComments };
+  return { unresolvedComments, setUnresolvedComments };
 }

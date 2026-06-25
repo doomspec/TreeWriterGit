@@ -38,6 +38,14 @@ function normalizeUnitPath(unitPath: string): string {
   return unitPath.split(path.sep).join("/").replace(/^\/+|\/+$/g, "");
 }
 
+/** Match exact unit paths and sessions recorded under descendant units. */
+export function sessionMatchesUnitFilter(sessionUnitPath: string, filterUnitPath: string): boolean {
+  const session = normalizeUnitPath(sessionUnitPath);
+  const filter = normalizeUnitPath(filterUnitPath);
+  if (!filter) return true;
+  return session === filter || session.startsWith(`${filter}/`);
+}
+
 export function sessionIdFromAt(at: string): string {
   return at.replace(/[:.]/g, "-").replace("T", "_");
 }
@@ -167,13 +175,11 @@ function parseWikiDayFile(
   const parsed = matter(raw);
   const records: SessionWikiRecord[] = [];
   const content = parsed.content.trimStart();
-  const filter = filterUnitPath ? normalizeUnitPath(filterUnitPath) : null;
-
   for (const match of content.matchAll(SESSION_BLOCK_RE)) {
     const meta = parseSessionMeta(match[1]);
     if (!meta.id || !meta.at || !meta.unitPath) continue;
     const normalizedUnit = normalizeUnitPath(meta.unitPath);
-    if (filter && normalizedUnit !== filter) continue;
+    if (filterUnitPath && !sessionMatchesUnitFilter(normalizedUnit, filterUnitPath)) continue;
 
     records.push({
       id: meta.id,

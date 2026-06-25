@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, RefreshCw, TerminalSquare } from "lucide-react";
+import { Bot, PanelBottomClose, RefreshCw, TerminalSquare } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DispatchHistoryStrip } from "@/components/dispatch/DispatchHistoryStrip";
@@ -9,6 +9,10 @@ import {
 } from "@/components/dispatch/DispatchWorkspace";
 import type { AgentDispatchIntent } from "@/lib/agentDispatchPanel";
 import { useDispatchSessions } from "@/lib/useDispatchSessions";
+import {
+  loadDispatchPanelState,
+  scheduleSaveDispatchPanelState,
+} from "@/lib/dispatchPanelState";
 import {
   BOTTOM_PANEL_HEIGHT_MAX,
   BOTTOM_PANEL_HEIGHT_MIN,
@@ -57,10 +61,20 @@ export function BottomPanel({
   const [selectedSessionFilename, setSelectedSessionFilename] = useState<string | null>(null);
   const [previewPrompt, setPreviewPrompt] = useState<string | null>(null);
   const [previewCommand, setPreviewCommand] = useState<string | null>(null);
+  const [skillsVersion, setSkillsVersion] = useState(0);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [resizing, setResizing] = useState(false);
 
   const { sessions, reload, markStatus } = useDispatchSessions(currentPath, refreshVersion);
+
+  useEffect(() => {
+    setSelectedSessionFilename(loadDispatchPanelState(currentPath)?.selectedSessionFilename ?? null);
+  }, [currentPath]);
+
+  useEffect(() => {
+    if (!currentPath) return;
+    scheduleSaveDispatchPanelState(currentPath, { selectedSessionFilename });
+  }, [currentPath, selectedSessionFilename]);
 
   const onResizePointerMove = useCallback(
     (event: PointerEvent) => {
@@ -193,22 +207,35 @@ export function BottomPanel({
 
       <div className="bottom-panel-split min-h-0 flex-1">
         <section className="bottom-panel-pane bottom-panel-pane--terminal flex min-h-0 min-w-0 flex-col overflow-hidden">
-          <div className="flex h-8 shrink-0 items-center justify-between border-b border-border px-3">
-            <span className="ui-label flex items-center gap-1.5 normal-case">
-              <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" />
-              Terminal
-            </span>
+          <div className="bottom-panel-pane__header">
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-7 w-7"
-              title="Reconnect terminal"
-              aria-label="Reconnect terminal"
-              onClick={onReconnect}
+              className="h-7 w-7 shrink-0"
+              title="Hide bottom panel"
+              aria-label="Hide bottom panel"
+              onClick={() => onOpenChange(false)}
             >
-              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              <PanelBottomClose className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
+            <span className="ui-label flex min-w-0 flex-1 items-center gap-1.5 normal-case">
+              <TerminalSquare className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Terminal
+            </span>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                title="Reconnect terminal"
+                aria-label="Reconnect terminal"
+                onClick={onReconnect}
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </div>
           </div>
           <div className="terminal-host relative min-h-0 flex-1 overflow-hidden bg-terminal">
             <div ref={terminalHostRef} className="terminal-mount" />
@@ -239,6 +266,8 @@ export function BottomPanel({
             onMarkStatus={markStatus}
             previewPrompt={previewPrompt}
             previewCommand={previewCommand}
+            skillsVersion={skillsVersion}
+            onSkillsChanged={() => setSkillsVersion((v) => v + 1)}
           />
         </section>
       </div>

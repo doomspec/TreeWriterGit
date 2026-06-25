@@ -20,6 +20,8 @@ describe("parseJournalExportStyle", () => {
       pandoc_variables: { linestretch: "1.15", fontsize: "11pt" },
       latex_header: "\\usepackage{microtype}",
       include_header: "nature-preamble.tex",
+      template_bundle: "nature-latex",
+      bib_style: "naturemag",
     });
     expect(style).toEqual({
       documentclass: "article",
@@ -29,6 +31,8 @@ describe("parseJournalExportStyle", () => {
       pandocVariables: { linestretch: "1.15", fontsize: "11pt" },
       latexHeader: "\\usepackage{microtype}",
       includeHeader: "nature-preamble.tex",
+      templateBundle: "nature-latex",
+      bibStyle: "naturemag",
     });
   });
 

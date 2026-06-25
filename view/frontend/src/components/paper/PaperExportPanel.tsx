@@ -63,7 +63,7 @@ export function PaperExportPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperSlug]);
 
-  const handleExport = async (format: "latex" | "pdf") => {
+  const handleExport = async (format: "latex" | "pdf" | "docx") => {
     if (!paperSlug) return;
     setExporting(true);
     setNotice(null);
@@ -74,6 +74,9 @@ export function PaperExportPanel({
       if (result.notice) notices.push(result.notice);
       if (result.missingCitations?.length) {
         notices.push(`Missing citations: ${result.missingCitations.join(", ")}`);
+      }
+      if (result.orphanCrossRefs?.length) {
+        notices.push(`Orphan cross-refs: ${result.orphanCrossRefs.join(", ")}`);
       }
       setNotice(notices.length ? notices.join(" · ") : null);
       onComplete?.();
@@ -91,7 +94,7 @@ export function PaperExportPanel({
     try {
       const { results } = await exportPaperBatch({
         paperSlug,
-        formats: ["latex", "pdf"],
+        formats: ["latex", "pdf", "docx"],
         includeDrafts,
       });
       for (const result of results) {
@@ -103,7 +106,9 @@ export function PaperExportPanel({
       }
       const missing = [...new Set(results.flatMap((r) => r.missingCitations ?? []))];
       if (missing.length) notices.push(`Missing citations: ${missing.join(", ")}`);
-      setNotice(notices.length ? notices.join(" · ") : "Exported LaTeX and PDF");
+      const orphans = [...new Set(results.flatMap((r) => r.orphanCrossRefs ?? []))];
+      if (orphans.length) notices.push(`Orphan cross-refs: ${orphans.join(", ")}`);
+      setNotice(notices.length ? notices.join(" · ") : "Exported LaTeX, PDF, and Word");
       onComplete?.();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -141,6 +146,9 @@ export function PaperExportPanel({
       const notices = [result.message];
       if (result.missingCitations?.length) {
         notices.push(`Missing citations: ${result.missingCitations.join(", ")}`);
+      }
+      if (result.orphanCrossRefs?.length) {
+        notices.push(`Orphan cross-refs: ${result.orphanCrossRefs.join(", ")}`);
       }
       setNotice(notices.join(" · "));
       onComplete?.();
@@ -202,7 +210,7 @@ export function PaperExportPanel({
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               Download
             </p>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
               <Button
                 type="button"
                 variant="outline"
@@ -224,6 +232,17 @@ export function PaperExportPanel({
               >
                 PDF
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 w-full justify-center bg-card px-2"
+                disabled={disabled}
+                title="Word document via markdown-docx"
+                onClick={() => void handleExport("docx")}
+              >
+                Word
+              </Button>
             </div>
             <Button
               type="button"
@@ -234,7 +253,7 @@ export function PaperExportPanel({
               onClick={() => void handleExportBatch()}
             >
               <Download className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              LaTeX + PDF
+              LaTeX + PDF + Word
             </Button>
           </div>
 

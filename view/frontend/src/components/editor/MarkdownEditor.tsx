@@ -1,104 +1,70 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { AssetAutocompletePopup } from "@/components/editor/AssetAutocompletePopup";
-import { CommentsPanel } from "@/components/editor/CommentsPanel";
-import { DispatchAiButton } from "@/components/editor/DispatchAiButton";
+import {
+  EditorAssetAutocompleteLayer,
+  EditorCommentsOverlay,
+  EditorShell,
+} from "@/components/editor/EditorShell";
 import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
-import { EditorFocusToggle } from "@/components/editor/EditorFocusToggle";
 import { EditorPaneModeToggle } from "@/components/editor/EditorPaneModeToggle";
-import { EditorPaneOverflowMenu } from "@/components/editor/EditorPaneOverflowMenu";
-import { EditorUndoRedoButtons } from "@/components/editor/EditorUndoRedoButtons";
-import { ReadingFocusEditBar } from "@/components/editor/ReadingFocusEditBar";
 import { ReadingFocusFloatingBar } from "@/components/editor/ReadingFocusFloatingBar";
-import { ReadingFocusDocumentLayout } from "@/components/editor/ReadingFocusDocumentLayout";
-import { ReadingFocusTitleLink } from "@/components/editor/ReadingFocusTitleLink";
-import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
+import { InlineSelectionToolbar } from "@/components/editor/InlineSelectionToolbar";
 import { MarkdownToolbar } from "@/components/editor/MarkdownToolbar";
-import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
-import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
+import { MarkdownCompactEditBar } from "@/components/editor/markdown/MarkdownCompactEditBar";
+import { useSelectionEditorTarget } from "@/lib/useSelectionEditorTarget";
+import { MarkdownPreviewPane } from "@/components/editor/markdown/MarkdownPreviewPane";
+import { lineInFullDocument, mergePreviewEdit, parsePreviewBody, splitForPreviewEdit } from "@/components/editor/markdown/previewBody";
+import { MarkdownSourcePane } from "@/components/editor/markdown/MarkdownSourcePane";
+import { resolveActivePane } from "@/components/editor/markdown/resolveActivePane";
+import { useMarkdownAnnotations } from "@/components/editor/markdown/useMarkdownAnnotations";
 import type { BlockMarkdownEditorHandle } from "@/components/editor/BlockMarkdownEditor";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
 import { Eye, FileCode2 } from "lucide-react";
+import { usePendingChangeNavigation } from "@/lib/usePendingChangeNavigation";
 import { useSyncDocumentOutline } from "@/lib/documentOutline";
 import { applyMarkdownFormat, type MarkdownFormatAction } from "@/lib/markdownFormat";
+import { applyWithBlockEditorFirst } from "@/lib/useRenderedOrTextareaFormat";
 import { handleFormatShortcut } from "@/lib/editor/formatShortcut";
 import { handleListEnterKeyDown } from "@/lib/listAutocomplete";
 import {
-  dispatchActionForUnitPane,
-  dispatchActionLabel,
   isDispatchRunShortcut,
   unitPathFromUnitFile,
 } from "@/lib/agentDispatchClient";
-import { useAgentDispatchPanelOptional } from "@/lib/agentDispatchPanel";
-import { useDispatchJob } from "@/lib/useDispatchJob";
+import { AnnotationBar } from "@/components/editor/AnnotationBar";
+import { useEditorCrossRef } from "@/lib/hooks/useEditorCrossRef";
+import { useEditorComments } from "@/lib/hooks/useEditorComments";
+import { useEditorDispatch } from "@/lib/hooks/useEditorDispatch";
+import { useFileDocumentEditor } from "@/lib/hooks/useFileDocumentEditor";
 import { authorNoteMacro, wrapInlineNote } from "@/lib/inlineNotes";
 import { applyTextHighlight, restoreTextHighlightsFromMarkdown, type TextHighlightColorId } from "@/lib/textHighlight";
 import { cn } from "@/lib/utils";
-import { getGitHubHandle, getUserName } from "@/lib/userIdentity";
-import { parseFrontmatterStatus, parentPath, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
-import {
-  draftSaveMeta,
-  draftStatusLabel,
-  loadDraftApprovalState,
-  loadModelFileContent,
-  requiresDraftApproval,
-  type DraftEditMeta,
-  type DraftPendingSource,
-} from "@/lib/draftApproval";
+import { getUserName } from "@/lib/userIdentity";
+import { parseFrontmatterStatus, isOutlinePath, isTempNotesPath, parentPath, type NavigateTarget } from "@/lib/modelTree";
+import { TEMP_NOTES_EDITOR_PLACEHOLDER } from "@/lib/tempNotes";
+import { draftStatusLabel } from "@/lib/draftApproval";
 import { effectiveDiffBaseline } from "@/lib/draftDiff";
-import { useDraftAutosave, type SaveState } from "@/lib/useDraftAutosave";
-import { useEditorDirty } from "@/lib/editorDirtyRegistry";
+import type { SaveState } from "@/lib/useDraftAutosave";
 import { TextZoomControl } from "@/components/editor/TextZoomControl";
 import { editorTextZoomStyle } from "@/lib/editorTextZoom";
 import { useEditorTextZoom } from "@/lib/useEditorTextZoom";
-import { useEditorHistory } from "@/lib/useEditorHistory";
 import { handleEditorUndoRedoShortcuts } from "@/lib/editorUndoShortcuts";
 import { markdownWordCount } from "@/lib/editorStats";
 import { useReadingFocus } from "@/lib/readingFocus";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { useAssetAutocomplete } from "@/lib/useAssetAutocomplete";
 import { sessionKeyForFile, loadEditorSession, type EditorPaneMode } from "@/lib/editorSessionState";
-import { repairEditorMacroSyntax } from "@/lib/editorMacroRepair";
-import { usePersistedEditorSession } from "@/lib/usePersistedEditorSession";
 import { useEditorPresence } from "@/lib/hooks/useEditorPresence";
-import {
-  fetchComments,
-  saveModelFile,
-} from "@/modelApi";
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
+import type { EditorLayout } from "@/lib/editor/layout";
 
-export type EditorLayout = "split" | "source" | "preview";
+export type { EditorLayout } from "@/lib/editor/layout";
 export type PaneEditMode = EditorPaneMode;
-
-function parsePreviewBody(markdown: string) {
-  const withoutFrontmatter = stripFrontmatter(markdown);
-  const headingMatch = withoutFrontmatter.match(/^\s*#(?!#)\s+(.+?)\s*(?:\r?\n|$)/);
-  if (!headingMatch) {
-    return { title: null, body: withoutFrontmatter };
-  }
-  return {
-    title: headingMatch[1],
-    body: withoutFrontmatter.slice(headingMatch[0].length),
-  };
-}
-
-function splitForPreviewEdit(full: string) {
-  const fmMatch = full.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  if (!fmMatch) {
-    return { frontmatter: "", body: full, suffix: "" };
-  }
-  const frontmatter = fmMatch[0];
-  const rest = full.slice(frontmatter.length);
-  return { frontmatter, body: rest, suffix: "" };
-}
-
-function mergePreviewEdit(frontmatter: string, body: string): string {
-  return frontmatter ? `${frontmatter}${body}` : body;
-}
 
 export function MarkdownEditor({
   filePath,
   refreshVersion,
+  pathVersion = 0,
   layout,
   compact = false,
   paneLabel,
@@ -118,12 +84,14 @@ export function MarkdownEditor({
   paperPath = null,
   headerExtra,
   enableDispatch = true,
-  showFocusGraph = true,
   syncDocumentOutline = false,
   splitPaneTitle,
+  showReadingFocusBar = true,
 }: {
   filePath: string;
   refreshVersion: number;
+  /** Per-path content version; combined with refreshVersion for file reload. */
+  pathVersion?: number;
   layout: EditorLayout;
   compact?: boolean;
   paneLabel?: string;
@@ -148,79 +116,31 @@ export function MarkdownEditor({
   headerExtra?: React.ReactNode;
   /** When false, hides per-unit dispatch (section/paper composed views). */
   enableDispatch?: boolean;
-  /** Show the reading-focus link graph in this pane (off for draft in Both view). */
-  showFocusGraph?: boolean;
   /** When true, feeds this editor's markdown into the sidebar document outline. */
   syncDocumentOutline?: boolean;
+  /** When false, hides the reading-focus floating bar (multi-pane workspaces pass active pane). */
+  showReadingFocusBar?: boolean;
 }) {
+  const readingFocus = useReadingFocus();
+  const nav = useWorkspaceNavigationContext();
+  const effectiveLinkContext = linkContextPath || parentPath(filePath);
+  const activeOutlineNavPath = useMemo(() => {
+    if (!isOutlinePath(filePath)) return null;
+    const focus = nav.activeFile ? parentPath(nav.activeFile) : nav.browsePath;
+    const context = effectiveLinkContext.replace(/\\/g, "/").replace(/\/+$/, "");
+    const normalizedFocus = focus.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (!normalizedFocus || normalizedFocus === context) return null;
+    return normalizedFocus;
+  }, [effectiveLinkContext, filePath, nav.activeFile, nav.browsePath]);
+  const dispatchSnapshotRef = useRef<string | null>(null);
   const {
-    value: content,
-    setValue: setContent,
-    resetHistory,
+    content,
+    setContent,
     undo,
     redo,
     canUndo,
     canRedo,
-  } = useEditorHistory("");
-  const readingFocus = useReadingFocus();
-  const editorStats = useMemo(() => markdownWordCount(content), [content]);
-  const [loadedContent, setLoadedContent] = useState("");
-  const [approvedBaseline, setApprovedBaseline] = useState("");
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [paneMode, setPaneMode] = useState<EditorPaneMode>(() => {
-    const saved = loadEditorSession(sessionKeyForFile(filePath));
-    const mode = saved?.paneMode ?? defaultPaneMode;
-    if (mode === "raw") return "raw";
-    if (mode === "changes") return "rendered";
-    return "rendered";
-  });
-  const [previewRawEdit, setPreviewRawEdit] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  const [unresolvedComments, setUnresolvedComments] = useState(0);
-  const [selectedLine, setSelectedLine] = useState(1);
-  const [editMeta, setEditMeta] = useState<DraftEditMeta>({
-    editedBy: null,
-    editedAt: null,
-    aiAssisted: false,
-    aiProvider: null,
-    approvedBy: null,
-    approvedAt: null,
-  });
-  const dispatchSnapshotRef = useRef<string | null>(null);
-  const { zoom, zoomIn, zoomOut, resetZoom } = useEditorTextZoom();
-  const textZoomStyle = editorTextZoomStyle(zoom);
-  const textZoomControl = (
-    <TextZoomControl zoom={zoom} onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={resetZoom} />
-  );
-  const requiresApproval = useMemo(() => requiresDraftApproval(filePath), [filePath]);
-  const approvalLabel = useMemo(
-    () => (filePath.endsWith("/outline.md") || filePath === "outline.md" ? "Approve outline" : "Approve draft"),
-    [filePath],
-  );
-
-  const saveContent = useCallback(
-    async (nextContent: string, pendingSource: DraftPendingSource | null) => {
-      await saveModelFile(filePath, nextContent, draftSaveMeta(pendingSource));
-      if (requiresApproval) {
-        const handle = getGitHubHandle();
-        setEditMeta((prev) => ({
-          ...prev,
-          editedBy: handle || prev.editedBy,
-          editedAt: new Date().toISOString(),
-          aiAssisted: pendingSource === "ai" || prev.aiAssisted,
-          aiProvider:
-            pendingSource === "ai"
-              ? draftSaveMeta("ai").aiProvider ?? prev.aiProvider
-              : prev.aiProvider,
-        }));
-      }
-    },
-    [filePath, requiresApproval],
-  );
-
-  const {
     saveState,
-    setSaveState,
     isDirty,
     isPendingApproval,
     sessionApprovalActive,
@@ -230,36 +150,50 @@ export function MarkdownEditor({
     flushSave,
     handleApprove: handleApproveDraft,
     handleDiscard: handleDiscardDraft,
-  } = useDraftAutosave({
-    targetPath: filePath,
-    content,
+    restore,
+    persist,
     loadedContent,
-    setLoadedContent,
     approvedBaseline,
-    setApprovedBaseline,
-    saveContent,
-    reloadAfterDiscard: () => loadModelFileContent(filePath),
-    onError: (message) => {
-      setLoadError(message);
-      onError?.(message);
-    },
-    onApproved: async () => {
-      const { meta } = await loadDraftApprovalState(filePath);
-      setEditMeta(meta);
-      dispatchSnapshotRef.current = null;
-      setLoadError(null);
-    },
-    onDiscarded: (restored) => {
-      resetHistory(restored);
-      setLoadedContent(restored);
-      void loadDraftApprovalState(filePath).then(({ meta }) => setEditMeta(meta));
-      dispatchSnapshotRef.current = null;
-      setLoadError(null);
-    },
+    loadError,
+    editMeta,
     requiresApproval,
+  } = useFileDocumentEditor({
+    filePath,
+    refreshVersion,
+    pathVersion,
+    defaultPaneMode,
+    dispatchSnapshotRef,
+    onError,
   });
-
-  useEditorDirty(isDirty);
+  const editorStats = useMemo(() => markdownWordCount(content), [content]);
+  const editorPlaceholder = isTempNotesPath(filePath)
+    ? TEMP_NOTES_EDITOR_PLACEHOLDER
+    : "Write here…";
+  const [paneMode, setPaneMode] = useState<EditorPaneMode>(() => {
+    const saved = loadEditorSession(sessionKeyForFile(filePath));
+    const mode = saved?.paneMode ?? defaultPaneMode;
+    if (mode === "raw") return "raw";
+    if (mode === "changes") return "rendered";
+    return "rendered";
+  });
+  const [previewRawEdit, setPreviewRawEdit] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const { unresolvedComments, setUnresolvedComments } = useEditorComments(
+    filePath,
+    refreshVersion,
+    pathVersion,
+    { fetchEnabled: !commentsOpen },
+  );
+  const [selectedLine, setSelectedLine] = useState(1);
+  const { zoom, zoomIn, zoomOut, resetZoom } = useEditorTextZoom();
+  const textZoomStyle = editorTextZoomStyle(zoom);
+  const textZoomControl = (
+    <TextZoomControl zoom={zoom} onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={resetZoom} />
+  );
+  const approvalLabel = useMemo(
+    () => (filePath.endsWith("/outline.md") || filePath === "outline.md" ? "Approve outline" : "Approve draft"),
+    [filePath],
+  );
 
   const dispatchPane = paneLabel === "Outline" ? "outline" : paneLabel === "Draft" ? "draft" : undefined;
   const authorName = useMemo(() => getUserName(), []);
@@ -269,14 +203,7 @@ export function MarkdownEditor({
   const previewBlockRef = useRef<BlockMarkdownEditorHandle | null>(null);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const sourceScrollRef = useRef<HTMLDivElement | null>(null);
-  const editorSessionKey = sessionKeyForFile(filePath);
-  const { restore, persist } = usePersistedEditorSession(editorSessionKey);
-  const isDirtyRef = useRef(isDirty);
-  isDirtyRef.current = isDirty;
-  const loadedContentRef = useRef(loadedContent);
-  loadedContentRef.current = loadedContent;
-  const approvedBaselineRef = useRef(approvedBaseline);
-  approvedBaselineRef.current = approvedBaseline;
+  const editorScopeRef = useRef<HTMLDivElement | null>(null);
   const previewParts = useMemo(() => splitForPreviewEdit(content), [content]);
   const previewMeta = useMemo(() => parsePreviewBody(content), [content]);
   const previewBody = previewMeta.title ? previewMeta.body : previewParts.body;
@@ -306,18 +233,8 @@ export function MarkdownEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneMode]);
   const showInlinePendingHighlights = showPendingHighlights && pendingHighlightsReady;
+  const figureLabelIndex = useEditorCrossRef(paperPath, refreshVersion);
 
-  const approvalBar = sessionApprovalActive ? (
-    <DraftApprovalBar
-      pendingSource={pendingSource}
-      editedBy={githubHandle || editMeta.editedBy}
-      aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
-      onApprove={() => void handleApproveDraft()}
-      onDiscard={() => void handleDiscardDraft()}
-      approving={saveState === "saving"}
-      approveLabel={approvalLabel}
-    />
-  ) : null;
   const loadedPreviewBody = useMemo(() => {
     const meta = parsePreviewBody(loadedContent);
     const parts = splitForPreviewEdit(loadedContent);
@@ -326,25 +243,29 @@ export function MarkdownEditor({
   const unitStatus = useMemo(() => parseFrontmatterStatus(content), [content]);
   const unitPath = useMemo(() => unitPathFromUnitFile(filePath), [filePath]);
   const focusTitleContextPath = linkContextPath || parentPath(filePath);
-  const dispatchAction = useMemo(
-    () =>
-      enableDispatch
-        ? dispatchActionForUnitPane(
-            paneLabel,
-            Boolean(previewBody.trim() || content.trim()),
-            isFigureUnit,
-          )
-        : null,
-    [content, enableDispatch, isFigureUnit, paneLabel, previewBody],
-  );
-  const canDispatch = Boolean(compact && unitPath && dispatchAction);
-  const agentDispatchPanel = useAgentDispatchPanelOptional();
-  const { progress: dispatchProgress, dispatching, runUnitDispatch } = useDispatchJob({
-    scope: "unit",
-    targetPath: unitPath,
+  const {
+    dispatchAction,
+    canDispatch,
+    dispatchProgress,
+    dispatching,
+    handleDispatch,
+    handleOpenAiDispatch,
+  } = useEditorDispatch({
+    enabled: enableDispatch,
+    compact,
+    paneLabel,
+    unitPath,
+    previewBody,
+    content,
+    isFigureUnit,
     pane: dispatchPane,
-    onResumeComplete: onDispatchComplete,
+    requiresApproval,
+    approvedBaseline,
+    flushSave,
+    onBeforeDispatch,
+    onDispatchComplete,
     onError,
+    dispatchSnapshotRef,
   });
 
   const statusText = draftStatusLabel({
@@ -354,48 +275,6 @@ export function MarkdownEditor({
     saveState,
     defaultLabel: saveState,
   });
-
-  const handleDispatch = useCallback(async () => {
-    if (!canDispatch || !unitPath || !dispatchAction) return;
-    try {
-      if (requiresApproval) {
-        dispatchSnapshotRef.current = approvedBaseline;
-      }
-      await flushSave();
-      onBeforeDispatch?.();
-      await runUnitDispatch({
-        unitPath,
-        action: dispatchAction,
-      });
-      onDispatchComplete?.();
-    } catch (err) {
-      onError?.(err instanceof Error ? err.message : String(err));
-    }
-  }, [
-    approvedBaseline,
-    canDispatch,
-    dispatchAction,
-    flushSave,
-    onBeforeDispatch,
-    onDispatchComplete,
-    onError,
-    requiresApproval,
-    runUnitDispatch,
-    unitPath,
-  ]);
-
-  const handleOpenAiDispatch = useCallback(() => {
-    if (!canDispatch || !dispatchAction) return;
-    if (agentDispatchPanel) {
-      agentDispatchPanel.openDispatch({
-        action: dispatchAction,
-        pane: dispatchPane,
-        autoPreview: true,
-      });
-      return;
-    }
-    void handleDispatch();
-  }, [agentDispatchPanel, canDispatch, dispatchAction, dispatchPane, handleDispatch]);
 
   useEffect(() => {
     setPreviewRawEdit(false);
@@ -414,112 +293,13 @@ export function MarkdownEditor({
     onContentChange?.(content);
   }, [content, onContentChange]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchComments(filePath)
-      .then(({ comments }) => {
-        if (!cancelled) {
-          setUnresolvedComments(comments.filter((c) => !c.resolved).length);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [filePath, refreshVersion]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!requiresApproval) {
-      setApprovedBaseline("");
-      return () => {
-        cancelled = true;
-      };
-    }
-    void loadDraftApprovalState(filePath).then(({ content: baseline, meta }) => {
-      if (!cancelled) {
-        setApprovedBaseline(baseline);
-        setEditMeta(meta);
-        if (meta.aiAssisted) {
-          setPendingSource((prev) => (prev === "human" ? prev : "ai"));
-        }
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [filePath, refreshVersion, requiresApproval]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (isDirtyRef.current) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    void loadModelFileContent(filePath)
-      .then(async (diskContent) => {
-        if (cancelled) return;
-        const snapshot = dispatchSnapshotRef.current;
-        dispatchSnapshotRef.current = null;
-        const baseline = effectiveDiffBaseline(approvedBaselineRef.current, loadedContentRef.current);
-        const unchangedOnDisk = diskContent === loadedContentRef.current;
-
-        if (unchangedOnDisk && snapshot === null) {
-          if (requiresApproval && diskContent !== baseline) {
-            void loadDraftApprovalState(filePath).then(({ meta }) => {
-              if (!cancelled) {
-                setEditMeta(meta);
-                if (meta.aiAssisted) {
-                  setPendingSource((prev) => (prev === "human" ? prev : "ai"));
-                }
-              }
-            });
-          } else if (!requiresApproval || diskContent === baseline) {
-            setPendingSource(null);
-          }
-          setSaveState("idle");
-          setLoadError(null);
-          return;
-        }
-
-        const normalized = repairEditorMacroSyntax(diskContent);
-        resetHistory(normalized);
-        setLoadedContent(normalized);
-        if (requiresApproval && snapshot !== null && diskContent !== snapshot) {
-          setPendingSource("ai");
-          void loadDraftApprovalState(filePath).then(({ meta }) => {
-            if (!cancelled) setEditMeta(meta);
-          });
-        } else if (requiresApproval && diskContent !== baseline) {
-          void loadDraftApprovalState(filePath).then(({ meta }) => {
-            if (!cancelled) {
-              setEditMeta(meta);
-              if (meta.aiAssisted) {
-                setPendingSource((prev) => (prev === "human" ? prev : "ai"));
-              }
-            }
-          });
-        } else if (!requiresApproval || diskContent === baseline) {
-          setPendingSource(null);
-        }
-        setSaveState("idle");
-        setLoadError(null);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          const message = err instanceof Error ? err.message : String(err);
-          setLoadError(message);
-          setSaveState("error");
-          onError?.(message);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [filePath, onError, refreshVersion, requiresApproval, resetHistory, setPendingSource, setSaveState]);
+  const { annotationIndex, annotationItems, handleAnnotationIndexChange } = useMarkdownAnnotations({
+    commentsOpen,
+    filePath,
+    refreshVersion,
+    pathVersion,
+    setSelectedLine,
+  });
 
   const effectiveLayout = compact ? (paneMode === "raw" ? "source" : "preview") : layout;
   const showSource = effectiveLayout === "source" || effectiveLayout === "split";
@@ -547,6 +327,45 @@ export function MarkdownEditor({
     return previewScrollRef.current ?? sourceScrollRef.current;
   }, [compact, paneMode]);
 
+  const pendingChangeNavigation = usePendingChangeNavigation(
+    getScrollElement,
+    showInlinePendingHighlights,
+    `${content.length}:${previewBody.length}:${paneMode}`,
+  );
+
+  useEffect(() => {
+    if (!showInlinePendingHighlights) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        pendingChangeNavigation.goToNext();
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        pendingChangeNavigation.goToPrevious();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    pendingChangeNavigation.goToNext,
+    pendingChangeNavigation.goToPrevious,
+    showInlinePendingHighlights,
+  ]);
+
+  const approvalBar = sessionApprovalActive ? (
+    <DraftApprovalBar
+      pendingSource={pendingSource}
+      editedBy={githubHandle || editMeta.editedBy}
+      aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
+      onApprove={() => void handleApproveDraft()}
+      onDiscard={() => void handleDiscardDraft()}
+      approving={saveState === "saving"}
+      approveLabel={approvalLabel}
+      changeNavigation={pendingChangeNavigation}
+    />
+  ) : null;
+
   const persistEditorSession = useCallback(() => {
     persist(getActiveTextarea(), getScrollElement(), paneMode);
   }, [getActiveTextarea, getScrollElement, paneMode, persist]);
@@ -573,12 +392,20 @@ export function MarkdownEditor({
   }, [filePath, getScrollElement, paneMode, persistEditorSession]);
 
   const updateSelectedLine = useCallback(() => {
-    const el = sourceRef.current ?? previewRef.current;
+    if (renderedEditable && previewBlockRef.current) {
+      const previewLine = previewBlockRef.current.getCursorLineNumber();
+      if (previewLine != null) {
+        setSelectedLine(lineInFullDocument(content, previewBody, previewLine));
+        persistEditorSession();
+        return;
+      }
+    }
+    const el = getActiveTextarea();
     if (!el) return;
     const before = el.value.slice(0, el.selectionStart);
     setSelectedLine(before.split("\n").length);
     persistEditorSession();
-  }, [persistEditorSession]);
+  }, [content, getActiveTextarea, persistEditorSession, previewBody, renderedEditable]);
 
   const handlePreviewBodyChange = useCallback(
     (body: string) => {
@@ -615,19 +442,14 @@ export function MarkdownEditor({
     (targetPane?: "preview" | "source") => {
       const previewEl = previewRef.current;
       const sourceEl = sourceRef.current;
-      let usePreview: boolean;
-      if (targetPane === "preview") {
-        usePreview = true;
-      } else if (targetPane === "source") {
-        usePreview = false;
-      } else {
-        usePreview = Boolean(
-          previewEl &&
-            renderedEditable &&
-            (document.activeElement === previewEl || (showPreview && !showSource)),
-        );
-      }
-      const target = usePreview && previewEl ? previewEl : sourceEl;
+      const { usePreview, target } = resolveActivePane({
+        targetPane,
+        previewEl,
+        sourceEl,
+        renderedEditable,
+        showPreview,
+        showSource,
+      });
       if (!target) return;
       const currentValue = usePreview ? previewBody : content;
       const setValue = usePreview ? handlePreviewBodyChange : setContent;
@@ -644,19 +466,14 @@ export function MarkdownEditor({
     (colorId: TextHighlightColorId, targetPane?: "preview" | "source") => {
       const previewEl = previewRef.current;
       const sourceEl = sourceRef.current;
-      let usePreview: boolean;
-      if (targetPane === "preview") {
-        usePreview = true;
-      } else if (targetPane === "source") {
-        usePreview = false;
-      } else {
-        usePreview = Boolean(
-          previewEl &&
-            renderedEditable &&
-            (document.activeElement === previewEl || (showPreview && !showSource)),
-        );
-      }
-      const target = usePreview && previewEl ? previewEl : sourceEl;
+      const { usePreview, target } = resolveActivePane({
+        targetPane,
+        previewEl,
+        sourceEl,
+        renderedEditable,
+        showPreview,
+        showSource,
+      });
       if (!target) return;
 
       if (usePreview && previewBlockRef.current) {
@@ -712,19 +529,14 @@ export function MarkdownEditor({
       }
       const previewEl = previewRef.current;
       const sourceEl = sourceRef.current;
-      let usePreview: boolean;
-      if (targetPane === "preview") {
-        usePreview = true;
-      } else if (targetPane === "source") {
-        usePreview = false;
-      } else {
-        usePreview = Boolean(
-          previewEl &&
-            renderedEditable &&
-            (document.activeElement === previewEl || (showPreview && !showSource)),
-        );
-      }
-      const target = usePreview && previewEl ? previewEl : sourceEl;
+      const { usePreview, target } = resolveActivePane({
+        targetPane,
+        previewEl,
+        sourceEl,
+        renderedEditable,
+        showPreview,
+        showSource,
+      });
       if (!target) return;
       const currentValue = usePreview ? previewBody : content;
       const setValue = usePreview ? handlePreviewBodyChange : setContent;
@@ -740,29 +552,24 @@ export function MarkdownEditor({
     (action: MarkdownFormatAction, targetPane?: "preview" | "source") => {
       const previewEl = previewRef.current;
       const sourceEl = sourceRef.current;
-
-      let usePreview: boolean;
-      if (targetPane === "preview") {
-        usePreview = true;
-      } else if (targetPane === "source") {
-        usePreview = false;
-      } else {
-        usePreview = Boolean(
-          previewEl &&
-            renderedEditable &&
-            (document.activeElement === previewEl || (showPreview && !showSource)),
-        );
-      }
-
-      const target = usePreview && previewEl ? previewEl : sourceEl;
+      const { usePreview, target } = resolveActivePane({
+        targetPane,
+        previewEl,
+        sourceEl,
+        renderedEditable,
+        showPreview,
+        showSource,
+      });
       if (!target) return;
 
-      if (usePreview && previewBlockRef.current?.isBlockEditing()) {
-        const applied = previewBlockRef.current.applyToActiveBlock((value, start, end) =>
-          applyMarkdownFormat(value, start, end, action),
-        );
-        if (applied) return;
+      if (usePreview && previewBlockRef.current) {
+        const transform = (value: string, start: number, end: number) =>
+          applyMarkdownFormat(value, start, end, action);
+        applyWithBlockEditorFirst(previewBlockRef.current, renderedEditable, transform, () => {});
+        if (renderedEditable) return;
       }
+
+      if (usePreview && renderedEditable) return;
 
       const currentValue = usePreview ? previewBody : content;
       const setValue = usePreview ? handlePreviewBodyChange : setContent;
@@ -886,229 +693,129 @@ export function MarkdownEditor({
     onInsertSnippet: (snippet: string) => insertSnippet(snippet, compactTargetPane),
   };
 
-  const compactToolbar = compact ? <MarkdownToolbar {...toolbarProps} embedded /> : null;
-
   const focusToolbarTarget: "preview" | "source" = compact
     ? compactTargetPane
     : showPreview && renderedEditable
       ? "preview"
       : "source";
 
-  const focusEditBar = readingFocus.active ? (
-    <ReadingFocusEditBar
-      title={splitPaneTitle}
-      toolbar={
-        <MarkdownToolbar
-          {...toolbarProps}
-          embedded
-          renderedMode={focusToolbarTarget === "preview" && renderedEditable}
-          onFormat={(action) => applyFormat(action, focusToolbarTarget)}
-          onInsertInlineNote={() => insertInlineNote(focusToolbarTarget)}
-          onInsertHighlight={(color) => insertTextHighlight(color, focusToolbarTarget)}
-          onInsertSnippet={(snippet) => insertSnippet(snippet, focusToolbarTarget)}
-        />
-      }
-      trailing={
-        <>
-          {compact || renderedEditable ? modeToggle : null}
-          {canDispatch && dispatchAction ? (
-            <DispatchAiButton
-              actionLabel={dispatchActionLabel(dispatchAction)}
-              dispatching={dispatching}
-              progress={dispatchProgress}
-              onClick={handleOpenAiDispatch}
-            />
-          ) : null}
-          {headerExtra}
-        </>
-      }
+  const selectionEditorTarget = useSelectionEditorTarget(
+    editorScopeRef,
+    sourceScrollRef,
+    !compact,
+    focusToolbarTarget,
+  );
+  const inlineToolbarTarget = compact ? focusToolbarTarget : selectionEditorTarget;
+
+  const paneEditBar = compact || readingFocus.active ? (
+    <MarkdownCompactEditBar
+      title={splitPaneTitle ?? paneLabel ?? "Document"}
+      editorScopeRef={editorScopeRef}
+      readingFocusActive={readingFocus.active}
+      renderedEditable={renderedEditable}
+      toolbarProps={toolbarProps}
+      focusToolbarTarget={focusToolbarTarget}
+      applyFormat={applyFormat}
+      insertInlineNote={insertInlineNote}
+      insertTextHighlight={insertTextHighlight}
+      insertSnippet={insertSnippet}
+      modeToggle={modeToggle}
+      canDispatch={canDispatch}
+      dispatchAction={dispatchAction}
+      dispatching={dispatching}
+      dispatchProgress={dispatchProgress}
+      handleOpenAiDispatch={handleOpenAiDispatch}
+      headerExtra={headerExtra}
+      unitStatus={unitStatus}
+      statusText={statusText}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      undo={undo}
+      redo={redo}
+      editorStats={editorStats}
+      textZoomControl={textZoomControl}
     />
   ) : null;
 
   const sourcePane = (
-    <div
-      ref={sourceScrollRef}
-      className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col bg-editor editor-text-zoom-root",
-        compact && "overflow-auto",
-        compact && readingFocus.active && "reading-focus-pane markdown-pane",
-      )}
-      style={textZoomStyle}
-    >
-      {!compact && !readingFocus.active ? (
-        <>
-          <div className="ui-pane-header h-8">
-            <span className="ui-label">Source</span>
-            <div className="flex items-center gap-1.5">
-              <EditorUndoRedoButtons canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} />
-              <EditorFocusToggle className="h-7 px-2" />
-              {textZoomControl}
-              <span className="font-mono text-ui-2xs text-muted-foreground">
-                {statusText}
-                {unitStatus ? ` · ${unitStatus}` : ""}
-              </span>
-            </div>
-          </div>
-          <MarkdownToolbar
-            {...toolbarProps}
-            renderedMode={false}
-            onFormat={(action) => applyFormat(action, "source")}
-            onInsertInlineNote={() => insertInlineNote("source")}
-            onInsertHighlight={(color) => insertTextHighlight(color, "source")}
-            onInsertSnippet={(snippet) => insertSnippet(snippet, "source")}
-          />
-        </>
-      ) : null}
-      <HighlightingTextarea
-        fillContainer={!compact}
-        inputRef={sourceRef}
-        className={cn(
-          "w-full font-mono text-[13px] leading-6",
-          compact ? "min-h-[8rem] p-4" : "min-h-0 flex-1 p-4",
-        )}
-        mirrorClassName="p-4 font-mono text-[13px] leading-6"
-        value={content}
-        baseline={diffBaseline}
-        highlight={showInlinePendingHighlights}
-        spellCheck={false}
-        aria-label={`Edit source ${filePath}`}
-        onChange={(e) => {
-          setContent(e.target.value);
-          void assetAutocomplete.sync(e.currentTarget);
-        }}
-        onSelect={(e) => {
-          updateSelectedLine();
-          void assetAutocomplete.sync(e.currentTarget);
-        }}
-        onKeyUp={(e) => {
-          updateSelectedLine();
-          void assetAutocomplete.sync(e.currentTarget);
-        }}
-        onClick={(e) => {
-          updateSelectedLine();
-          void assetAutocomplete.sync(e.currentTarget);
-        }}
-        onFocus={(e) => void assetAutocomplete.sync(e.currentTarget)}
-        onBlur={(e) => assetAutocomplete.handleEditorBlur(e.currentTarget)}
-        onKeyDown={onTextareaKeyDown}
-      />
-    </div>
+    <MarkdownSourcePane
+      compact={compact}
+      readingFocusActive={readingFocus.active}
+      textZoomStyle={textZoomStyle}
+      sourceScrollRef={sourceScrollRef}
+      sourceRef={sourceRef}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      undo={undo}
+      redo={redo}
+      textZoomControl={textZoomControl}
+      statusText={statusText}
+      unitStatus={unitStatus}
+      toolbarProps={toolbarProps}
+      applyFormat={applyFormat}
+      insertInlineNote={insertInlineNote}
+      insertTextHighlight={insertTextHighlight}
+      insertSnippet={insertSnippet}
+      content={content}
+      diffBaseline={diffBaseline}
+      showInlinePendingHighlights={showInlinePendingHighlights}
+      filePath={filePath}
+      setContent={setContent}
+      assetAutocomplete={assetAutocomplete}
+      updateSelectedLine={updateSelectedLine}
+      onTextareaKeyDown={onTextareaKeyDown}
+      editorPlaceholder={editorPlaceholder}
+    />
   );
 
   const previewPane = (
-    <div className="flex min-h-0 flex-1 flex-col bg-reading editor-text-zoom-root" style={textZoomStyle}>
-      {!compact && !readingFocus.active ? (
-        <>
-          <div className="ui-pane-header h-8">
-            <span className="ui-label truncate">Preview</span>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <EditorUndoRedoButtons canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} />
-              <EditorFocusToggle className="h-7 px-2" />
-              {textZoomControl}
-              <span className="hidden text-ui-2xs text-muted-foreground sm:inline">
-                {statusText}
-              </span>
-              {modeToggle}
-            </div>
-          </div>
-          {renderedEditable ? (
-            <MarkdownToolbar
-              {...toolbarProps}
-              renderedMode={true}
-              onFormat={(action) => applyFormat(action, "preview")}
-              onInsertInlineNote={() => insertInlineNote("preview")}
-              onInsertHighlight={(color) => insertTextHighlight(color, "preview")}
-              onInsertSnippet={(snippet) => insertSnippet(snippet, "preview")}
-            />
-          ) : null}
-        </>
-      ) : null}
-      <div
-        ref={bindOutlineScroll}
-        className={cn(
-          "markdown-preview-edit min-h-0 flex-1 overflow-auto px-6 py-5",
-          compact && "markdown-pane",
-          compact && readingFocus.active && "reading-focus-pane",
-        )}
-      >
-        {renderedEditable ? (
-          <ReadingFocusDocumentLayout
-            showGraph={showFocusGraph}
-            title={
-              previewMeta.title ? (
-                <ReadingFocusTitleLink
-                  title={previewMeta.title}
-                  contextPath={focusTitleContextPath}
-                  onNavigate={onNavigate}
-                />
-              ) : null
-            }
-          >
-            <RenderedMarkdownField
-              inputRef={previewRef}
-              editorRef={previewBlockRef}
-              value={previewBody}
-              approvedBaseline={approvedPreviewBody}
-              loadedContent={loadedPreviewBody}
-              highlightPending={showInlinePendingHighlights}
-              pendingApproval={
-                showInlinePendingHighlights
-                  ? {
-                      pendingSource: pendingSource ?? "human",
-                      editedBy: githubHandle || editMeta.editedBy,
-                      aiAssisted: pendingSource === "ai" || editMeta.aiAssisted,
-                      aiProvider: editMeta.aiProvider,
-                      loadedContent: loadedPreviewBody,
-                      onApprove: () => void handleApproveDraft(),
-                      onDiscard: () => void handleDiscardDraft(),
-                      approving: saveState === "saving",
-                      approveLabel: approvalLabel.replace(/^Approve /, ""),
-                    }
-                  : null
-              }
-              compact={compact}
-              showPreview
-              ariaLabel={`Edit ${paneLabel ?? "document"} ${filePath}`}
-              placeholder="Write here…"
-              linkContextPath={linkContextPath || parentPath(filePath)}
-              linksClickable={Boolean(onNavigate)}
-              onNavigate={onNavigate}
-              refreshVersion={refreshVersion}
-              onChange={handlePreviewBodyChange}
-              onSelect={updateSelectedLine}
-              onTextareaSync={(textarea) => void assetAutocomplete.sync(textarea)}
-              onBlur={(event) => assetAutocomplete.handleEditorBlur(event.currentTarget)}
-              onKeyDown={onPreviewKeyDown}
-            />
-          </ReadingFocusDocumentLayout>
-        ) : (
-          <ReadingFocusDocumentLayout
-            showGraph={showFocusGraph}
-            title={
-              previewMeta.title ? (
-                <ReadingFocusTitleLink
-                  title={previewMeta.title}
-                  contextPath={focusTitleContextPath}
-                  onNavigate={onNavigate}
-                  className="mb-0"
-                />
-              ) : null
-            }
-          >
-            {debouncedPreviewBody.trim() ? (
-              <MarkdownViewer
-                markdown={debouncedPreviewBody}
-                linkContextPath={linkContextPath || parentPath(filePath)}
-                linksClickable={Boolean(onNavigate)}
-                onNavigate={onNavigate}
-              />
-            ) : (
-              <p className="text-sm italic text-muted-foreground">Empty document.</p>
-            )}
-          </ReadingFocusDocumentLayout>
-        )}
-      </div>
-    </div>
+    <MarkdownPreviewPane
+      compact={compact}
+      readingFocusActive={readingFocus.active}
+      textZoomStyle={textZoomStyle}
+      bindOutlineScroll={bindOutlineScroll}
+      previewRef={previewRef}
+      previewBlockRef={previewBlockRef}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      undo={undo}
+      redo={redo}
+      textZoomControl={textZoomControl}
+      statusText={statusText}
+      modeToggle={modeToggle}
+      renderedEditable={renderedEditable}
+      toolbarProps={toolbarProps}
+      applyFormat={applyFormat}
+      insertInlineNote={insertInlineNote}
+      insertTextHighlight={insertTextHighlight}
+      insertSnippet={insertSnippet}
+      previewMeta={previewMeta}
+      focusTitleContextPath={focusTitleContextPath}
+      onNavigate={onNavigate}
+      previewBody={previewBody}
+      approvedPreviewBody={approvedPreviewBody}
+      loadedPreviewBody={loadedPreviewBody}
+      showInlinePendingHighlights={showInlinePendingHighlights}
+      figureLabelIndex={figureLabelIndex}
+      pendingSource={pendingSource}
+      githubHandle={githubHandle}
+      editMeta={editMeta}
+      handleApproveDraft={handleApproveDraft}
+      handleDiscardDraft={handleDiscardDraft}
+      saveState={saveState}
+      approvalLabel={approvalLabel}
+      filePath={filePath}
+      paneLabel={paneLabel}
+      linkContextPath={linkContextPath || parentPath(filePath)}
+      refreshVersion={refreshVersion}
+      activeOutlineNavPath={activeOutlineNavPath}
+      handlePreviewBodyChange={handlePreviewBodyChange}
+      updateSelectedLine={updateSelectedLine}
+      assetAutocomplete={assetAutocomplete}
+      onPreviewKeyDown={onPreviewKeyDown}
+      debouncedPreviewBody={debouncedPreviewBody}
+      editorPlaceholder={editorPlaceholder}
+    />
   );
 
   const editorPanes =
@@ -1135,12 +842,40 @@ export function MarkdownEditor({
   const commentsOverlay = compact;
 
   return (
-    <div
+    <EditorShell
       className={cn(
         "flex min-h-0 min-w-0 flex-1",
         commentsOverlay && "relative overflow-hidden",
         className,
       )}
+      comments={
+        <EditorCommentsOverlay
+          open={commentsOpen}
+          filePath={filePath}
+          paneLabel={paneLabel}
+          refreshVersion={refreshVersion}
+          selectedLine={selectedLine}
+          overlay={commentsOverlay}
+          onClose={() => setCommentsOpen(false)}
+          onError={onError}
+          onUnresolvedChange={setUnresolvedComments}
+          onNavigateToLine={setSelectedLine}
+        />
+      }
+      autocomplete={
+        <EditorAssetAutocompleteLayer
+          autocomplete={assetAutocomplete}
+          onApplyValue={(value) => {
+            const textarea =
+              (document.activeElement === previewRef.current && previewRef.current) ||
+              (document.activeElement === sourceRef.current && sourceRef.current) ||
+              sourceRef.current ||
+              previewRef.current;
+            if (!textarea) return;
+            applyAssetAutocomplete(textarea, value);
+          }}
+        />
+      }
     >
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {otherEditor ? (
@@ -1154,59 +889,31 @@ export function MarkdownEditor({
           </div>
         ) : null}
 
-        {compact && !readingFocus.active ? (
-          <div className="ui-pane-header shrink-0">
-            <span className="ui-pane-header__label ui-label max-w-[5.5rem] shrink-0 truncate sm:max-w-[7rem]">
-              {paneLabel ?? "Document"}
-            </span>
-            {compactToolbar ? (
-              <div className="ui-pane-header__toolbar-slot min-w-0 flex-1 overflow-hidden">
-                {compactToolbar}
-              </div>
-            ) : null}
-            <div className="ui-pane-header__actions flex shrink-0 items-center gap-1">
-              {modeToggle}
-              <EditorPaneOverflowMenu
-                  statusText={
-                    unitStatus ? `${statusText} · ${unitStatus}` : statusText
-                  }
-                >
-                  <div className="px-1 py-1">
-                    <EditorUndoRedoButtons
-                      canUndo={canUndo}
-                      canRedo={canRedo}
-                      onUndo={undo}
-                      onRedo={redo}
-                    />
-                  </div>
-                  <div className="px-1 py-1">
-                    <EditorFocusToggle />
-                  </div>
-                  <div className="px-1 py-1 font-mono text-[10px] text-muted-foreground">
-                    {editorStats.words} words · {editorStats.characters} chars
-                  </div>
-                  <div className="px-1 py-1">{textZoomControl}</div>
-                  {canDispatch && dispatchAction ? (
-                    <div className="px-1 py-1">
-                      <DispatchAiButton
-                        actionLabel={dispatchActionLabel(dispatchAction)}
-                        dispatching={dispatching}
-                        progress={dispatchProgress}
-                        onClick={handleOpenAiDispatch}
-                      />
-                    </div>
-                  ) : null}
-                  {headerExtra ? <div className="px-1 py-1">{headerExtra}</div> : null}
-                </EditorPaneOverflowMenu>
-            </div>
-          </div>
-        ) : null}
-
-        {focusEditBar}
+        {paneEditBar}
         {approvalBar}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {commentsOpen && annotationItems.length > 0 ? (
+          <AnnotationBar
+            items={annotationItems}
+            index={annotationIndex}
+            onIndexChange={handleAnnotationIndexChange}
+            onClose={() => setCommentsOpen(false)}
+          />
+        ) : null}
+        <div ref={editorScopeRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
             {editorPanes}
-            {readingFocus.active ? (
+            <InlineSelectionToolbar
+              scopeRef={editorScopeRef}
+              enabled={readingFocus.active}
+              toolbarProps={{
+                ...toolbarProps,
+                renderedMode: inlineToolbarTarget === "preview" && renderedEditable,
+                onFormat: (action) => applyFormat(action, inlineToolbarTarget),
+                onInsertInlineNote: () => insertInlineNote(inlineToolbarTarget),
+                onInsertHighlight: (color) => insertTextHighlight(color, inlineToolbarTarget),
+                onInsertSnippet: (snippet) => insertSnippet(snippet, inlineToolbarTarget),
+              }}
+            />
+            {readingFocus.active && showReadingFocusBar ? (
               <ReadingFocusFloatingBar
                 className="reading-focus-floating-bar"
                 wordCount={editorStats.words}
@@ -1220,56 +927,6 @@ export function MarkdownEditor({
             ) : null}
         </div>
       </div>
-      {commentsOpen ? (
-        <>
-          {commentsOverlay ? (
-            <button
-              type="button"
-              className="absolute inset-0 z-10 bg-overlay/40 backdrop-blur-[1px]"
-              aria-label="Close comments"
-              onClick={() => setCommentsOpen(false)}
-            />
-          ) : null}
-          <CommentsPanel
-            filePath={filePath}
-            paneLabel={paneLabel}
-            refreshVersion={refreshVersion}
-            selectedLine={selectedLine}
-            overlay={commentsOverlay}
-            onError={onError}
-            onClose={() => setCommentsOpen(false)}
-            onUnresolvedChange={setUnresolvedComments}
-          />
-        </>
-      ) : null}
-      <AssetAutocompletePopup
-        open={assetAutocomplete.state.open}
-        top={assetAutocomplete.state.position?.top ?? null}
-        left={assetAutocomplete.state.position?.left ?? null}
-        items={assetAutocomplete.state.items}
-        selectedIndex={assetAutocomplete.state.selectedIndex}
-        selectedCiteKeys={assetAutocomplete.state.selectedCiteKeys}
-        attachedCiteKeys={assetAutocomplete.attachedCiteKeys}
-        isCiteMode={assetAutocomplete.isCiteMode}
-        loading={assetAutocomplete.state.loading}
-        commandLabel={assetAutocomplete.commandLabel}
-        onClose={assetAutocomplete.close}
-        onHighlightIndex={assetAutocomplete.highlightIndex}
-        onToggleCiteKey={assetAutocomplete.toggleSelectedCiteKey}
-        onPopupInteractionStart={assetAutocomplete.beginPopupInteraction}
-        onPopupInteractionEnd={assetAutocomplete.endPopupInteraction}
-        onPick={(item) => {
-          const textarea =
-            (document.activeElement === previewRef.current && previewRef.current) ||
-            (document.activeElement === sourceRef.current && sourceRef.current) ||
-            sourceRef.current ||
-            previewRef.current;
-          assetAutocomplete.applyItem(textarea, item, (value) => {
-            if (!textarea) return;
-            applyAssetAutocomplete(textarea, value);
-          });
-        }}
-      />
-    </div>
+    </EditorShell>
   );
 }

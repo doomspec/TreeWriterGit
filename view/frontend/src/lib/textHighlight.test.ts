@@ -13,6 +13,7 @@ import {
   replaceTextHighlightMacrosInHtml,
   restoreTextHighlightsFromMarkdown,
   splitRawMirrorLine,
+  stripTextHighlightMacrosForDiff,
   wrapTextHighlight,
 } from "./textHighlight";
 import { editableHtmlToMarkdown, markdownToEditableHtml, renderBlockDisplayHtml } from "./markdownRoundtrip";
@@ -100,6 +101,11 @@ describe("textHighlight", () => {
     expect(result.value).toBe("Alpha beta gamma");
     expect(result.selectionStart).toBe(6);
     expect(result.selectionEnd).toBe(10);
+  });
+
+  it("strips highlight macros for semantic diffing", () => {
+    const input = "Read \\hl{yellow}{this part} carefully.";
+    expect(stripTextHighlightMacrosForDiff(input)).toBe("Read this part carefully.");
   });
 });
 

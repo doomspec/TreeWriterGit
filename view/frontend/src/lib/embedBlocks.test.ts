@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   expandEmbedBlocksInMarkdown,
+  listDeferredFigurePaths,
+  listFigureWikilinkPaths,
   parseEmbedBlock,
   replaceInlineFigureEmbedsWithRefs,
 } from "./embedBlocks";
@@ -52,5 +54,21 @@ describe("embedBlocks", () => {
 
   it("returns null for inline figure syntax", () => {
     expect(parseEmbedBlock("See ::figure[path] here.")).toBeNull();
+  });
+
+  it("collects figure wikilink paths for deferred display", () => {
+    const source =
+      "Pipeline ([[papers/vibecount/figures/fig1|Fig. 1]]) and panels ([[papers/vibecount/figures/fig1|Fig. 1C]]).";
+    expect(listFigureWikilinkPaths(source)).toEqual(["papers/vibecount/figures/fig1"]);
+    expect(listDeferredFigurePaths(source)).toEqual(["papers/vibecount/figures/fig1"]);
+  });
+
+  it("merges inline ::figure and wikilink references", () => {
+    const source =
+      "(Fig.\n::figure[papers/demo/figures/fig1]\n). Also [[papers/demo/figures/fig2|Fig. 2]].";
+    expect(listDeferredFigurePaths(source)).toEqual([
+      "papers/demo/figures/fig1",
+      "papers/demo/figures/fig2",
+    ]);
   });
 });

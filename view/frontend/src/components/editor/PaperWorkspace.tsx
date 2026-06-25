@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
 import {
-  ReadingFocusExtra,
-  useReadingFocusSplitPaneTitles,
-} from "@/components/editor/ReadingFocusNavBar";
+  DualPaneController,
+  DualPanePane,
+  shouldSyncDocumentOutline,
+} from "@/components/editor/DualPaneController";
+import { useReadingFocusSplitPaneTitles } from "@/components/editor/ReadingFocusNavBar";
 import { SectionApproveChildrenButton } from "@/components/editor/SectionApproveChildrenButton";
-import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
-import { outlinePathFor, type NavigateTarget } from "@/lib/modelTree";
+import { outlinePathFor, tempNotesPathFor, type NavigateTarget } from "@/lib/modelTree";
 import { normalizeComposedDraftBody } from "@/lib/sectionCompose";
-import { useReadingFocus } from "@/lib/readingFocus";
-import type { DualPaneActive, DualPaneView } from "@/lib/workspacePreferences";
-import { fetchSectionCompose } from "@/modelApi";
+import { useSectionCompose } from "@/lib/hooks/useSectionCompose";
+import type { DualPaneActive, EditorVisiblePanes } from "@/lib/workspacePreferences";
 
 export function PaperWorkspace({
   paperPath,
@@ -22,10 +22,13 @@ export function PaperWorkspace({
   onError,
   dualPaneSplit,
   onDualPaneSplitChange,
-  paneView,
-  onPaneViewChange,
+  visiblePanes,
+  onVisiblePanesChange,
   activePane,
   onActivePaneChange,
+  getPathVersion,
+  notesSplitPercent,
+  onNotesSplitChange,
   onDispatchComplete,
   onSendToTerminal,
   onBeforeDispatch,
@@ -37,54 +40,21 @@ export function PaperWorkspace({
   onError: (message: string) => void;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
-  paneView: DualPaneView;
-  onPaneViewChange: (view: DualPaneView) => void;
+  visiblePanes: EditorVisiblePanes;
+  onVisiblePanesChange: (panes: EditorVisiblePanes) => void;
   activePane: DualPaneActive;
   onActivePaneChange: (pane: DualPaneActive) => void;
+  getPathVersion: (path: string) => number;
+  notesSplitPercent: number;
+  onNotesSplitChange: (percent: number) => void;
   onDispatchComplete?: () => void;
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
 }) {
-  const [compose, setCompose] = useState<Awaited<ReturnType<typeof fetchSectionCompose>> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const hasComposeRef = useRef(false);
-  const readingFocus = useReadingFocus();
-  const showSplitPaneTitles = useReadingFocusSplitPaneTitles(paneView);
+  const { compose, loading, loadCompose } = useSectionCompose(paperPath, onError, refreshVersion);
+  const showSplitPaneTitles = useReadingFocusSplitPaneTitles(visiblePanes);
   const outlinePath = outlinePathFor(paperPath);
-
-  const loadCompose = useCallback(
-    (background = false) => {
-      if (!background) setLoading(true);
-      return fetchSectionCompose(paperPath)
-        .then((data) => {
-          setCompose(data);
-          hasComposeRef.current = true;
-          setLoading(false);
-        })
-        .catch((err) => {
-          if (!hasComposeRef.current) setCompose(null);
-          setLoading(false);
-          onError(err instanceof Error ? err.message : String(err));
-        });
-    },
-    [onError, paperPath],
-  );
-
-  useEffect(() => {
-    hasComposeRef.current = false;
-    setCompose(null);
-    setLoading(true);
-  }, [paperPath]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void loadCompose(hasComposeRef.current).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadCompose, refreshVersion]);
+  const notesPath = tempNotesPathFor(paperPath);
 
   const handleLinkNavigate = useCallback(
     (target: NavigateTarget) => {
@@ -111,11 +81,10 @@ export function PaperWorkspace({
   }
 
   const outlinePane = (
-    <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col"
-      tabIndex={-1}
-      onFocusCapture={() => onActivePaneChange("outline")}
-      onMouseDown={() => onActivePaneChange("outline")}
+    <DualPanePane
+      pane="outline"
+      activePane={activePane}
+      onActivePaneChange={onActivePaneChange}
     >
       <MarkdownEditor
         key={outlinePath}
@@ -123,11 +92,8 @@ export function PaperWorkspace({
         refreshVersion={refreshVersion}
         layout="preview"
         compact
-        showFocusGraph
         splitPaneTitle={showSplitPaneTitles ? "Outline" : undefined}
-        syncDocumentOutline={
-          paneView === "outline" || (paneView === "split" && activePane === "outline")
-        }
+        syncDocumentOutline={shouldSyncDocumentOutline(visiblePanes, activePane)}
         paneLabel="Paper outline"
         defaultPaneMode="rendered"
         className="min-h-0 flex-1"
@@ -142,16 +108,16 @@ export function PaperWorkspace({
         }}
         paperPath={paperPath}
         enableDispatch={false}
+        showReadingFocusBar={activePane === "outline"}
       />
-    </div>
+    </DualPanePane>
   );
 
   const draftPane = (
-    <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col"
-      tabIndex={-1}
-      onFocusCapture={() => onActivePaneChange("draft")}
-      onMouseDown={() => onActivePaneChange("draft")}
+    <DualPanePane
+      pane="draft"
+      activePane={activePane}
+      onActivePaneChange={onActivePaneChange}
     >
       <ComposedDraftEditor
         containerPath={paperPath}
@@ -163,11 +129,8 @@ export function PaperWorkspace({
         approvedDraftMarkdown={compose.approvedDraftMarkdown}
         pendingAiProvider={compose.pendingAiProvider ?? null}
         refreshVersion={refreshVersion}
-        showFocusGraph={paneView === "draft"}
         splitPaneTitle={showSplitPaneTitles ? "Draft" : undefined}
-        syncDocumentOutline={
-          paneView === "draft" || (paneView === "split" && activePane === "draft")
-        }
+        syncDocumentOutline={shouldSyncDocumentOutline(visiblePanes, activePane)}
         linkContextPath={paperPath}
         onNavigate={handleLinkNavigate}
         onError={onError}
@@ -185,35 +148,47 @@ export function PaperWorkspace({
             onError={onError}
           />
         }
+        showReadingFocusBar={activePane === "draft"}
       />
-    </div>
+    </DualPanePane>
+  );
+
+  const notesPane = (
+    <DualPanePane pane="notes" activePane={activePane} onActivePaneChange={onActivePaneChange}>
+      <MarkdownEditor
+        key={notesPath}
+        filePath={notesPath}
+        refreshVersion={refreshVersion}
+        pathVersion={getPathVersion(notesPath)}
+        layout="preview"
+        compact
+        splitPaneTitle={showSplitPaneTitles ? "Notes" : undefined}
+        paneLabel="Notes"
+        defaultPaneMode="rendered"
+        className="min-h-0 flex-1"
+        onError={onError}
+        linkContextPath={paperPath}
+        onNavigate={handleLinkNavigate}
+        paperPath={paperPath}
+        enableDispatch={false}
+        showReadingFocusBar={activePane === "notes"}
+      />
+    </DualPanePane>
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <ReadingFocusExtra focusedPane={paneView} onPaneChange={onPaneViewChange} />
-      {readingFocus.active ? (
-        paneView === "split" ? (
-          <ResizableDualPane
-            className="reading-focus-dual-pane"
-            splitPercent={dualPaneSplit}
-            onSplitChange={onDualPaneSplitChange}
-            left={outlinePane}
-            right={draftPane}
-          />
-        ) : paneView === "outline" ? (
-          outlinePane
-        ) : (
-          draftPane
-        )
-      ) : (
-        <ResizableDualPane
-          splitPercent={dualPaneSplit}
-          onSplitChange={onDualPaneSplitChange}
-          left={outlinePane}
-          right={draftPane}
-        />
-      )}
-    </div>
+    <DualPaneController
+      splitPercent={dualPaneSplit}
+      onSplitChange={onDualPaneSplitChange}
+      visiblePanes={visiblePanes}
+      onVisiblePanesChange={onVisiblePanesChange}
+      activePane={activePane}
+      onActivePaneChange={onActivePaneChange}
+      outlinePane={outlinePane}
+      draftPane={draftPane}
+      notesPane={notesPane}
+      notesSplitPercent={notesSplitPercent}
+      onNotesSplitChange={onNotesSplitChange}
+    />
   );
 }

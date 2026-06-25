@@ -21,7 +21,7 @@ import {
   type GraphNodeType,
   type GraphScope,
 } from "@/lib/graphLocal";
-import { applyFitTransform, computeFitTransform } from "@/lib/graphFit";
+import { applyFitTransform, computeFitTransform, computeNodeBounds, graphFitOptions, graphLabelText, graphNodeRadius } from "@/lib/graphFit";
 import { fetchModelGraph, type ModelGraphEdge, type ModelGraphNode } from "@/modelApi";
 
 interface RawNode {
@@ -71,6 +71,11 @@ function edgeHoverKey(sourceId: string, targetId: string): string {
   return `${sourceId}\0${targetId}`;
 }
 
+const LABEL_FONT_SIZE = 11;
+const LABEL_CHAR_WIDTH = 5.6;
+const LABEL_PAD_X = 8;
+const LABEL_PAD_Y = 4;
+
 function endpointId(value: string | number | SimNode): string {
   return typeof value === "object" ? value.id : String(value);
 }
@@ -115,6 +120,7 @@ export function GraphPanel({
   const [error, setError] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<string | null>(null);
+  const [zoomK, setZoomK] = useState(1);
   const [scope, setScopeInternal] = useState<GraphScope>(graphScopeProp ?? "local");
   const [depth, setDepth] = useState(1);
 
@@ -256,15 +262,26 @@ export function GraphPanel({
     };
   }, [active, filtered, loading, minimal, size.h, size.w]);
 
+  const nodeBounds = useMemo(
+    () => computeNodeBounds(simNodes),
+    [simNodes],
+  );
+
+  const fitOptions = useMemo(
+    () => graphFitOptions(embedded, minimal),
+    [embedded, minimal],
+  );
+
   useEffect(() => {
     const svg = svgRef.current;
     const layer = zoomLayerRef.current;
-    if (!svg || !layer || simNodes.length === 0) return;
+    if (!svg || !layer || simNodes.length === 0 || !nodeBounds) return;
 
     const fitLayer = () => {
-      const transform = computeFitTransform(layer.getBBox(), size.w, size.h);
+      const transform = computeFitTransform(nodeBounds, size.w, size.h, fitOptions);
       if (transform) {
         select(layer).attr("transform", transform.toString());
+        setZoomK(transform.k);
       }
     };
 
@@ -274,21 +291,35 @@ export function GraphPanel({
     }
 
     const behavior = zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.25, 3])
+      .scaleExtent([0.25, fitOptions.maxScale ?? 2.5])
       .on("zoom", (event) => {
         select(layer).attr("transform", event.transform.toString());
+        setZoomK(event.transform.k);
       });
 
     const selection = select(svg).call(behavior);
     const rafId = requestAnimationFrame(() => {
-      applyFitTransform(svg, behavior, layer, size.w, size.h);
+      const transform = applyFitTransform(svg, behavior, nodeBounds, size.w, size.h, fitOptions);
+      if (transform) setZoomK(transform.k);
     });
 
     return () => {
       cancelAnimationFrame(rafId);
       selection.on(".zoom", null);
     };
-  }, [filtered.focusId, filtered.nodes.length, minimal, scope, depth, simNodes.length, size.h, size.w]);
+  }, [
+    embedded,
+    filtered.focusId,
+    filtered.nodes.length,
+    fitOptions,
+    minimal,
+    nodeBounds,
+    scope,
+    depth,
+    simNodes.length,
+    size.h,
+    size.w,
+  ]);
 
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -475,8 +506,10 @@ export function GraphPanel({
                   const radius = (node.isFocus ? 10 : 7) + Math.min(node.links, 4);
                   const showLabel = !minimal && shouldShowLabel(node.id, hovered);
                   const dimmed = hovered !== null && hovered !== node.id && !neighbors.get(hovered)?.has(node.id);
-                  const label =
-                    node.label.length > 28 ? `${node.label.slice(0, 26).trimEnd()}…` : node.label;
+                  const label = graphLabelText(node.label, embedded);
+                  const labelWidth = label.length * LABEL_CHAR_WIDTH + LABEL_PAD_X;
+                  const labelOffsetY = radius + 18;
+                  const labelInverseScale = zoomK > 0 ? 1 / zoomK : 1;
                   const nodeTitle = `${node.label} · ${NODE_TYPE_LABEL[node.type]}`;
                   return (
                     <g
@@ -522,21 +555,21 @@ export function GraphPanel({
                         strokeDasharray={node.type === "missing" ? "2 2" : undefined}
                       />
                       {showLabel ? (
-                        <g style={{ pointerEvents: "none" }}>
+                        <g transform={`scale(${labelInverseScale})`} style={{ pointerEvents: "none" }}>
                           <rect
-                            x={-(label.length * 3.4 + 8) / 2}
-                            y={-(radius + 24)}
-                            width={label.length * 3.4 + 8}
-                            height={18}
+                            x={-labelWidth / 2}
+                            y={-(labelOffsetY + LABEL_PAD_Y + LABEL_FONT_SIZE)}
+                            width={labelWidth}
+                            height={LABEL_FONT_SIZE + LABEL_PAD_Y * 2}
                             rx={4}
                             className="fill-card stroke-border"
                             strokeWidth={1}
                           />
                           <text
                             x={0}
-                            y={-(radius + 11)}
+                            y={-(labelOffsetY + LABEL_PAD_Y)}
                             textAnchor="middle"
-                            fontSize={12}
+                            fontSize={LABEL_FONT_SIZE}
                             fontWeight={500}
                             className="fill-foreground"
                           >

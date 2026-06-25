@@ -7,11 +7,13 @@ import {
   heartbeatPresence,
   releasePresence,
 } from "../presence.js";
+import { asyncHandler } from "./asyncHandler.js";
 import type { ServerDeps } from "./types.js";
 
 export function registerPresenceRoutes(app: Express, deps: ServerDeps) {
-  app.get("/api/presence", async (request, response, next) => {
-    try {
+  app.get(
+    "/api/presence",
+    asyncHandler(async (request, response) => {
       const filePath = String(request.query.path ?? "");
       if (!filePath) {
         response.status(400).json({ error: "path required" });
@@ -19,13 +21,12 @@ export function registerPresenceRoutes(app: Express, deps: ServerDeps) {
       }
       resolveModelPath(deps.modelRoot, filePath);
       response.json({ presence: getPresence(filePath) });
-    } catch (error) {
-      next(error);
-    }
-  });
+    }),
+  );
 
-  app.post("/api/presence/claim", async (request, response, next) => {
-    try {
+  app.post(
+    "/api/presence/claim",
+    asyncHandler(async (request, response) => {
       const { path: filePath, user } = request.body as { path?: string; user?: string };
       if (!filePath || !user) {
         response.status(400).json({ error: "path and user required" });
@@ -38,13 +39,12 @@ export function registerPresenceRoutes(app: Express, deps: ServerDeps) {
         return;
       }
       response.json({ ok: true });
-    } catch (error) {
-      next(error);
-    }
-  });
+    }),
+  );
 
-  app.post("/api/presence/heartbeat", async (request, response, next) => {
-    try {
+  app.post(
+    "/api/presence/heartbeat",
+    asyncHandler(async (request, response) => {
       const { path: filePath, user } = request.body as { path?: string; user?: string };
       if (!filePath || !user) {
         response.status(400).json({ error: "path and user required" });
@@ -53,13 +53,12 @@ export function registerPresenceRoutes(app: Express, deps: ServerDeps) {
       resolveModelPath(deps.modelRoot, filePath);
       const ok = heartbeatPresence(filePath, user);
       response.json({ ok });
-    } catch (error) {
-      next(error);
-    }
-  });
+    }),
+  );
 
-  app.delete("/api/presence/claim", async (request, response, next) => {
-    try {
+  app.delete(
+    "/api/presence/claim",
+    asyncHandler(async (request, response) => {
       const filePath = String(request.query.path ?? "");
       const user = String(request.query.user ?? "");
       if (!filePath || !user) {
@@ -68,8 +67,6 @@ export function registerPresenceRoutes(app: Express, deps: ServerDeps) {
       }
       releasePresence(filePath, user);
       response.json({ ok: true });
-    } catch (error) {
-      next(error);
-    }
-  });
+    }),
+  );
 }

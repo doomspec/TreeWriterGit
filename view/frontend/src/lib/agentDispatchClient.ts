@@ -153,6 +153,7 @@ export type AgentSessionFile = {
   notes?: string;
   body: string;
   wikiPath?: string;
+  unitPath?: string;
 };
 
 export async function fetchUnitSessions(unitPath: string): Promise<AgentSessionFile[]> {

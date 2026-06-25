@@ -13,8 +13,17 @@ import {
 import { closeWebSocket } from "@/lib/websocket";
 
 const terminalUrl = import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://localhost:4000/terminal";
+const MAX_RECONNECT_MS = 30_000;
+const BASE_RECONNECT_MS = 1_000;
+const MAX_RECONNECT_ATTEMPTS = 12;
 
-export type TerminalConnectionState = "connecting" | "connected" | "closed" | "idle";
+export type TerminalConnectionState =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "closed"
+  | "server_lost"
+  | "idle";
 
 type UseTerminalSessionOptions = {
   refitTriggers?: unknown[];
@@ -32,6 +41,8 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
     sessionId: loadTerminalSessionId(),
     forceNew: false,
   });
+  const manualCloseRef = useRef(false);
+  const reconnectAttemptRef = useRef(0);
 
   const [connectionState, setConnectionState] = useState<TerminalConnectionState>(
     enabled ? "connecting" : "idle",
@@ -51,9 +62,11 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
 
     let active = true;
     let resizeRaf: number | undefined;
+    let reconnectTimer: number | undefined;
     let lastCols = 0;
     let lastRows = 0;
-    setConnectionState("connecting");
+    manualCloseRef.current = false;
+    reconnectAttemptRef.current = 0;
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -69,18 +82,13 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
       },
     });
     const fitAddon = new FitAddon();
-    const { sessionId, forceNew } = terminalConnectRef.current;
-    const socket = new WebSocket(buildTerminalWebSocketUrl(terminalUrl, { sessionId, forceNew }));
-    terminalConnectRef.current = { sessionId: loadTerminalSessionId(), forceNew: false };
-
+    terminal.loadAddon(fitAddon);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
-    socketRef.current = socket;
-
-    terminal.loadAddon(fitAddon);
 
     let resizeObserver: ResizeObserver | null = null;
     let dataDisposable: { dispose: () => void } | null = null;
+    let socket: WebSocket | null = null;
 
     const sendResize = () => {
       if (!active || resizeRaf !== undefined) return;
@@ -95,9 +103,74 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
         if (terminal.cols === lastCols && terminal.rows === lastRows) return;
         lastCols = terminal.cols;
         lastRows = terminal.rows;
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket?.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
         }
+      });
+    };
+
+    const scheduleReconnect = () => {
+      if (!active || manualCloseRef.current) return;
+      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        setConnectionState("server_lost");
+        terminal.writeln("\r\n[terminal server unavailable — click Reconnect]");
+        return;
+      }
+      const delay = Math.min(MAX_RECONNECT_MS, BASE_RECONNECT_MS * 2 ** reconnectAttemptRef.current);
+      reconnectAttemptRef.current += 1;
+      setConnectionState("reconnecting");
+      reconnectTimer = window.setTimeout(connect, delay);
+    };
+
+    const connect = () => {
+      if (!active || manualCloseRef.current) return;
+      if (socket) {
+        closeWebSocket(socket);
+        socket = null;
+        socketRef.current = null;
+      }
+
+      const isFirstConnect = reconnectAttemptRef.current === 0;
+      setConnectionState(isFirstConnect ? "connecting" : "reconnecting");
+
+      const { sessionId, forceNew } = terminalConnectRef.current;
+      const nextSocket = new WebSocket(buildTerminalWebSocketUrl(terminalUrl, { sessionId, forceNew }));
+      terminalConnectRef.current = { sessionId: loadTerminalSessionId(), forceNew: false };
+      socket = nextSocket;
+      socketRef.current = nextSocket;
+
+      nextSocket.addEventListener("open", () => {
+        if (!active || socket !== nextSocket) return;
+        reconnectAttemptRef.current = 0;
+        setConnectionState("connected");
+        sendResize();
+      });
+
+      nextSocket.addEventListener("message", (event) => {
+        if (!active || socket !== nextSocket || typeof event.data !== "string") return;
+        const sessionIdFromServer = parseTerminalSessionMessage(event.data);
+        if (sessionIdFromServer) {
+          saveTerminalSessionId(sessionIdFromServer);
+          return;
+        }
+        terminal.write(event.data);
+      });
+
+      nextSocket.addEventListener("close", () => {
+        if (!active || socket !== nextSocket) return;
+        socket = null;
+        socketRef.current = null;
+        if (manualCloseRef.current) {
+          setConnectionState("closed");
+          return;
+        }
+        terminal.writeln("\r\n[terminal disconnected — reconnecting…]");
+        scheduleReconnect();
+      });
+
+      nextSocket.addEventListener("error", () => {
+        if (!active || socket !== nextSocket) return;
+        closeWebSocket(nextSocket);
       });
     };
 
@@ -112,44 +185,23 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
       resizeObserver.observe(mount);
 
       dataDisposable = terminal.onData((data) => {
-        if (socket.readyState === WebSocket.OPEN) {
+        if (socket?.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ type: "input", data }));
         }
       });
-    }, 0);
 
-    socket.addEventListener("open", () => {
-      if (!active) return;
-      setConnectionState("connected");
-      sendResize();
-    });
-    socket.addEventListener("message", (event) => {
-      if (!active || typeof event.data !== "string") return;
-      const sessionIdFromServer = parseTerminalSessionMessage(event.data);
-      if (sessionIdFromServer) {
-        saveTerminalSessionId(sessionIdFromServer);
-        return;
-      }
-      terminal.write(event.data);
-    });
-    socket.addEventListener("close", () => {
-      if (!active) return;
-      setConnectionState("closed");
-      terminal.writeln("\r\n[terminal disconnected]");
-    });
-    socket.addEventListener("error", () => {
-      if (!active) return;
-      setConnectionState("closed");
-      terminal.writeln("\r\n[terminal websocket error]");
-    });
+      connect();
+    }, 0);
 
     return () => {
       active = false;
+      manualCloseRef.current = true;
       if (resizeRaf !== undefined) window.cancelAnimationFrame(resizeRaf);
       window.clearTimeout(openTimer);
+      window.clearTimeout(reconnectTimer);
       resizeObserver?.disconnect();
       dataDisposable?.dispose();
-      closeWebSocket(socket);
+      if (socket) closeWebSocket(socket);
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
@@ -225,6 +277,7 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
       sessionId: previousSessionId,
       forceNew: true,
     };
+    reconnectAttemptRef.current = 0;
     setSessionKey((k) => k + 1);
   }, []);
 

@@ -20,30 +20,35 @@ export function SidebarPanelHeader({
   onTogglePin?: () => void;
 }) {
   return (
-    <div className="sidebar-panel-header sticky top-0 z-[55] flex shrink-0 flex-wrap items-center gap-1 border-b border-border bg-[hsl(var(--sidebar-bg))] px-3 py-2">
-      <button
-        type="button"
-        className={cn(
-          gitSyncBadgeClass(gitSync),
-          "max-w-full cursor-pointer truncate transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50",
-        )}
-        title={
-          gitSync && gitSyncHasError(gitSync)
-            ? formatGitSyncError(gitSync)
-            : gitSync?.enabled
-              ? gitSync.autoSync === false
-                ? "Git sync — auto sync off (click to sync now)"
-                : `Git sync (auto every ${Math.round((gitSync.intervalMs ?? 120_000) / 1000)}s) — click to sync now`
-              : "Git sync disabled"
-        }
-        disabled={!gitSync?.enabled || gitSync?.running}
-        onClick={onGitClick}
-      >
-        git {gitStatusLabel}
-      </button>
-      <span className="ui-badge-neutral truncate" title={`Terminal ${connectionState}`}>
-        terminal {connectionState}
-      </span>
+    <div className="sidebar-panel-header sticky top-0 z-[55]">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+        <button
+          type="button"
+          className={cn(
+            gitSyncBadgeClass(gitSync),
+            "shrink-0 transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+          title={
+            gitSync && gitSyncHasError(gitSync)
+              ? formatGitSyncError(gitSync)
+              : gitSync?.enabled
+                ? gitSync.autoSync === false
+                  ? "Git sync — auto sync off (click to sync now)"
+                  : `Git sync (auto every ${Math.round((gitSync.intervalMs ?? 120_000) / 1000)}s) — click to sync now`
+                : "Git sync disabled"
+          }
+          disabled={!gitSync?.enabled || gitSync?.running}
+          onClick={onGitClick}
+        >
+          git {gitStatusLabel}
+        </button>
+        <span
+          className="ui-badge-neutral min-w-0 flex-1 truncate"
+          title={`Terminal ${connectionState.replace("_", " ")}`}
+        >
+          terminal {connectionState.replace("_", " ")}
+        </span>
+      </div>
       {onTogglePin ? (
         <Button
           type="button"

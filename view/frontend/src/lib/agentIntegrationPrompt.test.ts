@@ -18,5 +18,13 @@ describe("agentIntegrationPrompt", () => {
   it("documents dispatch workflow", () => {
     expect(buildDispatchGuideText()).toContain(".treewriter.json");
     expect(buildDispatchGuideText()).toContain("Preview");
+    expect(buildDispatchGuideText()).toContain("tw-context.mjs");
+    expect(buildDispatchGuideText()).toContain("three layers");
+  });
+
+  it("includes context CLI in integration prompt", () => {
+    const prompt = buildAgentIntegrationPrompt("papers/demo/intro/problem");
+    expect(prompt).toContain("tw-context.mjs");
+    expect(prompt).toContain("papers/demo");
   });
 });

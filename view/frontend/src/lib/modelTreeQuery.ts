@@ -41,6 +41,14 @@ export function findNode(nodes: ModelNode[], pathValue: string): ModelNode | nul
   return null;
 }
 
+/** child_order from a loaded tree node, when the subtree includes INDEX metadata. */
+export function childOrderForFolder(tree: ModelNode[], folderPath: string): string[] | undefined {
+  if (!folderPath) return undefined;
+  const node = findNode(tree, folderPath);
+  if (node?.type !== "directory" || node.childOrder === undefined) return undefined;
+  return node.childOrder;
+}
+
 export type NavigateTarget =
   | { type: "folder"; path: string }
   | { type: "file"; path: string };

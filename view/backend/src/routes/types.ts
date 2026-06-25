@@ -3,6 +3,7 @@ import type { Express } from "express";
 import type { GitSyncConfig } from "../gitSyncConfig.js";
 import type { ExportConfig, AutoExportRuntimeState } from "../exportConfig.js";
 import type { GitSyncState } from "../gitSyncRunner.js";
+import type { AgentJobManager } from "../agentJobManager.js";
 
 export type ServerDeps = {
   modelRoot: string;
@@ -15,6 +16,7 @@ export type ServerDeps = {
   getAutoExportState: () => AutoExportRuntimeState;
   runAutoExportNow: (paperSlug: string) => Promise<void>;
   reloadGitSyncSchedule?: () => void;
+  agentJobs?: AgentJobManager;
 };
 
 export type RouteRegistrar = (app: Express, deps: ServerDeps) => void;

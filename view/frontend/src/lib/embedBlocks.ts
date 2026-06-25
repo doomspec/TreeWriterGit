@@ -46,6 +46,21 @@ export function figureRefKeyFromPath(targetPath: string): string {
   return base ? `fig:${base}` : "fig:unknown";
 }
 
+export function figureRefKeyFromMeta(meta: { figureLabel: string | null; path: string }): string {
+  if (meta.figureLabel?.trim()) return meta.figureLabel.trim();
+  return figureRefKeyFromPath(meta.path);
+}
+
+export function tableRefKeyFromMeta(meta: { tableLabel: string | null; path: string }): string {
+  if (meta.tableLabel?.trim()) return meta.tableLabel.trim();
+  const base = meta.path.trim().replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop();
+  return base ? `tab:${base}` : "tab:unknown";
+}
+
+export function crossRefInsertSnippet(refKey: string): string {
+  return `\\ref{${refKey}}`;
+}
+
 /** Replace inline ::figure[path] tokens with \\ref{fig:…} for rendered display. */
 export function replaceInlineFigureEmbedsWithRefs(markdown: string): {
   markdown: string;
@@ -70,6 +85,59 @@ export function listInlineFigureEmbedPaths(markdown: string): string[] {
     if (match && isInlineEmbedLine(lines, i)) {
       paths.push(match[1].trim());
     }
+  }
+  return paths;
+}
+
+function normalizeFigurePath(target: string): string {
+  return target
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/INDEX\.md$/i, "")
+    .replace(/\.md$/, "");
+}
+
+/** True when a wikilink or figure:// href target points at a figure unit folder. */
+export function isFigureAssetPath(target: string): boolean {
+  const trimmed = normalizeFigurePath(target);
+  if (!trimmed.includes("/figures/")) return false;
+  const isFigureCandidate =
+    !trimmed.endsWith(".md") || trimmed.includes("/notes/data/");
+  return isFigureCandidate;
+}
+
+function pushUniqueFigurePath(paths: string[], seen: Set<string>, target: string): void {
+  if (!isFigureAssetPath(target)) return;
+  const normalized = normalizeFigurePath(target);
+  if (seen.has(normalized)) return;
+  seen.add(normalized);
+  paths.push(normalized);
+}
+
+/** Figure paths from [[…/figures/…|label]] wikilinks and [label](figure://…) markdown links. */
+export function listFigureWikilinkPaths(markdown: string): string[] {
+  if (parseEmbedBlock(markdown)) return [];
+  const paths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const match of markdown.matchAll(/\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]/g)) {
+    pushUniqueFigurePath(paths, seen, match[1] ?? "");
+  }
+
+  for (const match of markdown.matchAll(/\[[^\]]+\]\(figure:\/\/([^)]+)\)/g)) {
+    pushUniqueFigurePath(paths, seen, match[1] ?? "");
+  }
+
+  return paths;
+}
+
+/** Unique figure paths referenced inline (::figure or wikilink) — shown after the paragraph. */
+export function listDeferredFigurePaths(markdown: string): string[] {
+  if (parseEmbedBlock(markdown)) return [];
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const target of [...listInlineFigureEmbedPaths(markdown), ...listFigureWikilinkPaths(markdown)]) {
+    pushUniqueFigurePath(paths, seen, target);
   }
   return paths;
 }

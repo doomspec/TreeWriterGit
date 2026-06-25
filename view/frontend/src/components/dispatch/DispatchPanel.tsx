@@ -5,6 +5,10 @@ import { cn } from "@/lib/utils";
 
 import { fetchContextFiles, fanOutDispatch } from "@/modelApi";
 import {
+  buildContextCliQuickRef,
+  DISPATCH_CONTEXT_LAYERS_SUMMARY,
+} from "@/lib/dispatchContextGuide";
+import {
   type AgentDispatchAction,
   type AgentPreviewResult,
   createUnitSession,
@@ -16,6 +20,11 @@ import {
 } from "@/lib/agentDispatchClient";
 import { saveLastAgentProvider, resolveAgentProvider } from "@/lib/lastAgentProvider";
 import type { AgentDispatchIntent } from "@/lib/agentDispatchPanel";
+import {
+  loadDispatchPanelState,
+  restoreDispatchPreview,
+  scheduleSaveDispatchPanelState,
+} from "@/lib/dispatchPanelState";
 import type { AiProviderInfo } from "@/lib/settingsApi";
 
 interface ContextFileOption {
@@ -71,6 +80,7 @@ export function DispatchPanel({
   onDispatchIntentConsumed,
   onPreviewChange,
   onSessionsReload,
+  skillsVersion,
 }: {
   currentPath: string;
   refreshVersion?: number;
@@ -84,6 +94,7 @@ export function DispatchPanel({
   onDispatchIntentConsumed?: () => void;
   onPreviewChange?: (preview: PreviewResult | null) => void;
   onSessionsReload?: () => void | Promise<void>;
+  skillsVersion?: number;
 }) {
   const [open, setOpen] = useState(embedded);
   const [providers, setProviders] = useState<AiProvider[]>([]);
@@ -104,6 +115,7 @@ export function DispatchPanel({
   const previewSessionIdRef = useRef<string>(
     `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
   );
+  const restoringRef = useRef(false);
 
   const hotActions = useMemo(
     () => hotDispatchActions({ isUnit, canFanOut }),
@@ -130,6 +142,40 @@ export function DispatchPanel({
   const showContextPicker =
     Boolean(currentPath) && (isUnit || (canFanOut && action === "summarize-outline"));
   const contextGroups = useMemo(() => groupContextFiles(contextFiles), [contextFiles]);
+  const contextCliRef = useMemo(() => buildContextCliQuickRef(currentPath), [currentPath]);
+
+  useEffect(() => {
+    if (!currentPath) return;
+    restoringRef.current = true;
+    const saved = loadDispatchPanelState(currentPath);
+    setAction(saved?.action ?? "draft");
+    setCustomPrompt(saved?.customPrompt ?? "");
+    setPreview(restoreDispatchPreview(saved?.preview));
+    setEditedCommand(saved?.editedCommand ?? saved?.preview?.command ?? "");
+    setSelectedContext(new Set(saved?.selectedContext ?? []));
+    setPromptOpen(saved?.promptOpen ?? false);
+    restoringRef.current = false;
+  }, [currentPath]);
+
+  useEffect(() => {
+    if (!currentPath || restoringRef.current) return;
+    scheduleSaveDispatchPanelState(currentPath, {
+      action,
+      customPrompt,
+      preview,
+      editedCommand,
+      selectedContext: [...selectedContext],
+      promptOpen,
+    });
+  }, [
+    action,
+    currentPath,
+    customPrompt,
+    editedCommand,
+    preview,
+    promptOpen,
+    selectedContext,
+  ]);
 
   useEffect(() => {
     if ((!open && !embedded) || !showContextPicker) {
@@ -140,6 +186,13 @@ export function DispatchPanel({
     void fetchContextFiles(currentPath, action)
       .then(({ files }) => {
         setContextFiles(files);
+        const savedPaths = loadDispatchPanelState(currentPath)?.selectedContext?.filter((filePath) =>
+          files.some((file) => file.path === filePath),
+        );
+        if (savedPaths && savedPaths.length > 0) {
+          setSelectedContext(new Set(savedPaths));
+          return;
+        }
         setSelectedContext(new Set(files.filter((f) => f.defaultIncluded).map((f) => f.path)));
       })
       .catch(() => {
@@ -340,6 +393,11 @@ export function DispatchPanel({
     void executeAction(executeActionValue);
   }, [executeAction, providersLoaded, selectedProvider, currentPath]);
 
+  useEffect(() => {
+    if (!skillsVersion || !preview || !currentPath) return;
+    void handlePreview(false);
+  }, [skillsVersion, preview, currentPath, handlePreview]);
+
   const handleRunEdited = () => {
     if (!editedCommand.trim()) return;
     saveLastAgentProvider(selectedProvider);
@@ -457,6 +515,9 @@ export function DispatchPanel({
                 {contextOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 Unit context ({selectedContext.size}/{contextFiles.length})
               </button>
+              <p className="border-t border-border px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
+                {DISPATCH_CONTEXT_LAYERS_SUMMARY}
+              </p>
               {contextOpen ? (
                 <div className="max-h-40 space-y-1 overflow-auto border-t border-border px-2 py-1.5">
                   {contextGroups.map((group) => {
@@ -508,7 +569,20 @@ export function DispatchPanel({
                 </div>
               ) : null}
             </div>
+          ) : currentPath ? (
+            <p className="rounded-sm border border-border px-2 py-1.5 text-[10px] leading-snug text-muted-foreground">
+              {DISPATCH_CONTEXT_LAYERS_SUMMARY}
+            </p>
           ) : null}
+
+          <details className="rounded-sm border border-border text-[10px] text-muted-foreground">
+            <summary className="cursor-pointer select-none px-2 py-1.5 hover:bg-accent/40">
+              Context CLI (terminal)
+            </summary>
+            <pre className="max-h-28 overflow-auto whitespace-pre-wrap border-t border-border bg-muted/20 px-2 py-1.5 font-mono leading-relaxed">
+              {contextCliRef}
+            </pre>
+          </details>
 
           <div className="rounded-sm border border-border">
             <button

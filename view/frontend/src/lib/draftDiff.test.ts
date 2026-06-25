@@ -71,6 +71,12 @@ describe("draftDiff", () => {
     expect(hasPendingApprovalDiff("", "", "")).toBe(false);
   });
 
+  it("does not treat highlight-only edits as pending approval", () => {
+    const baseline = "Onboarding documentation shipped.";
+    const highlighted = "Onboarding \\hl{yellow}{documentation} shipped.";
+    expect(hasPendingApprovalDiff(baseline, baseline, highlighted)).toBe(false);
+  });
+
   it("detects pending edits against approved baseline", () => {
     expect(hasPendingApprovalDiff("Alpha", "Alpha beta", "Alpha beta")).toBe(true);
     expect(hasPendingApprovalDiff("Alpha", "Alpha beta", "Alpha beta gamma")).toBe(true);

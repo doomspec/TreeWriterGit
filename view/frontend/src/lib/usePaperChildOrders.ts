@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { loadIndexChildOrder } from "@/lib/indexChildOrder";
-import { collectPaperFolderPaths } from "@/lib/modelTree";
-import type { ModelNode } from "@/lib/modelTree";
+import { childOrderForFolder, collectPaperFolderPaths, type ModelNode } from "@/lib/modelTree";
 
 /** Load INDEX child_order for every folder under a paper (shared by section list + browse tree). */
 export function usePaperChildOrders(
@@ -14,25 +13,40 @@ export function usePaperChildOrders(
     () => (paperPath ? collectPaperFolderPaths(tree, paperPath) : []),
     [paperPath, tree],
   );
-  const [childOrders, setChildOrders] = useState<Record<string, string[]>>({});
+  const fromTree = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const folderPath of folderPaths) {
+      const order = childOrderForFolder(tree, folderPath);
+      if (order !== undefined && order.length > 0) map[folderPath] = order;
+    }
+    return map;
+  }, [folderPaths, tree]);
+  const missingPaths = useMemo(
+    () => folderPaths.filter((folderPath) => !(folderPath in fromTree)),
+    [folderPaths, fromTree],
+  );
+  const [fetched, setFetched] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
-    if (!paperPath || folderPaths.length === 0) {
-      setChildOrders({});
+    if (!paperPath || missingPaths.length === 0) {
+      setFetched({});
       return;
     }
     let cancelled = false;
     void (async () => {
       const entries = await Promise.all(
-        folderPaths.map(async (folderPath) => [folderPath, await loadIndexChildOrder(folderPath)] as const),
+        missingPaths.map(async (folderPath) => [folderPath, await loadIndexChildOrder(folderPath)] as const),
       );
       if (cancelled) return;
-      setChildOrders(Object.fromEntries(entries));
+      setFetched(Object.fromEntries(entries));
     })();
     return () => {
       cancelled = true;
     };
-  }, [folderPaths, paperPath, refreshVersion]);
+  }, [missingPaths, paperPath, refreshVersion]);
 
-  return childOrders;
+  return useMemo(
+    () => ({ ...fromTree, ...fetched }),
+    [fetched, fromTree],
+  );
 }

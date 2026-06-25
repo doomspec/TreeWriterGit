@@ -1,6 +1,8 @@
 import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 
+import type { ExportValidationConfig } from "@treewriter/shared";
+
 import {
   DEFAULT_EXPORT_DEBOUNCE_MS,
   normalizeExportDebounceMs,
@@ -15,7 +17,9 @@ export {
   formatSyncIntervalLabel as formatExportDebounceLabel,
 } from "./intervalPresets.js";
 
-export type ExportConfig = {
+export type { ExportValidationConfig };
+
+export type ExportConfig = ExportValidationConfig & {
   /** Export after manuscript edits (debounced). */
   autoExport: boolean;
   /** Include outlines and non-approved drafts in auto-export. */
@@ -40,6 +44,9 @@ const DEFAULT_EXPORT_CONFIG: ExportConfig = {
   includeDrafts: true,
   pushOverleaf: true,
   debounceMs: DEFAULT_EXPORT_DEBOUNCE_MS,
+  blockOnOrphanRefs: false,
+  blockOnUnapproved: false,
+  blockOnMissingCitations: false,
 };
 
 export async function loadExportConfig(repoRoot: string): Promise<ExportConfig> {
@@ -58,6 +65,15 @@ export async function loadExportConfig(repoRoot: string): Promise<ExportConfig> 
       if (typeof patch.debounceMs === "number" && Number.isFinite(patch.debounceMs)) {
         config.debounceMs = normalizeExportDebounceMs(patch.debounceMs);
       }
+      if (typeof patch.blockOnOrphanRefs === "boolean") {
+        config.blockOnOrphanRefs = patch.blockOnOrphanRefs;
+      }
+      if (typeof patch.blockOnUnapproved === "boolean") {
+        config.blockOnUnapproved = patch.blockOnUnapproved;
+      }
+      if (typeof patch.blockOnMissingCitations === "boolean") {
+        config.blockOnMissingCitations = patch.blockOnMissingCitations;
+      }
     }
   } catch {
     // use defaults
@@ -71,7 +87,18 @@ export async function loadExportConfig(repoRoot: string): Promise<ExportConfig> 
 
 export async function saveExportPreferences(
   repoRoot: string,
-  patch: Partial<Pick<ExportConfig, "autoExport" | "includeDrafts" | "pushOverleaf" | "debounceMs">>,
+  patch: Partial<
+    Pick<
+      ExportConfig,
+      | "autoExport"
+      | "includeDrafts"
+      | "pushOverleaf"
+      | "debounceMs"
+      | "blockOnOrphanRefs"
+      | "blockOnUnapproved"
+      | "blockOnMissingCitations"
+    >
+  >,
 ): Promise<void> {
   const configPath = path.join(repoRoot, ".treewriter.json");
   let parsed: Record<string, unknown> = {};
@@ -89,6 +116,11 @@ export async function saveExportPreferences(
   if (patch.pushOverleaf !== undefined) exportBlock.pushOverleaf = patch.pushOverleaf;
   if (patch.debounceMs !== undefined) {
     exportBlock.debounceMs = normalizeExportDebounceMs(patch.debounceMs);
+  }
+  if (patch.blockOnOrphanRefs !== undefined) exportBlock.blockOnOrphanRefs = patch.blockOnOrphanRefs;
+  if (patch.blockOnUnapproved !== undefined) exportBlock.blockOnUnapproved = patch.blockOnUnapproved;
+  if (patch.blockOnMissingCitations !== undefined) {
+    exportBlock.blockOnMissingCitations = patch.blockOnMissingCitations;
   }
   parsed.export = exportBlock;
   await writeFile(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");

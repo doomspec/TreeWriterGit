@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
+import { useModalFocusTrap } from "@/lib/useModalFocusTrap";
 import {
   createPaper,
   fetchJournalTemplates,
@@ -56,6 +58,7 @@ export function NewPaperModal({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
+  const dialogRef = useModalFocusTrap(true, onClose);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,9 +175,12 @@ export function NewPaperModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/50 p-4 backdrop-blur-[2px]">
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-labelledby="paper-form-title"
-        className="flex max-h-[90vh] w-full max-w-md flex-col rounded-md border border-border bg-background shadow-lg"
+        tabIndex={-1}
+        className="flex max-h-[90vh] w-full max-w-md flex-col rounded-md border border-border bg-background shadow-lg outline-none"
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 id="paper-form-title" className="text-sm font-semibold">
@@ -186,7 +192,9 @@ export function NewPaperModal({
         </div>
 
         {loading ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">Loading paper…</p>
+          <div className="px-4 py-6">
+            <LoadingSkeleton lines={4} />
+          </div>
         ) : (
           <form className="space-y-3 overflow-y-auto px-4 py-4" onSubmit={(e) => void handleSubmit(e)}>
             <label className="block text-xs">

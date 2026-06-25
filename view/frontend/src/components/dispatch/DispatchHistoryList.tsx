@@ -130,7 +130,9 @@ export function DispatchHistoryList({
                       </span>
                     </span>
                     <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">
-                      {currentPath}
+                      {session.unitPath && session.unitPath !== currentPath
+                        ? session.unitPath
+                        : currentPath}
                     </span>
                   </span>
                 </button>

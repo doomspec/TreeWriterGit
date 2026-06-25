@@ -6,6 +6,7 @@ import {
   type PendingLineHighlight,
 } from "@/lib/draftDiff";
 import { splitMarkdownIntoBlocks, type MarkdownBlock } from "@/lib/markdownBlocks";
+import { stripTextHighlightMacrosForDiff } from "@/lib/textHighlight";
 
 function normalizeForMatch(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -82,23 +83,27 @@ function renderHighlightRow(row: PendingLineHighlight): string {
 export function applyPendingMarksToMarkdown(baseline: string, current: string): string | null {
   if (baseline === current) return null;
 
-  const baselineLines = splitLines(baseline);
-  const currentLines = splitLines(current);
+  const baselinePlain = stripTextHighlightMacrosForDiff(baseline);
+  const currentPlain = stripTextHighlightMacrosForDiff(current);
+  if (baselinePlain === currentPlain) return null;
+
+  const baselineLines = splitLines(baselinePlain);
+  const currentLines = splitLines(currentPlain);
 
   // Single-line blocks: word-level diff avoids showing the whole line as deleted + re-inserted.
   if (baselineLines.length === 1 && currentLines.length === 1) {
-    const segments = diffWordSegments(baseline, current);
+    const segments = diffWordSegments(baselinePlain, currentPlain);
     if (segments.some((segment) => segment.kind !== "equal")) {
       return renderSegments(segments);
     }
     return null;
   }
 
-  const rows = pendingLineHighlightRows(baseline, current);
+  const rows = pendingLineHighlightRows(baselinePlain, currentPlain);
 
   // Block realignment or large reflow — fall back to word-level diff on the whole block.
-  if (fractionChanged(rows) > 0.6 && baseline.trim() && current.trim()) {
-    const segments = diffWordSegments(baseline, current);
+  if (fractionChanged(rows) > 0.6 && baselinePlain.trim() && currentPlain.trim()) {
+    const segments = diffWordSegments(baselinePlain, currentPlain);
     if (segments.some((segment) => segment.kind !== "equal")) {
       return renderSegments(segments);
     }

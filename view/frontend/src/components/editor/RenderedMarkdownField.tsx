@@ -1,5 +1,6 @@
 import { BlockMarkdownEditor, type BlockMarkdownEditorHandle } from "@/components/editor/BlockMarkdownEditor";
 import { cn } from "@/lib/utils";
+import type { FigureMetadata } from "@/lib/figures";
 import type { NavigateTarget } from "@/lib/modelTree";
 import type { DraftPendingSource } from "@/lib/draftApproval";
 
@@ -32,10 +33,12 @@ export function RenderedMarkdownField({
   refreshVersion = 0,
   inputRef,
   editorRef,
+  activeOutlineNavPath = null,
   showPreview: _showPreview = true,
   approvedBaseline = "",
   loadedContent = "",
   highlightPending = false,
+  figureLabelIndex,
   pendingApproval = null,
   compact: _compact = false,
 }: {
@@ -54,10 +57,12 @@ export function RenderedMarkdownField({
   refreshVersion?: number;
   inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   editorRef?: React.RefObject<BlockMarkdownEditorHandle | null>;
+  activeOutlineNavPath?: string | null;
   showPreview?: boolean;
   approvedBaseline?: string;
   loadedContent?: string;
   highlightPending?: boolean;
+  figureLabelIndex?: Map<string, FigureMetadata>;
   pendingApproval?: PendingApprovalProps | null;
   compact?: boolean;
 }) {
@@ -69,6 +74,7 @@ export function RenderedMarkdownField({
         approvedBaseline={approvedBaseline}
         loadedContent={loadedContent}
         highlightPending={highlightPending}
+        figureLabelIndex={figureLabelIndex}
         pendingApproval={pendingApproval}
         onChange={onChange}
         onSelect={onSelect}
@@ -81,6 +87,7 @@ export function RenderedMarkdownField({
         linksClickable={linksClickable}
         onNavigate={onNavigate}
         refreshVersion={refreshVersion}
+        activeOutlineNavPath={activeOutlineNavPath}
         inputRef={inputRef}
       />
     </div>

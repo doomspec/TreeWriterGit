@@ -1,17 +1,86 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 import { useDocumentOutline } from "@/lib/documentOutline";
 import type { MarkdownHeading } from "@/lib/markdownOutline";
-import { useWorkspace } from "@/lib/workspace/WorkspaceProvider";
+import { findActiveOutlineHeadingId } from "@/lib/outlineActiveNav";
+import {
+  orderedChildFolders,
+  sectionsForPaper,
+  parentPath,
+  type ModelNode,
+} from "@/lib/modelTree";
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
+
+function buildModelOutlineHeadings(
+  tree: ModelNode[],
+  folderPath: string,
+  childOrder: string[],
+  paperPath: string | null,
+  titleLevel: number | null,
+): MarkdownHeading[] {
+  const items =
+    paperPath && folderPath === paperPath
+      ? sectionsForPaper(tree, paperPath, childOrder)
+      : orderedChildFolders(tree, folderPath, childOrder);
+  if (items.length === 0) return [];
+
+  const level = titleLevel ?? 1;
+  return items.map((item) => ({
+    id: `model-${item.path}`,
+    level,
+    text: item.title,
+    lineIndex: -1,
+    href: `${item.name}/INDEX.md`,
+  }));
+}
+
+function mergeOutlineHeadings(
+  markdownHeadings: MarkdownHeading[],
+  modelHeadings: MarkdownHeading[],
+): MarkdownHeading[] {
+  if (modelHeadings.length === 0) return markdownHeadings;
+
+  const title = markdownHeadings.find((heading) => heading.level === 1);
+  if (title) return [title, ...modelHeadings];
+  return modelHeadings;
+}
 
 export function DocumentOutlinePanel({ className }: { className?: string }) {
   const outline = useDocumentOutline();
-  const ws = useWorkspace();
+  const nav = useWorkspaceNavigationContext();
   const observerRef = useRef<IntersectionObserver | null>(null);
 
-  const headings = outline?.headings ?? [];
-  const activeId = outline?.activeHeadingId ?? null;
+  const linkContextPath = outline?.linkContextPath ?? "";
+  const childOrders = nav.paperChildOrders;
+  const childOrder = childOrders[linkContextPath] ?? [];
+
+  const markdownHeadings = outline?.headings ?? [];
+  const headings = useMemo(() => {
+    const hasOutlineLinks = markdownHeadings.some((heading) => heading.href);
+    const hasSectionHeadings = markdownHeadings.some((heading) => heading.level >= 2);
+    if (hasOutlineLinks || hasSectionHeadings || !linkContextPath) {
+      return markdownHeadings;
+    }
+
+    const title = markdownHeadings.find((heading) => heading.level === 1) ?? null;
+    const modelHeadings = buildModelOutlineHeadings(
+      nav.tree,
+      linkContextPath,
+      childOrder,
+      nav.paperPath,
+      title?.level ?? null,
+    );
+    return mergeOutlineHeadings(markdownHeadings, modelHeadings);
+  }, [childOrder, linkContextPath, markdownHeadings, nav.paperPath, nav.tree]);
+
+  const focusPath = nav.activeFile ? parentPath(nav.activeFile) : nav.browsePath;
+  const locationActiveId = useMemo(
+    () => findActiveOutlineHeadingId(headings, linkContextPath, focusPath),
+    [focusPath, headings, linkContextPath],
+  );
+  const scrollActiveId = outline?.activeHeadingId ?? null;
+  const activeId = locationActiveId ?? scrollActiveId;
 
   const handleNavigate = useCallback(
     (heading: MarkdownHeading) => {
@@ -19,13 +88,13 @@ export function DocumentOutlinePanel({ className }: { className?: string }) {
       if (outline.scrollToHeading(heading.id)) return;
       outline.navigateHeading(heading, (target) => {
         if (target.type === "file") {
-          ws.openFile(target.path);
+          nav.openFile(target.path);
           return;
         }
-        ws.navigateTo(target.path);
+        nav.navigateTo(target.path);
       });
     },
-    [outline, ws],
+    [nav, outline],
   );
 
   useEffect(() => {
@@ -107,6 +176,7 @@ export function DocumentOutlinePanel({ className }: { className?: string }) {
                 paddingInlineStart: `${(heading.level - minLevel) * 0.65 + 0.5}rem`,
               }}
               title={heading.text}
+              aria-current={activeId === heading.id ? "location" : undefined}
               onClick={() => handleNavigate(heading)}
             >
               <span className="truncate">{heading.text}</span>

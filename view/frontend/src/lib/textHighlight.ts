@@ -188,6 +188,12 @@ export function hasTextHighlightMacros(markdown: string): boolean {
   return TEXT_HIGHLIGHT_PATTERN_TEST.test(markdown);
 }
 
+/** Plain text for pending-approval diffing — highlight macros are annotations, not content edits. */
+export function stripTextHighlightMacrosForDiff(markdown: string): string {
+  const normalized = normalizeTextHighlightMacros(restoreTextHighlightsFromMarkdown(markdown));
+  return normalized.replace(/\\hl\{[a-z]+\}\{([^}]*)\}/g, (_full, inner: string) => inner);
+}
+
 export function isPendingTrackChangeHtml(source: string): boolean {
   return (
     source.includes("highlight-inline--pending") || source.includes("highlight-inline--deleted")

@@ -9,7 +9,11 @@ import {
   type RefObject,
 } from "react";
 
-import { extractMarkdownHeadings, type MarkdownHeading } from "@/lib/markdownOutline";
+import {
+  extractMarkdownHeadings,
+  filterDocumentOutlineHeadings,
+  type MarkdownHeading,
+} from "@/lib/markdownOutline";
 import { resolveNavigateTarget, type NavigateTarget } from "@/lib/modelTree";
 
 export type DocumentOutlineState = {
@@ -62,7 +66,10 @@ export function DocumentOutlineProvider({ children }: { children: ReactNode }) {
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null);
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
 
-  const headings = useMemo(() => extractMarkdownHeadings(markdown), [markdown]);
+  const headings = useMemo(
+    () => filterDocumentOutlineHeadings(extractMarkdownHeadings(markdown)),
+    [markdown],
+  );
 
   const registerScrollContainer = useCallback((el: HTMLElement | null) => {
     setScrollContainer(el);

@@ -1,8 +1,8 @@
+/** Consolidated agent + settings API entry points. */
 export { request } from "@/lib/apiClient";
-
+export * from "@/lib/agentDispatchClient";
 export {
-  loadAgentProviderConfig,
-  getDefaultAgentProvider,
-  type AgentDispatchAction,
-  type AgentPreviewResult,
-} from "@/lib/agentDispatchClient";
+  fetchGitSyncResolveHarness,
+  fetchSettings,
+  type AiProviderInfo,
+} from "@/lib/settingsApi";

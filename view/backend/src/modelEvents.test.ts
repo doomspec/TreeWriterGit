@@ -26,7 +26,7 @@ describe("createModelEventBroadcaster", () => {
         send: (payload: string) => sent.push(payload),
       },
     ]);
-    const broadcast = createModelEventBroadcaster(clients, 1);
+    const broadcast = createModelEventBroadcaster(clients, 1, "/tmp/model");
     const event = { type: "model-changed", path: "papers/demo/unit/draft.md" };
 
     broadcast(event, "api");
@@ -44,7 +44,7 @@ describe("createModelEventBroadcaster", () => {
         send: () => {},
       },
     ]);
-    const broadcast = createModelEventBroadcaster(clients, 1);
+    const broadcast = createModelEventBroadcaster(clients, 1, "/tmp/model");
     broadcast({ type: "model-changed", path: "papers/demo/unit/draft.md" }, "api");
     expect(graphCacheSize()).toBe(0);
   });

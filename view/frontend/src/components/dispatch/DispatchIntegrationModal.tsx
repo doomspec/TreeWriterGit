@@ -35,8 +35,8 @@ export function DispatchIntegrationModal({
               AI Assistant Integration
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Copy the system prompt for external assistants, or review how TreeWriter dispatch
-              builds and runs commands in the bottom terminal.
+              Copy prompts for external assistants, review dispatch workflow, or copy context CLI
+              commands for on-demand manuscript lookup (no project MCP).
             </p>
           </div>
           <Button

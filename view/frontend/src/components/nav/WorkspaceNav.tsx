@@ -2,7 +2,6 @@ import { cn } from "@/lib/utils";
 import { ExplorerNavPanel } from "@/components/nav/ExplorerNavPanel";
 import { PapersSidebar } from "@/components/nav/PapersSidebar";
 import type { WorkspaceModeTab } from "@/components/layout/WorkspaceModeTabs";
-import type { GraphScope } from "@/lib/graphLocal";
 import type { SearchHit } from "@/modelApi";
 import type { ModelNode } from "@/lib/modelTree";
 
@@ -19,14 +18,10 @@ export function WorkspaceNav({
   onNavigate,
   onOpenFile,
   onSearchSelect,
+  onLoadSubtree,
   onPaperCreated,
   onModelChanged,
   onError,
-  graphFetchRoot,
-  graphFocusPath,
-  graphScope,
-  onGraphScopeChange,
-  onGraphSelectNode,
 }: {
   tree: ModelNode[];
   currentPath: string;
@@ -41,11 +36,7 @@ export function WorkspaceNav({
   onPaperCreated: (path: string) => void;
   onModelChanged: () => void;
   onError: (message: string) => void;
-  graphFetchRoot: string;
-  graphFocusPath: string;
-  graphScope: GraphScope;
-  onGraphScopeChange: (scope: GraphScope) => void;
-  onGraphSelectNode: (id: string) => void;
+  onLoadSubtree?: (folderPath: string, depth?: number) => Promise<boolean>;
 }) {
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-sidebar">
@@ -60,6 +51,7 @@ export function WorkspaceNav({
           onSearchSelect={onSearchSelect}
           onNavigate={onNavigate}
           onOpenFile={onOpenFile}
+          onLoadSubtree={onLoadSubtree}
         />
       ) : (
         <PapersSidebar
@@ -68,16 +60,14 @@ export function WorkspaceNav({
           currentPath={currentPath}
           activeFile={activeFile}
           refreshVersion={refreshVersion}
+          searchQuery={searchQuery}
+          onSearchChange={onSearchChange}
+          onSearchSelect={onSearchSelect}
           onNavigate={onNavigate}
           onOpenFile={onOpenFile}
           onPaperCreated={onPaperCreated}
           onModelChanged={onModelChanged}
           onError={onError}
-          graphFetchRoot={graphFetchRoot}
-          graphFocusPath={graphFocusPath}
-          graphScope={graphScope}
-          onGraphScopeChange={onGraphScopeChange}
-          onGraphSelectNode={onGraphSelectNode}
         />
       )}
     </aside>

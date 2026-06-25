@@ -2,11 +2,17 @@ import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { WebSocket } from "ws";
 
+import { clampTerminalSize } from "./terminalMessages.js";
+
 export type TerminalSessionConfig = {
   command: string;
   args: string[];
   cwd: string;
   env?: NodeJS.ProcessEnv;
+  /** Kill detached sessions after this many ms (default 30 min). */
+  idleTtlMs?: number;
+  /** Max concurrent PTY sessions (default 8). */
+  maxSessions?: number;
 };
 
 export type TerminalSession = {
@@ -15,10 +21,13 @@ export type TerminalSession = {
   controlFd: NodeJS.WritableStream | null;
   scrollback: string;
   socket: WebSocket | null;
+  idleTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const MAX_SCROLLBACK = 512 * 1024;
 const WS_OPEN = 1;
+const DEFAULT_IDLE_TTL_MS = 30 * 60 * 1000;
+const DEFAULT_MAX_SESSIONS = 8;
 
 function appendScrollback(session: TerminalSession, chunk: string) {
   session.scrollback += chunk;
@@ -39,6 +48,33 @@ function sanitizeShellNoise(text: string): string {
 
 export function createTerminalSessionManager(config: TerminalSessionConfig) {
   const sessions = new Map<string, TerminalSession>();
+  const idleTtlMs = config.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
+  const maxSessions = config.maxSessions ?? DEFAULT_MAX_SESSIONS;
+
+  function clearIdleTimer(session: TerminalSession) {
+    if (session.idleTimer) {
+      clearTimeout(session.idleTimer);
+      session.idleTimer = null;
+    }
+  }
+
+  function scheduleIdleDestroy(session: TerminalSession) {
+    clearIdleTimer(session);
+    session.idleTimer = setTimeout(() => {
+      if (!session.socket && sessions.has(session.id)) {
+        destroySession(session.id);
+      }
+    }, idleTtlMs);
+  }
+
+  function evictOldestDetachedSession() {
+    for (const [id, session] of sessions) {
+      if (!session.socket) {
+        destroySession(id);
+        return;
+      }
+    }
+  }
 
   function broadcast(session: TerminalSession, data: string) {
     appendScrollback(session, data);
@@ -48,6 +84,13 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
   }
 
   function spawnSession(id: string): TerminalSession {
+    if (sessions.size >= maxSessions) {
+      evictOldestDetachedSession();
+    }
+    if (sessions.size >= maxSessions) {
+      throw new Error(`Maximum terminal sessions (${maxSessions}) reached`);
+    }
+
     const term = spawn(config.command, config.args, {
       cwd: config.cwd,
       env: { ...process.env, ...config.env },
@@ -60,6 +103,7 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
       controlFd: term.stdio[3] as NodeJS.WritableStream | null,
       scrollback: "",
       socket: null,
+      idleTimer: null,
     };
 
     term.stdout.on("data", (data: Buffer) => {
@@ -96,6 +140,7 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
   function destroySession(id: string) {
     const session = sessions.get(id);
     if (!session) return;
+    clearIdleTimer(session);
     session.term.kill();
     sessions.delete(id);
   }
@@ -120,6 +165,7 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
   }
 
   function attach(socket: WebSocket, session: TerminalSession) {
+    clearIdleTimer(session);
     session.socket = socket;
     socket.send(JSON.stringify({ type: "session", id: session.id }));
     if (session.scrollback) {
@@ -129,16 +175,18 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
 
   function detach(session: TerminalSession) {
     session.socket = null;
+    scheduleIdleDestroy(session);
   }
 
   function handleInput(session: TerminalSession, data: string) {
+    if (typeof data !== "string") return;
     session.term.stdin.write(data);
   }
 
   function handleResize(session: TerminalSession, cols: number, rows: number) {
-    if (session.controlFd && Number.isFinite(cols) && Number.isFinite(rows)) {
-      session.controlFd.write(`${JSON.stringify({ t: "resize", cols, rows })}\n`);
-    }
+    const size = clampTerminalSize(cols, rows);
+    if (!size || !session.controlFd) return;
+    session.controlFd.write(`${JSON.stringify({ t: "resize", cols: size.cols, rows: size.rows })}\n`);
   }
 
   function resetAllSessions() {

@@ -97,6 +97,18 @@ describe("buildCombinedMarkdown", () => {
     expect(unitCount).toBe(0);
   });
 
+  it("never includes temp-notes scratchpad content", async () => {
+    await seedPaper();
+    await writeFile(
+      path.join(root, "papers/demo/introduction/temp-notes.md"),
+      "# Scratch\n\nSecret local notes that must not export.\n",
+      "utf8",
+    );
+    const { markdown } = await buildCombinedMarkdown(root, "papers/demo", true);
+    expect(markdown).not.toContain("Secret local notes");
+    expect(markdown).not.toContain("temp-notes");
+  });
+
   it("includes approved units only when includeDrafts is false", async () => {
     await seedPaper();
     await writeFile(
@@ -120,6 +132,137 @@ describe("buildCombinedMarkdown", () => {
     const claimHeadingCount = (markdown.match(/^#\s+Claim\s*$/gm) ?? []).length;
     expect(claimHeadingCount).toBe(0);
     expect(markdown).toContain("[@smith2024]");
+  });
+
+  it("includes subsection subtitles but not unit titles in nested trees", async () => {
+    const paperRel = "papers/demo";
+    await mkdir(path.join(root, paperRel, "results", "workflow", "claim"), { recursive: true });
+    await writeFile(
+      path.join(root, paperRel, "INDEX.md"),
+      matter.stringify("", {
+        kind: "paper",
+        title: "Demo Paper",
+        section_order: ["results"],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/INDEX.md"),
+      matter.stringify("", {
+        kind: "section",
+        title: "Results",
+        child_order: ["workflow", "standalone"],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/workflow/INDEX.md"),
+      matter.stringify("", {
+        kind: "section",
+        title: "Workflow Overview",
+        child_order: ["claim"],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/workflow/claim/INDEX.md"),
+      matter.stringify("", { kind: "unit", title: "Claim paragraph", status: "approved" }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/workflow/claim/draft.md"),
+      "## Claim paragraph\n\nApproved unit prose.\n",
+      "utf8",
+    );
+    await mkdir(path.join(root, paperRel, "results/standalone"), { recursive: true });
+    await writeFile(
+      path.join(root, paperRel, "results/standalone/INDEX.md"),
+      matter.stringify("", { kind: "unit", title: "Standalone unit", status: "approved" }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/standalone/draft.md"),
+      "# Standalone unit\n\nStandalone prose.\n",
+      "utf8",
+    );
+
+    const { markdown } = await buildCombinedMarkdown(root, paperRel, false);
+    expect(markdown).toContain("## Results");
+    expect(markdown).toContain("### Workflow Overview");
+    expect(markdown).toContain("Approved unit prose.");
+    expect(markdown).toContain("Standalone prose.");
+    expect(markdown).not.toMatch(/^#{1,6}\s+Claim paragraph\s*$/m);
+    expect(markdown).not.toMatch(/^#{1,6}\s+Standalone unit\s*$/m);
+  });
+
+  it("omits empty subsection subtitles when no exportable units exist", async () => {
+    const paperRel = "papers/demo";
+    await mkdir(path.join(root, paperRel, "results", "empty-subsection", "draft-unit"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(root, paperRel, "INDEX.md"),
+      matter.stringify("", {
+        kind: "paper",
+        title: "Demo Paper",
+        section_order: ["results"],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/INDEX.md"),
+      matter.stringify("", {
+        kind: "section",
+        title: "Results",
+        child_order: ["empty-subsection", "filled-subsection"],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/empty-subsection/INDEX.md"),
+      matter.stringify("", {
+        kind: "section",
+        title: "Empty Subsection",
+        child_order: ["draft-unit"],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/empty-subsection/draft-unit/INDEX.md"),
+      matter.stringify("", { kind: "unit", title: "Draft only", status: "draft" }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/empty-subsection/draft-unit/draft.md"),
+      "Should not export.",
+      "utf8",
+    );
+    await mkdir(path.join(root, paperRel, "results/filled-subsection", "claim"), { recursive: true });
+    await writeFile(
+      path.join(root, paperRel, "results/filled-subsection/INDEX.md"),
+      matter.stringify("", {
+        kind: "section",
+        title: "Filled Subsection",
+        child_order: ["claim"],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/filled-subsection/claim/INDEX.md"),
+      matter.stringify("", { kind: "unit", title: "Claim", status: "approved" }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(root, paperRel, "results/filled-subsection/claim/draft.md"),
+      "Filled subsection prose.",
+      "utf8",
+    );
+
+    const { markdown } = await buildCombinedMarkdown(root, paperRel, false);
+    expect(markdown).not.toContain("### Empty Subsection");
+    expect(markdown).toContain("### Filled Subsection");
+    expect(markdown).toContain("Filled subsection prose.");
+    expect(markdown).not.toContain("Should not export.");
   });
 
   it("falls back to outline.md when draft is empty and includeDrafts is true", async () => {

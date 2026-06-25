@@ -1,8 +1,7 @@
 import { ChevronLeft, ChevronRight, MessageSquare, StickyNote, X } from "lucide-react";
 
-import { authorColorClass, authorInitials } from "@/components/editor/MarkdownToolbar";
+import { AssigneeBadge, CommentAuthorChip } from "@/components/editor/CommentMetaChips";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import type { CommentRecord } from "@/modelApi";
 
 type AnnotationItem = CommentRecord & { type?: "comment" | "note" };
@@ -32,7 +31,7 @@ export function AnnotationBar({
 
   const current = items[index];
   const isComment = current.type !== "note";
-  const typeLabel = isComment ? "Comment" : `Note \\${current.author}{}`;
+  const typeLabel = isComment ? "Comment" : `Note from ${current.author}`;
 
   return (
     <div
@@ -75,15 +74,7 @@ export function AnnotationBar({
           <StickyNote className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
         )}
         <span className="shrink-0 font-medium">{typeLabel}</span>
-        <span
-          className={cn(
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold",
-            authorColorClass(current.author),
-          )}
-          title={current.author}
-        >
-          {authorInitials(current.author)}
-        </span>
+        <CommentAuthorChip author={current.author} />
         <span className="min-w-0 truncate text-muted-foreground" title={current.text}>
           {previewText(current.text)}
         </span>
@@ -94,6 +85,9 @@ export function AnnotationBar({
           <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
             resolved
           </span>
+        ) : null}
+        {isComment && current.assigned_to ? (
+          <AssigneeBadge assignee={current.assigned_to} compact />
         ) : null}
       </div>
 

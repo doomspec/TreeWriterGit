@@ -302,12 +302,38 @@ function sanitizeFigureFilename(name: string): string {
   return base;
 }
 
+export type FigureUploadRole = "preview" | "source" | "both";
+
+function resolveUploadRole(
+  safeName: string,
+  role: FigureUploadRole | "auto" | undefined,
+): FigureUploadRole {
+  if (role && role !== "auto") return role;
+  const ext = path.posix.extname(safeName).toLowerCase();
+  if (ext === ".mmd") return "source";
+  return "preview";
+}
+
+function applyFigureUploadFields(
+  data: Record<string, unknown>,
+  safeName: string,
+  role: FigureUploadRole,
+): void {
+  if (role === "preview" || role === "both") {
+    data.figure_preview = safeName;
+  }
+  if (role === "source" || role === "both") {
+    data.figure_source = safeName;
+  }
+}
+
 /** Save an image into a figure unit folder or data note and update metadata. */
 export async function uploadFigureImage(
   modelRoot: string,
   figurePath: string,
   filename: string,
   data: Buffer,
+  role: FigureUploadRole | "auto" = "auto",
 ): Promise<{ assetPath: string; figure: FigureMetadata }> {
   const normalized = figurePath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
   const meta = await resolveFigureMetadata(modelRoot, normalized);
@@ -319,6 +345,7 @@ export async function uploadFigureImage(
   if (!isFigureImageExtension(safeName)) {
     throw new ModelFsError(`Unsupported image type: ${path.posix.extname(safeName)}`, 400);
   }
+  const effectiveRole = resolveUploadRole(safeName, role);
 
   let assetRel: string;
 
@@ -330,8 +357,7 @@ export async function uploadFigureImage(
     const indexAbs = path.join(modelRoot, meta.path, "INDEX.md");
     const raw = await readFile(indexAbs, "utf8");
     const parsed = matter(raw);
-    parsed.data.figure_preview = safeName;
-    parsed.data.figure_source = safeName;
+    applyFigureUploadFields(parsed.data as Record<string, unknown>, safeName, effectiveRole);
     await writeFile(indexAbs, matter.stringify(parsed.content, parsed.data), "utf8");
   } else {
     const noteRel = meta.outlinePath;
@@ -347,8 +373,7 @@ export async function uploadFigureImage(
     const raw = await readFile(noteAbs, "utf8");
     const parsed = matter(raw);
     parsed.data.figure_path = safeName;
-    parsed.data.figure_preview = safeName;
-    parsed.data.figure_source = safeName;
+    applyFigureUploadFields(parsed.data as Record<string, unknown>, safeName, effectiveRole);
     await writeFile(noteAbs, matter.stringify(parsed.content, parsed.data), "utf8");
   }
 

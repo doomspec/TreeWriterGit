@@ -432,41 +432,25 @@ export function FigureLink({
   onNavigate?: (target: NavigateTarget) => void;
   linksClickable?: boolean;
 }) {
-  const [figurePath, setFigurePath] = useState<string | null>(null);
-  const [checked, setChecked] = useState(false);
+  const figurePath = href.startsWith("figure://") ? href.slice("figure://".length) : null;
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!href.startsWith("figure://")) {
-      setChecked(true);
-      return;
-    }
-    const target = href.slice("figure://".length);
-    void fetchFigureMetadata(target)
-      .then((meta) => {
-        if (cancelled) return;
-        setFigurePath(meta ? target : null);
-        setChecked(true);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setFigurePath(null);
-          setChecked(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [href]);
-
-  if (href.startsWith("figure://") && checked && figurePath) {
+  if (linksClickable && onNavigate && figurePath) {
     return (
-      <FigureCard targetPath={figurePath} linkContextPath={linkContextPath} onNavigate={onNavigate} />
+      <a
+        href={figurePath}
+        className="text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
+        onClick={(event) => {
+          event.preventDefault();
+          onNavigate({ type: "folder", path: figurePath });
+        }}
+      >
+        {children}
+      </a>
     );
   }
 
   if (!linksClickable || !onNavigate) {
-    return <span className="text-primary">{children}</span>;
+    return <span className="text-primary underline decoration-primary/40 underline-offset-2">{children}</span>;
   }
 
   return (

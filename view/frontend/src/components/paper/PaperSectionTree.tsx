@@ -1,0 +1,443 @@
+import { useState } from "react";
+import { GripVertical } from "lucide-react";
+
+import { SectionTreeRowMeta, resolveSectionTreeCreateParent } from "@/components/paper/SectionTreeRowMeta";
+import { UnapprovedIndicator } from "@/components/nav/UnapprovedIndicator";
+import { cn } from "@/lib/utils";
+import {
+  sectionNeedsHighlight,
+  unapprovedSectionRowClass,
+  unapprovedSectionTitle,
+} from "@/lib/unapprovedHighlight";
+import type { NodeKind, UnitStatusCounts } from "@/modelApi";
+import {
+  findNode,
+  isLeafEditorFolder,
+  orderedChildFolders,
+  type ModelNode,
+  type PaperSectionItem,
+} from "@/lib/modelTree";
+
+export type SectionRow = PaperSectionItem & {
+  counts?: UnitStatusCounts;
+};
+
+function sectionTreeDragHandleClass(compact = false): string {
+  return cn(
+    "flex shrink-0 cursor-grab items-center justify-center rounded-l-md text-muted-foreground transition-colors",
+    "hover:bg-muted/80 hover:text-foreground active:cursor-grabbing",
+    compact ? "w-5" : "w-7",
+  );
+}
+
+function sectionTreeNavButtonClass(options: {
+  active: boolean;
+  highlight: boolean;
+  textSize: string;
+  rowPad?: string;
+}): string {
+  const { active, highlight, textSize, rowPad } = options;
+  return cn(
+    "section-tree-row__nav flex items-center gap-1.5 rounded-md px-2 text-left transition-colors",
+    textSize,
+    rowPad,
+    highlight
+      ? active
+        ? "bg-amber-500/20 font-medium text-amber-950 hover:bg-amber-500/30 dark:text-amber-50"
+        : "text-amber-900 hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-100 dark:hover:text-amber-50"
+      : active
+        ? "bg-accent/50 font-medium text-foreground hover:bg-primary/15 hover:text-foreground"
+        : "text-muted-foreground hover:bg-accent/45 hover:text-foreground",
+  );
+}
+
+function FolderChildrenList({
+  parent,
+  paperPath,
+  currentPath,
+  tree,
+  childOrders,
+  containerCounts,
+  reordering,
+  depth = 0,
+  isBranchExpanded,
+  onTreeItemClick,
+  onReorder,
+  onDelete,
+  onRename,
+  onCreate,
+}: {
+  parent: PaperSectionItem;
+  paperPath: string;
+  currentPath: string;
+  tree: ModelNode[];
+  childOrders: Record<string, string[]>;
+  containerCounts: Record<string, UnitStatusCounts>;
+  reordering: boolean;
+  depth?: number;
+  isBranchExpanded: (folderPath: string) => boolean;
+  onTreeItemClick: (path: string) => void;
+  onReorder: (parentPath: string, order: string[]) => Promise<void>;
+  onDelete: (path: string, label: string) => void;
+  onRename: (path: string, label: string) => void;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
+}) {
+  if (!isBranchExpanded(parent.path)) return null;
+
+  const parentNode = findNode(tree, parent.path);
+  if (isLeafEditorFolder(parentNode)) return null;
+
+  const children = orderedChildFolders(tree, parent.path, childOrders[parent.path] ?? []);
+
+  if (children.length === 0 && depth !== 0) return null;
+
+  return (
+    <div
+      className={cn(
+        "border-l border-border/60 pl-2",
+        depth === 0 ? "ml-6" : "ml-3 border-border/40",
+      )}
+    >
+      {children.length === 0 ? (
+        <p className="px-2 py-1 text-[10px] text-muted-foreground">
+          No subsections or units yet — use + on a folder above to add a subsection or unit.
+        </p>
+      ) : (
+        <ChildOrderList
+          parentPath={parent.path}
+          parentTitle={parent.title}
+          items={children}
+          paperPath={paperPath}
+          currentPath={currentPath}
+          tree={tree}
+          childOrders={childOrders}
+          containerCounts={containerCounts}
+          reordering={reordering}
+          depth={depth}
+          isBranchExpanded={isBranchExpanded}
+          onTreeItemClick={onTreeItemClick}
+          onReorder={onReorder}
+          onDelete={onDelete}
+          onRename={onRename}
+          onCreate={onCreate}
+        />
+      )}
+    </div>
+  );
+}
+
+function ChildOrderList({
+  parentPath,
+  parentTitle,
+  items,
+  paperPath,
+  currentPath,
+  tree,
+  childOrders,
+  containerCounts,
+  reordering,
+  depth,
+  isBranchExpanded,
+  onTreeItemClick,
+  onReorder,
+  onDelete,
+  onRename,
+  onCreate,
+}: {
+  parentPath: string;
+  parentTitle: string;
+  items: PaperSectionItem[];
+  paperPath: string;
+  currentPath: string;
+  tree: ModelNode[];
+  childOrders: Record<string, string[]>;
+  containerCounts: Record<string, UnitStatusCounts>;
+  reordering: boolean;
+  depth: number;
+  isBranchExpanded: (folderPath: string) => boolean;
+  onTreeItemClick: (path: string) => void;
+  onReorder: (parentPath: string, order: string[]) => Promise<void>;
+  onDelete: (path: string, label: string) => void;
+  onRename: (path: string, label: string) => void;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
+}) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  const handleDrop = async (toIndex: number) => {
+    if (dragIndex === null || dragIndex === toIndex) {
+      setDragIndex(null);
+      setOverIndex(null);
+      return;
+    }
+    const next = [...items];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setDragIndex(null);
+    setOverIndex(null);
+    await onReorder(parentPath, next.map((c) => c.name));
+  };
+
+  return (
+    <ul className="space-y-0.5" aria-label={`Children of ${parentTitle}`}>
+      {items.map((child, index) => {
+        const childActive = currentPath === child.path || currentPath.startsWith(`${child.path}/`);
+        const textSize = depth === 0 ? "text-[11px]" : "text-[10px]";
+        const rowPad = depth === 0 ? "py-1" : "py-0.5";
+        const { highlight, pending, unapproved } = sectionNeedsHighlight(
+          child.path,
+          containerCounts[child.path],
+        );
+
+        return (
+          <li key={child.path}>
+            <div
+              className={cn(
+                "section-tree-row group flex items-stretch gap-0.5 rounded-md",
+                unapprovedSectionRowClass({ highlight, pending, active: childActive, compact: true }),
+                dragIndex === index ? "opacity-50" : undefined,
+                overIndex === index && dragIndex !== null && dragIndex !== index
+                  ? "ring-1 ring-primary/40"
+                  : undefined,
+                reordering ? "pointer-events-none opacity-60" : undefined,
+              )}
+            >
+              <div
+                draggable={!reordering}
+                onDragStart={() => setDragIndex(index)}
+                onDragEnd={() => {
+                  setDragIndex(null);
+                  setOverIndex(null);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setOverIndex(index);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  void handleDrop(index);
+                }}
+                className={sectionTreeDragHandleClass(true)}
+                title="Drag to reorder"
+                aria-hidden="true"
+              >
+                <GripVertical className="h-3 w-3" />
+              </div>
+              <button
+                type="button"
+                className={sectionTreeNavButtonClass({
+                  active: childActive,
+                  highlight,
+                  textSize,
+                  rowPad,
+                })}
+                onClick={() => onTreeItemClick(child.path)}
+              >
+                <UnapprovedIndicator pending={pending} unapproved={unapproved} />
+                <span
+                  className={cn(
+                    "section-tree-row__title",
+                    highlight && "text-amber-950 dark:text-amber-50",
+                  )}
+                >
+                  {child.title}
+                </span>
+              </button>
+              <SectionTreeRowMeta
+                createParentPath={resolveSectionTreeCreateParent(
+                  child.path,
+                  parentPath,
+                  tree,
+                  paperPath,
+                )}
+                paperPath={paperPath}
+                tree={tree}
+                title={child.title}
+                rowPath={child.path}
+                disabled={reordering}
+                onCreate={onCreate}
+                onRename={() => onRename(child.path, child.title)}
+                onDelete={() => onDelete(child.path, child.title)}
+              />
+            </div>
+            <FolderChildrenList
+              parent={child}
+              paperPath={paperPath}
+              currentPath={currentPath}
+              tree={tree}
+              childOrders={childOrders}
+              containerCounts={containerCounts}
+              reordering={reordering}
+              depth={depth + 1}
+              isBranchExpanded={isBranchExpanded}
+              onTreeItemClick={onTreeItemClick}
+              onReorder={onReorder}
+              onDelete={onDelete}
+              onRename={onRename}
+              onCreate={onCreate}
+            />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+export function SectionOrderList({
+  sections,
+  paperPath,
+  currentPath,
+  tree,
+  childOrders,
+  containerCounts,
+  reordering,
+  isBranchExpanded,
+  onTreeItemClick,
+  onReorder,
+  onChildReorder,
+  onDelete,
+  onRename,
+  onCreate,
+}: {
+  sections: SectionRow[];
+  paperPath: string;
+  currentPath: string;
+  tree: ModelNode[];
+  childOrders: Record<string, string[]>;
+  containerCounts: Record<string, UnitStatusCounts>;
+  reordering: boolean;
+  isBranchExpanded: (folderPath: string) => boolean;
+  onTreeItemClick: (path: string) => void;
+  onReorder: (order: string[]) => Promise<void>;
+  onChildReorder: (parentPath: string, order: string[]) => Promise<void>;
+  onDelete: (path: string, label: string) => void;
+  onRename: (path: string, label: string) => void;
+  onCreate: (parentPath: string, kind: NodeKind) => void;
+}) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  const handleDrop = async (toIndex: number) => {
+    if (dragIndex === null || dragIndex === toIndex) {
+      setDragIndex(null);
+      setOverIndex(null);
+      return;
+    }
+    const next = [...sections];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(toIndex, 0, moved);
+    setDragIndex(null);
+    setOverIndex(null);
+    await onReorder(next.map((s) => s.name));
+  };
+
+  const renderChildren = (parent: SectionRow) => {
+    if (!isBranchExpanded(parent.path)) return null;
+
+    return (
+      <FolderChildrenList
+        parent={parent}
+        paperPath={paperPath}
+        currentPath={currentPath}
+        tree={tree}
+        childOrders={childOrders}
+        containerCounts={containerCounts}
+        reordering={reordering}
+        isBranchExpanded={isBranchExpanded}
+        onTreeItemClick={onTreeItemClick}
+        onReorder={onChildReorder}
+        onDelete={onDelete}
+        onRename={onRename}
+        onCreate={onCreate}
+      />
+    );
+  };
+
+  return (
+    <ul className="space-y-1" aria-label="Paper sections">
+      {sections.map((section, index) => {
+        const active =
+          currentPath === section.path || currentPath.startsWith(`${section.path}/`);
+        const { highlight, pending, unapproved } = sectionNeedsHighlight(
+          section.path,
+          containerCounts[section.path] ?? section.counts,
+        );
+        return (
+          <li key={section.path}>
+            <div
+              className={cn(
+                "section-tree-row group flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
+                unapprovedSectionRowClass({ highlight, pending, active }),
+                active && !highlight ? "border-primary/40 bg-accent/50" : undefined,
+                dragIndex === index ? "opacity-50" : undefined,
+                overIndex === index && dragIndex !== null && dragIndex !== index
+                  ? "border-primary ring-1 ring-primary/30"
+                  : undefined,
+                reordering ? "pointer-events-none opacity-60" : undefined,
+              )}
+            >
+              <div
+                draggable={!reordering}
+                onDragStart={() => setDragIndex(index)}
+                onDragEnd={() => {
+                  setDragIndex(null);
+                  setOverIndex(null);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setOverIndex(index);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  void handleDrop(index);
+                }}
+                className={sectionTreeDragHandleClass()}
+                title="Drag to reorder"
+                aria-hidden="true"
+              >
+                <GripVertical className="h-3.5 w-3.5" />
+              </div>
+              <button
+                type="button"
+                className={sectionTreeNavButtonClass({
+                  active,
+                  highlight,
+                  textSize: "text-xs",
+                  rowPad: "py-1.5",
+                })}
+                onClick={() => onTreeItemClick(section.path)}
+              >
+                <UnapprovedIndicator pending={pending} unapproved={unapproved} />
+                <span className={unapprovedSectionTitle("section-tree-row__title font-medium", highlight)}>
+                  {section.title}
+                </span>
+              </button>
+              <SectionTreeRowMeta
+                createParentPath={section.path}
+                paperPath={paperPath}
+                tree={tree}
+                title={section.title}
+                rowPath={section.path}
+                counts={section.counts}
+                disabled={reordering}
+                onCreate={onCreate}
+                onRename={() => onRename(section.path, section.title)}
+                onDelete={() => onDelete(section.path, section.title)}
+              />
+            </div>
+            {renderChildren(section)}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+export function sectionTreeNavButtonClassName(options: {
+  active: boolean;
+  highlight: boolean;
+  textSize: string;
+  rowPad?: string;
+}): string {
+  return sectionTreeNavButtonClass(options);
+}

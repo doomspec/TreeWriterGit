@@ -2,6 +2,7 @@ const LOCAL_STORAGE_KEYS = [
   "treewriter.workspace.v1",
   "treewriter.editorSession.v1",
   "treewriter.terminal.session.v1",
+  "treewriter.dispatch-panel.v1",
   "treewriter.dispatch-jobs",
   "treewriter.readingFocus.v1",
   "treewriter.readingFocus.graphVisible.v1",

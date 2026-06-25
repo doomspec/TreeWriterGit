@@ -46,7 +46,7 @@ function captionMarkdownToLatex(text: string): string {
   return escapeLatexText(captionMarkdownToPlain(text));
 }
 
-function figureLabel(meta: { figureLabel: string | null; path: string }): string | null {
+export function figureLabel(meta: { figureLabel: string | null; path: string }): string | null {
   if (meta.figureLabel?.trim()) return meta.figureLabel.trim();
   const base = path.posix.basename(meta.path);
   if (base) return `fig:${base}`;

@@ -3,8 +3,16 @@ import { PaperWorkspace } from "@/components/editor/PaperWorkspace";
 import { SectionWorkspace } from "@/components/editor/SectionWorkspace";
 import { TableWorkspace } from "@/components/editor/TableWorkspace";
 import { FolderBrowse } from "@/components/nav/FolderBrowse";
-import { outlinePathFor, parentPath } from "@/lib/modelTree";
-import { useWorkspace } from "@/lib/workspace/WorkspaceProvider";
+import {
+  findNode,
+  isEquationFolder,
+  isFigureFolder,
+  manuscriptContainerPathFromFile,
+  outlinePathFor,
+  parentPath,
+} from "@/lib/modelTree";
+import { useWorkspaceLayout } from "@/lib/workspace/WorkspaceLayoutContext";
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 
 type WorkspaceRouterProps = {
   onError: (message: string) => void;
@@ -19,22 +27,32 @@ export function WorkspaceRouter({
   onBeforeDispatch,
   onDispatchComplete,
 }: WorkspaceRouterProps) {
-  const ws = useWorkspace();
+  const nav = useWorkspaceNavigationContext();
+  const layout = useWorkspaceLayout();
+  const reloadScopedModel = () =>
+    nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : nav.browsePath ? { path: nav.browsePath } : undefined);
 
-  if (ws.paperWorkspacePath) {
+  const paneLayoutProps = {
+    visiblePanes: layout.editorVisiblePanes,
+    onVisiblePanesChange: layout.setEditorVisiblePanes,
+    notesSplitPercent: layout.dualPaneNotesSplitPercent,
+    onNotesSplitChange: layout.setDualPaneNotesSplitPercent,
+  };
+
+  if (nav.paperWorkspacePath) {
     return (
       <PaperWorkspace
-        paperPath={ws.paperWorkspacePath}
-        refreshVersion={ws.refreshVersion}
-        onNavigate={ws.navigateTo}
-        onOpenFile={ws.openFile}
+        paperPath={nav.paperWorkspacePath}
+        refreshVersion={nav.refreshVersion}
+        onNavigate={nav.navigateTo}
+        onOpenFile={nav.openFile}
         onError={onError}
-        dualPaneSplit={ws.dualPaneSplit}
-        onDualPaneSplitChange={ws.setDualPaneSplit}
-        paneView={ws.dualPaneView}
-        onPaneViewChange={ws.setDualPaneView}
-        activePane={ws.dualPaneActive}
-        onActivePaneChange={ws.setDualPaneActive}
+        dualPaneSplit={layout.dualPaneSplit}
+        onDualPaneSplitChange={layout.setDualPaneSplit}
+        activePane={layout.dualPaneActive}
+        onActivePaneChange={layout.setDualPaneActive}
+        getPathVersion={nav.getPathVersion}
+        {...paneLayoutProps}
         onDispatchComplete={onDispatchComplete}
         onSendToTerminal={onSendToTerminal}
         onBeforeDispatch={onBeforeDispatch}
@@ -42,69 +60,75 @@ export function WorkspaceRouter({
     );
   }
 
-  if (ws.tablePath) {
+  if (nav.tablePath) {
     return (
       <TableWorkspace
-        tablePath={ws.tablePath}
-        tableTitle={ws.tableTitle}
-        refreshVersion={ws.refreshVersion}
+        tablePath={nav.tablePath}
+        tableTitle={nav.tableTitle}
+        refreshVersion={nav.refreshVersion}
         onError={onError}
-        onNavigate={ws.handleMarkdownNavigate}
+        onNavigate={nav.handleMarkdownNavigate}
         onDispatchComplete={onDispatchComplete}
         onSendToTerminal={onSendToTerminal}
         onBeforeDispatch={onBeforeDispatch}
-        onModelChanged={ws.reloadModel}
-        paperPath={ws.paperPath}
-        dualPaneSplit={ws.dualPaneSplit}
-        onDualPaneSplitChange={ws.setDualPaneSplit}
+        onModelChanged={reloadScopedModel}
+        paperPath={nav.paperPath}
+        dualPaneSplit={layout.dualPaneSplit}
+        onDualPaneSplitChange={layout.setDualPaneSplit}
+        activePane={layout.dualPaneActive}
+        onActivePaneChange={layout.setDualPaneActive}
+        {...paneLayoutProps}
       />
     );
   }
 
-  if (ws.unitPath || ws.activeFile) {
+  if (nav.unitPath || nav.activeFile) {
+    const editorContainerPath =
+      nav.unitPath ?? manuscriptContainerPathFromFile(nav.activeFile) ?? null;
+    const editorContainerNode = editorContainerPath ? findNode(nav.tree, editorContainerPath) : null;
     return (
       <EditorWorkspace
-        unitPath={ws.unitPath}
-        activeFile={ws.activeFile ?? (ws.unitPath ? outlinePathFor(ws.unitPath) : "")}
-        refreshVersion={ws.refreshVersion}
-        layout={ws.editorLayout}
-        onLayoutChange={ws.setEditorLayout}
+        unitPath={editorContainerPath}
+        activeFile={nav.activeFile ?? (editorContainerPath ? outlinePathFor(editorContainerPath) : "")}
+        refreshVersion={nav.refreshVersion}
+        getPathVersion={nav.getPathVersion}
+        layout={layout.editorLayout}
+        onLayoutChange={layout.setEditorLayout}
         onError={onError}
-        linkContextPath={ws.unitPath ?? parentPath(ws.activeFile ?? "")}
-        onNavigate={ws.handleMarkdownNavigate}
-        dualPaneSplit={ws.dualPaneSplit}
-        onDualPaneSplitChange={ws.setDualPaneSplit}
-        assetPreviewSplit={ws.assetPreviewSplit}
-        onAssetPreviewSplitChange={ws.setAssetPreviewSplit}
-        paneView={ws.dualPaneView}
-        onPaneViewChange={ws.setDualPaneView}
-        activePane={ws.dualPaneActive}
-        onActivePaneChange={ws.setDualPaneActive}
+        linkContextPath={nav.unitPath ?? parentPath(nav.activeFile ?? "")}
+        onNavigate={nav.handleMarkdownNavigate}
+        dualPaneSplit={layout.dualPaneSplit}
+        onDualPaneSplitChange={layout.setDualPaneSplit}
+        assetPreviewSplit={layout.assetPreviewSplit}
+        onAssetPreviewSplitChange={layout.setAssetPreviewSplit}
+        activePane={layout.dualPaneActive}
+        onActivePaneChange={layout.setDualPaneActive}
+        {...paneLayoutProps}
         onSendToTerminal={onSendToTerminal}
         onBeforeDispatch={onBeforeDispatch}
         onDispatchComplete={onDispatchComplete}
-        isFigure={ws.isFigure}
-        isEquation={ws.isEquation}
-        onModelChanged={ws.reloadModel}
-        paperPath={ws.paperPath}
+        isFigure={nav.unitPath ? nav.isFigure : isFigureFolder(editorContainerNode)}
+        isEquation={nav.unitPath ? nav.isEquation : isEquationFolder(editorContainerNode)}
+        onModelChanged={reloadScopedModel}
+        paperPath={nav.paperPath}
       />
     );
   }
 
-  if (ws.sectionPath) {
+  if (nav.sectionPath) {
     return (
       <SectionWorkspace
-        sectionPath={ws.sectionPath}
-        refreshVersion={ws.refreshVersion}
-        onNavigate={ws.navigateTo}
-        onOpenFile={ws.openFile}
+        sectionPath={nav.sectionPath}
+        refreshVersion={nav.refreshVersion}
+        onNavigate={nav.navigateTo}
+        onOpenFile={nav.openFile}
         onError={onError}
-        dualPaneSplit={ws.dualPaneSplit}
-        onDualPaneSplitChange={ws.setDualPaneSplit}
-        paneView={ws.dualPaneView}
-        onPaneViewChange={ws.setDualPaneView}
-        activePane={ws.dualPaneActive}
-        onActivePaneChange={ws.setDualPaneActive}
+        dualPaneSplit={layout.dualPaneSplit}
+        onDualPaneSplitChange={layout.setDualPaneSplit}
+        activePane={layout.dualPaneActive}
+        onActivePaneChange={layout.setDualPaneActive}
+        getPathVersion={nav.getPathVersion}
+        {...paneLayoutProps}
         onDispatchComplete={onDispatchComplete}
       />
     );
@@ -112,14 +136,14 @@ export function WorkspaceRouter({
 
   return (
     <FolderBrowse
-      tree={ws.tree}
-      currentPath={ws.browsePath}
-      onOpenFolder={ws.navigateTo}
-      onOpenFile={ws.openFile}
-      onChanged={ws.reloadModel}
+      tree={nav.tree}
+      currentPath={nav.browsePath}
+      onOpenFolder={nav.navigateTo}
+      onOpenFile={nav.openFile}
+      onChanged={reloadScopedModel}
       onError={onError}
       onSendToTerminal={onSendToTerminal}
-      onNavigate={ws.handleMarkdownNavigate}
+      onNavigate={nav.handleMarkdownNavigate}
     />
   );
 }

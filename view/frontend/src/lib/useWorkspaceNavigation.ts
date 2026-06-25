@@ -21,6 +21,7 @@ type UseWorkspaceNavigationOptions = {
   setActiveFile: Dispatch<SetStateAction<string | null>>;
   setEditorLayout: Dispatch<SetStateAction<EditorLayout>>;
   setSidebarTab: Dispatch<SetStateAction<WorkspaceNavTab>>;
+  setSearchQuery: Dispatch<SetStateAction<string>>;
 };
 
 export function useWorkspaceNavigation({
@@ -30,6 +31,7 @@ export function useWorkspaceNavigation({
   setActiveFile,
   setEditorLayout,
   setSidebarTab,
+  setSearchQuery,
 }: UseWorkspaceNavigationOptions) {
   const openFile = useCallback(
     (path: string) => {
@@ -101,8 +103,9 @@ export function useWorkspaceNavigation({
       } else {
         navigateTo(parentPath(hit.path));
       }
+      setSearchQuery("");
     },
-    [navigateTo, openFile],
+    [navigateTo, openFile, setSearchQuery],
   );
 
   return {

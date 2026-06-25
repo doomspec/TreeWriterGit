@@ -8,12 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-
-import type { EditorLayout } from "@/components/editor/MarkdownEditor";
+import type { EditorLayout } from "@/lib/editor/layout";
 import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import type { AgentDispatchIntent } from "@/lib/agentDispatchPanel";
 import type { GraphScope } from "@/lib/graphLocal";
 import { resolveGraphFetchRoot } from "@/lib/graphLocal";
+import { paperRootFromPath } from "@/components/nav/PaperSelect";
 import {
   findNode,
   flattenFiles,
@@ -23,104 +23,54 @@ import {
   isTableFolder,
   isUnderPapers,
   isUnitFolder,
+  isManuscriptFileForContainer,
+  manuscriptContainerPathFromFile,
   outlinePathFor,
   parentPath,
   PAPERS_ROOT,
 } from "@/lib/modelTree";
-import { createNode, fetchCommentSummary, type NodeKind } from "@/modelApi";
+import { createNode, type NodeKind } from "@/modelApi";
+import { usePaperComments } from "@/lib/hooks/usePaperComments";
 import {
   loadWorkspacePreferences,
   mergeWorkspaceDefaults,
   scheduleSaveWorkspacePreferences,
   clampAssetPreviewSplit,
+  clampDualPaneNotesSplit,
   type DualPaneActive,
-  type DualPaneView,
+  type EditorVisiblePanes,
   type SidebarPanel,
 } from "@/lib/workspacePreferences";
+import {
+  clampEditorPanePrefsForNotesAvailability,
+  DEFAULT_EDITOR_VISIBLE_PANES,
+  normalizeEditorVisiblePanes,
+} from "@/lib/editorVisiblePanes";
+import { usePaperChildOrders } from "@/lib/usePaperChildOrders";
+import {
+  upsertEditorPanePrefsByScope,
+  resolveEditorPanePrefsScopePath,
+  type EditorPaneScopePrefs,
+} from "@/lib/editorPaneScopePrefs";
 import { useModelTree } from "@/lib/useModelTree";
 import { useWorkspaceNavigation } from "@/lib/useWorkspaceNavigation";
+import {
+  WorkspaceLayoutProvider,
+  type WorkspaceLayoutContextValue,
+} from "@/lib/workspace/WorkspaceLayoutContext";
+import {
+  WorkspaceNavigationProvider,
+  type WorkspaceNavigationContextValue,
+} from "@/lib/workspace/WorkspaceNavigationContext";
 
 export type AppView = "workspace" | "settings" | "info";
 
+/** Root workspace shell state not covered by layout/navigation sub-contexts. */
 export type WorkspaceContextValue = {
   appView: AppView;
   setAppView: (view: AppView | ((prev: AppView) => AppView)) => void;
   error: string | null;
   setError: (message: string | null) => void;
-  sidebarTab: WorkspaceNavTab;
-  sidebarPanel: SidebarPanel;
-  sidebarPanelOpen: boolean;
-  setSidebarPanel: (panel: SidebarPanel) => void;
-  setSidebarPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
-  toggleSidebarPanel: () => void;
-  sidebarPinned: boolean;
-  setSidebarPinned: (pinned: boolean | ((prev: boolean) => boolean)) => void;
-  toggleSidebarPin: () => void;
-  currentPath: string;
-  activeFile: string | null;
-  editorLayout: EditorLayout;
-  setEditorLayout: (layout: EditorLayout) => void;
-  searchQuery: string;
-  setSearchQuery: (query: string) => void;
-  agentPanelOpen: boolean;
-  setAgentPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
-  dispatchIntent: AgentDispatchIntent | null;
-  setDispatchIntent: (intent: AgentDispatchIntent | null) => void;
-  clearDispatchIntent: () => void;
-  dualPaneSplit: number;
-  setDualPaneSplit: (split: number) => void;
-  dualPaneView: DualPaneView;
-  setDualPaneView: (view: DualPaneView) => void;
-  dualPaneActive: DualPaneActive;
-  setDualPaneActive: (pane: DualPaneActive) => void;
-  assetPreviewSplit: number;
-  setAssetPreviewSplit: (split: number) => void;
-  sidebarWidth: number;
-  setSidebarWidth: (width: number) => void;
-  bottomPanelHeight: number;
-  setBottomPanelHeight: (height: number) => void;
-  graphScope: GraphScope;
-  setGraphScope: (scope: GraphScope) => void;
-  createPrompt: { kind: NodeKind } | null;
-  setCreatePrompt: (prompt: { kind: NodeKind } | null) => void;
-  commentSummary: { unresolved: number; total: number } | null;
-  tree: ReturnType<typeof useModelTree>["tree"];
-  treeLoaded: boolean;
-  refreshVersion: number;
-  getPathVersion: (path: string) => number;
-  reloadModel: () => void;
-  files: ReturnType<typeof flattenFiles>;
-  browsePath: string;
-  paperSlug: string | null;
-  paperPath: string | null;
-  currentNode: ReturnType<typeof findNode>;
-  isFigure: boolean;
-  isTable: boolean;
-  isEquation: boolean;
-  isUnit: boolean;
-  isPaperRoot: boolean;
-  isPaperSection: boolean;
-  paperWorkspacePath: string | null;
-  tablePath: string | null;
-  tableTitle: string;
-  unitPath: string | null;
-  sectionPath: string | null;
-  graphFocusPath: string;
-  graphFetchRoot: string | null;
-  exportPaperSlug: string | null;
-  showSectionViewBack: boolean;
-  showPaperViewBack: boolean;
-  containerKind: NodeKind;
-  canCreateFolder: boolean;
-  canCreateUnit: boolean;
-  canGoUp: boolean;
-  openFile: ReturnType<typeof useWorkspaceNavigation>["openFile"];
-  navigateTo: ReturnType<typeof useWorkspaceNavigation>["navigateTo"];
-  handleMarkdownNavigate: ReturnType<typeof useWorkspaceNavigation>["handleMarkdownNavigate"];
-  backToSectionView: ReturnType<typeof useWorkspaceNavigation>["backToSectionView"];
-  handleSidebarTabChange: ReturnType<typeof useWorkspaceNavigation>["handleSidebarTabChange"];
-  handleSearchSelect: ReturnType<typeof useWorkspaceNavigation>["handleSearchSelect"];
-  submitCreateChild: (name: string) => Promise<void>;
   onModelEventsRefresh: () => void;
 };
 
@@ -156,8 +106,19 @@ export function WorkspaceProvider({
   const [agentPanelOpen, setAgentPanelOpen] = useState(savedPrefs.agentPanelOpen);
   const [dispatchIntent, setDispatchIntent] = useState<AgentDispatchIntent | null>(null);
   const [dualPaneSplit, setDualPaneSplit] = useState(savedPrefs.dualPaneSplit);
-  const [dualPaneView, setDualPaneView] = useState<DualPaneView>(savedPrefs.dualPaneView);
+  const [editorVisiblePanes, setEditorVisiblePanesState] = useState<EditorVisiblePanes>(
+    normalizeEditorVisiblePanes(savedPrefs.editorVisiblePanes),
+  );
+  const setEditorVisiblePanes = useCallback((panes: EditorVisiblePanes) => {
+    setEditorVisiblePanesState(normalizeEditorVisiblePanes(panes));
+  }, []);
   const [dualPaneActive, setDualPaneActive] = useState<DualPaneActive>(savedPrefs.dualPaneActive);
+  const [dualPaneNotesSplitPercent, setDualPaneNotesSplitPercentState] = useState(
+    savedPrefs.dualPaneNotesSplitPercent,
+  );
+  const setDualPaneNotesSplitPercent = useCallback((split: number) => {
+    setDualPaneNotesSplitPercentState(clampDualPaneNotesSplit(split));
+  }, []);
   const [assetPreviewSplit, setAssetPreviewSplitState] = useState(savedPrefs.assetPreviewSplit);
   const setAssetPreviewSplit = useCallback((split: number) => {
     setAssetPreviewSplitState(clampAssetPreviewSplit(split));
@@ -166,23 +127,58 @@ export function WorkspaceProvider({
   const [bottomPanelHeight, setBottomPanelHeight] = useState(savedPrefs.bottomPanelHeight);
   const [graphScope, setGraphScope] = useState<GraphScope>(savedPrefs.graphScope);
   const [createPrompt, setCreatePrompt] = useState<{ kind: NodeKind } | null>(null);
-  const [commentSummary, setCommentSummary] = useState<{ unresolved: number; total: number } | null>(
-    null,
-  );
+  const [lastPaperPath, setLastPaperPath] = useState<string | null>(() => {
+    if (savedPrefs.lastPaperPath && /^papers\/[^/]+$/.test(savedPrefs.lastPaperPath)) {
+      return savedPrefs.lastPaperPath;
+    }
+    return paperRootFromPath(savedPrefs.currentPath ?? "");
+  });
+  const [editorPanePrefsByScope, setEditorPanePrefsByScope] = useState<
+    Record<string, EditorPaneScopePrefs>
+  >(savedPrefs.editorPanePrefsByScope ?? {});
+  const scopePaneLoadRef = useRef(false);
+  const editorPanePrefsByScopeRef = useRef(editorPanePrefsByScope);
+  editorPanePrefsByScopeRef.current = editorPanePrefsByScope;
 
-  const commentSummaryPaperRef = useRef<string | null>(null);
+  const reloadCommentsRef = useRef<(() => Promise<void>) | null>(null);
 
   const onCommentsChanged = useCallback(() => {
-    const slug = commentSummaryPaperRef.current;
-    if (!slug) return;
-    fetchCommentSummary(slug).then(setCommentSummary).catch(() => {});
+    void reloadCommentsRef.current?.();
   }, []);
 
-  const { tree, treeLoaded, refreshVersion, getPathVersion, reloadModel } = useModelTree({
-    onError: setError,
-    onEventsRefresh: onModelEventsRefresh,
-    onCommentsChanged,
-  });
+  const { tree, treeLoaded, refreshVersion, getPathVersion, reloadModel, ensureTreePath, loadTreePath } =
+    useModelTree({
+      onError: setError,
+      onEventsRefresh: onModelEventsRefresh,
+      onCommentsChanged,
+    });
+
+  const files = useMemo(() => flattenFiles(tree), [tree]);
+  const browsePath =
+    sidebarTab === "papers"
+      ? isUnderPapers(currentPath)
+        ? currentPath
+        : PAPERS_ROOT
+      : currentPath;
+  const paperSlug = useMemo(() => {
+    const match = browsePath.match(/^papers\/([^/]+)/);
+    return match?.[1] ?? null;
+  }, [browsePath]);
+  const paperPath = useMemo(
+    () => (paperSlug ? `papers/${paperSlug}` : null),
+    [paperSlug],
+  );
+  const paperChildOrders = usePaperChildOrders(tree, paperPath, refreshVersion);
+
+  const { commentSummary, assignedComments, assignedCountsByFolder, reloadComments } =
+    usePaperComments({
+      paperSlug,
+      paperPath,
+      tree,
+      refreshVersion,
+    });
+
+  reloadCommentsRef.current = reloadComments;
 
   const {
     openFile,
@@ -197,6 +193,7 @@ export function WorkspaceProvider({
     setActiveFile,
     setEditorLayout,
     setSidebarTab,
+    setSearchQuery,
   });
 
   const handleSidebarTabChange = useCallback(
@@ -239,22 +236,16 @@ export function WorkspaceProvider({
     setSidebarPinned((pinned) => !pinned);
   }, []);
 
-  const files = useMemo(() => flattenFiles(tree), [tree]);
-  const browsePath =
-    sidebarTab === "papers"
-      ? isUnderPapers(currentPath)
-        ? currentPath
-        : PAPERS_ROOT
-      : currentPath;
-  const paperSlug = useMemo(() => {
-    const match = browsePath.match(/^papers\/([^/]+)/);
-    return match?.[1] ?? null;
-  }, [browsePath]);
-  commentSummaryPaperRef.current = paperSlug;
-  const paperPath = useMemo(
-    () => (paperSlug ? `papers/${paperSlug}` : null),
-    [paperSlug],
-  );
+  useEffect(() => {
+    if (!treeLoaded || !paperPath) return;
+    void ensureTreePath(paperPath);
+  }, [ensureTreePath, paperPath, treeLoaded]);
+
+  useEffect(() => {
+    if (!treeLoaded || !isUnderPapers(browsePath)) return;
+    void ensureTreePath(browsePath);
+  }, [browsePath, ensureTreePath, treeLoaded]);
+
   const currentNode = browsePath ? findNode(tree, browsePath) : null;
   const isFigure = isFigureFolder(currentNode);
   const isTable = isTableFolder(currentNode);
@@ -262,7 +253,11 @@ export function WorkspaceProvider({
   const isUnit = isUnitFolder(currentNode);
   const isPaperRoot = paperPath !== null && browsePath === paperPath;
   const isPaperSection = isSectionContainer(currentNode) && isUnderPapers(browsePath);
-  const paperWorkspacePath = isPaperRoot && !activeFile ? paperPath : null;
+  const manuscriptFileContainer = manuscriptContainerPathFromFile(activeFile);
+  const paperWorkspacePath =
+    paperPath && isPaperRoot && (!activeFile || isManuscriptFileForContainer(activeFile, paperPath))
+      ? paperPath
+      : null;
   const tablePath = isTable ? browsePath : null;
   const tableTitle = useMemo(() => {
     if (!tablePath) return "Table";
@@ -270,10 +265,108 @@ export function WorkspaceProvider({
     return base.charAt(0).toUpperCase() + base.slice(1);
   }, [tablePath]);
   const unitPath = isUnit || isFigure || isEquation ? browsePath : null;
-  const sectionPath = isPaperSection && !activeFile && !isPaperRoot ? browsePath : null;
+  const sectionPath = useMemo(() => {
+    if (isPaperRoot || isUnit || isFigure || isTable || isEquation) return null;
+    if (!activeFile) {
+      return isPaperSection ? browsePath : null;
+    }
+    if (!manuscriptFileContainer) return null;
+    const containerNode = findNode(tree, manuscriptFileContainer);
+    if (!isSectionContainer(containerNode)) return null;
+    if (
+      isUnitFolder(containerNode) ||
+      isFigureFolder(containerNode) ||
+      isTableFolder(containerNode) ||
+      isEquationFolder(containerNode)
+    ) {
+      return null;
+    }
+    return manuscriptFileContainer;
+  }, [
+    activeFile,
+    browsePath,
+    isEquation,
+    isFigure,
+    isPaperRoot,
+    isPaperSection,
+    isTable,
+    isUnit,
+    manuscriptFileContainer,
+    tree,
+  ]);
+  const editorPaneScopePath =
+    paperWorkspacePath ?? sectionPath ?? unitPath ?? tablePath ?? null;
+  const editorPanePrefsScopePath = useMemo(
+    () => resolveEditorPanePrefsScopePath(editorPaneScopePath, paperPath),
+    [editorPaneScopePath, paperPath],
+  );
+  const dualPaneEditorActive = Boolean(editorPaneScopePath);
+  const notesPaneAvailable = Boolean(
+    paperWorkspacePath || sectionPath || unitPath,
+  );
   const graphFocusPath = activeFile ? parentPath(activeFile) : currentPath || browsePath;
   const graphFetchRoot = resolveGraphFetchRoot(graphFocusPath);
   const exportPaperSlug = paperSlug;
+
+  useEffect(() => {
+    const root = paperRootFromPath(currentPath);
+    if (root) setLastPaperPath(root);
+  }, [currentPath]);
+
+  useEffect(() => {
+    if (!editorPanePrefsScopePath) return;
+    const scoped = editorPanePrefsByScopeRef.current[editorPanePrefsScopePath];
+    scopePaneLoadRef.current = true;
+    if (scoped) {
+      const clamped = clampEditorPanePrefsForNotesAvailability(
+        scoped.visible,
+        scoped.active,
+        notesPaneAvailable,
+      );
+      setEditorVisiblePanesState(normalizeEditorVisiblePanes(clamped.visible));
+      setDualPaneActive(clamped.active);
+      return;
+    }
+    const fallback = clampEditorPanePrefsForNotesAvailability(
+      DEFAULT_EDITOR_VISIBLE_PANES,
+      "draft",
+      notesPaneAvailable,
+    );
+    setEditorVisiblePanesState(fallback.visible);
+    setDualPaneActive(fallback.active);
+  }, [editorPanePrefsScopePath, notesPaneAvailable]);
+
+  useEffect(() => {
+    if (notesPaneAvailable) return;
+    const clamped = clampEditorPanePrefsForNotesAvailability(
+      editorVisiblePanes,
+      dualPaneActive,
+      false,
+    );
+    if (
+      clamped.visible.outline !== editorVisiblePanes.outline ||
+      clamped.visible.draft !== editorVisiblePanes.draft ||
+      clamped.visible.notes !== editorVisiblePanes.notes ||
+      clamped.active !== dualPaneActive
+    ) {
+      setEditorVisiblePanesState(clamped.visible);
+      setDualPaneActive(clamped.active);
+    }
+  }, [dualPaneActive, editorVisiblePanes, notesPaneAvailable]);
+
+  useEffect(() => {
+    if (!editorPanePrefsScopePath) return;
+    if (scopePaneLoadRef.current) {
+      scopePaneLoadRef.current = false;
+      return;
+    }
+    setEditorPanePrefsByScope((current) =>
+      upsertEditorPanePrefsByScope(current, editorPanePrefsScopePath, {
+        visible: editorVisiblePanes,
+        active: dualPaneActive,
+      }),
+    );
+  }, [dualPaneActive, editorPanePrefsScopePath, editorVisiblePanes]);
 
   useEffect(() => {
     scheduleSaveWorkspacePreferences({
@@ -286,14 +379,15 @@ export function WorkspaceProvider({
       graphRoot: graphFocusPath,
       graphScope,
       dualPaneSplit,
-      dualPaneView,
-      dualPaneActive,
+      dualPaneNotesSplitPercent,
       assetPreviewSplit,
       sidebarWidth,
       sidebarPanel,
       sidebarPanelOpen,
       sidebarPinned,
       bottomPanelHeight,
+      lastPaperPath,
+      editorPanePrefsByScope,
     });
   }, [
     activeFile,
@@ -301,12 +395,13 @@ export function WorkspaceProvider({
     assetPreviewSplit,
     bottomPanelHeight,
     currentPath,
-    dualPaneActive,
     dualPaneSplit,
-    dualPaneView,
+    dualPaneNotesSplitPercent,
     editorLayout,
     graphFocusPath,
     graphScope,
+    editorPanePrefsByScope,
+    lastPaperPath,
     searchQuery,
     sidebarTab,
     sidebarPanel,
@@ -354,17 +449,6 @@ export function WorkspaceProvider({
     setEditorLayout("split");
   }, [browsePath, isUnit, treeLoaded]);
 
-  useEffect(() => {
-    if (!paperSlug) {
-      setCommentSummary(null);
-      return;
-    }
-    const load = () => fetchCommentSummary(paperSlug).then(setCommentSummary).catch(() => {});
-    void load();
-    const timer = window.setInterval(load, 30_000);
-    return () => window.clearInterval(timer);
-  }, [paperSlug]);
-
   const clearDispatchIntent = useCallback(() => setDispatchIntent(null), []);
 
   const containerKind: NodeKind =
@@ -393,13 +477,13 @@ export function WorkspaceProvider({
       setCreatePrompt(null);
       try {
         const created = await createNode(browsePath, name, kind);
-        reloadModel();
+        reloadModel({ path: browsePath || paperPath || undefined });
         if (kind !== "unit") navigateTo(created.path);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [browsePath, createPrompt, navigateTo, reloadModel],
+    [browsePath, createPrompt, navigateTo, paperPath, reloadModel],
   );
 
   const value = useMemo<WorkspaceContextValue>(
@@ -408,6 +492,56 @@ export function WorkspaceProvider({
       setAppView,
       error,
       setError,
+      onModelEventsRefresh: onModelEventsRefresh ?? (() => {}),
+    }),
+    [appView, error, onModelEventsRefresh],
+  );
+
+  const layoutValue = useMemo<WorkspaceLayoutContextValue>(
+    () => ({
+      editorLayout,
+      setEditorLayout,
+      dualPaneSplit,
+      setDualPaneSplit,
+      editorVisiblePanes,
+      setEditorVisiblePanes,
+      dualPaneActive,
+      setDualPaneActive,
+      dualPaneNotesSplitPercent,
+      setDualPaneNotesSplitPercent,
+      assetPreviewSplit,
+      setAssetPreviewSplit,
+      sidebarWidth,
+      setSidebarWidth,
+      bottomPanelHeight,
+      setBottomPanelHeight,
+      agentPanelOpen,
+      setAgentPanelOpen,
+    }),
+    [
+      agentPanelOpen,
+      assetPreviewSplit,
+      bottomPanelHeight,
+      dualPaneActive,
+      dualPaneSplit,
+      editorVisiblePanes,
+      dualPaneNotesSplitPercent,
+      editorLayout,
+      setAgentPanelOpen,
+      setAssetPreviewSplit,
+      setBottomPanelHeight,
+      setDualPaneActive,
+      setDualPaneNotesSplitPercent,
+      setDualPaneSplit,
+      setEditorLayout,
+      setEditorVisiblePanes,
+      setSidebarWidth,
+      sidebarWidth,
+    ],
+  );
+
+  const navigationValue = useMemo<WorkspaceNavigationContextValue>(
+    () => ({
       sidebarTab,
       sidebarPanel,
       sidebarPanelOpen,
@@ -419,37 +553,25 @@ export function WorkspaceProvider({
       toggleSidebarPin,
       currentPath,
       activeFile,
-      editorLayout,
-      setEditorLayout,
       searchQuery,
       setSearchQuery,
-      agentPanelOpen,
-      setAgentPanelOpen,
       dispatchIntent,
       setDispatchIntent,
       clearDispatchIntent,
-      dualPaneSplit,
-      setDualPaneSplit,
-      dualPaneView,
-      setDualPaneView,
-      dualPaneActive,
-      setDualPaneActive,
-      assetPreviewSplit,
-      setAssetPreviewSplit,
-      sidebarWidth,
-      setSidebarWidth,
-      bottomPanelHeight,
-      setBottomPanelHeight,
       graphScope,
       setGraphScope,
       createPrompt,
       setCreatePrompt,
       commentSummary,
+      assignedComments,
+      assignedCountsByFolder,
+      reloadComments,
       tree,
       treeLoaded,
       refreshVersion,
       getPathVersion,
       reloadModel,
+      loadTreePath,
       files,
       browsePath,
       paperSlug,
@@ -482,15 +604,17 @@ export function WorkspaceProvider({
       handleSidebarTabChange,
       handleSearchSelect,
       submitCreateChild,
-      onModelEventsRefresh: onModelEventsRefresh ?? (() => {}),
+      lastPaperPath,
+      editorPaneScopePath,
+      dualPaneEditorActive,
+      notesPaneAvailable,
+      paperChildOrders,
     }),
     [
       activeFile,
-      agentPanelOpen,
-      appView,
-      assetPreviewSplit,
+      assignedComments,
+      assignedCountsByFolder,
       backToSectionView,
-      bottomPanelHeight,
       browsePath,
       canCreateFolder,
       canCreateUnit,
@@ -502,11 +626,8 @@ export function WorkspaceProvider({
       currentNode,
       currentPath,
       dispatchIntent,
-      dualPaneActive,
-      dualPaneSplit,
-      dualPaneView,
-      editorLayout,
-      error,
+      dualPaneEditorActive,
+      editorPaneScopePath,
       exportPaperSlug,
       files,
       getPathVersion,
@@ -522,32 +643,42 @@ export function WorkspaceProvider({
       isPaperSection,
       isTable,
       isUnit,
+      lastPaperPath,
+      loadTreePath,
+      notesPaneAvailable,
       navigateTo,
-      onModelEventsRefresh,
       openFile,
       paperPath,
+      paperChildOrders,
       paperSlug,
       paperWorkspacePath,
       refreshVersion,
+      reloadComments,
       reloadModel,
       searchQuery,
       sectionPath,
       showPaperViewBack,
       showSectionViewBack,
-      sidebarTab,
       sidebarPanel,
       sidebarPanelOpen,
       sidebarPinned,
-      setSidebarPanel,
-      sidebarWidth,
+      sidebarTab,
       submitCreateChild,
       tablePath,
       tableTitle,
+      toggleSidebarPanel,
+      toggleSidebarPin,
       tree,
       treeLoaded,
       unitPath,
     ],
   );
 
-  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
+  return (
+    <WorkspaceLayoutProvider value={layoutValue}>
+      <WorkspaceNavigationProvider value={navigationValue}>
+        <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
+      </WorkspaceNavigationProvider>
+    </WorkspaceLayoutProvider>
+  );
 }

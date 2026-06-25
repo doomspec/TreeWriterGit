@@ -14,6 +14,7 @@ import {
   isUnitDir,
   materializeOutline,
   materializeDraft,
+  materializeTempNotes,
   moveNode,
   orderedChildren,
   reorderChildren,
@@ -89,6 +90,7 @@ describe("createNode", () => {
     expect(rel).toBe("sections/introduction");
     expect(existsSync(path.join(root, rel, "INDEX.md"))).toBe(true);
     expect(existsSync(path.join(root, rel, "outline.md"))).toBe(true);
+    expect(existsSync(path.join(root, rel, "temp-notes.md"))).toBe(true);
     expect(existsSync(path.join(root, rel, "draft.md"))).toBe(false);
     expect(await childOrderOf("sections")).toEqual(["introduction"]);
   });
@@ -99,6 +101,7 @@ describe("createNode", () => {
     expect(existsSync(path.join(root, rel, "INDEX.md"))).toBe(true);
     expect(existsSync(path.join(root, rel, "outline.md"))).toBe(true);
     expect(existsSync(path.join(root, rel, "draft.md"))).toBe(true);
+    expect(existsSync(path.join(root, rel, "temp-notes.md"))).toBe(true);
     const { data } = matter(await readFile(path.join(root, rel, "INDEX.md"), "utf8"));
     expect(data.status).toBe("outline");
     expect(await childOrderOf("sections/introduction")).toEqual(["problem"]);
@@ -295,6 +298,29 @@ describe("materializeDraft", () => {
   });
 });
 
+describe("materializeTempNotes", () => {
+  it("creates temp-notes.md when INDEX.md exists", async () => {
+    await seedContainer("sections/intro", []);
+    const content = await materializeTempNotes(root, "sections/intro/temp-notes.md");
+    expect(content).toBe("");
+    expect(existsSync(path.join(root, "sections/intro/temp-notes.md"))).toBe(true);
+  });
+
+  it("returns existing temp-notes content", async () => {
+    await seedContainer("sections/intro", []);
+    await writeFile(path.join(root, "sections/intro/temp-notes.md"), "My notes\n", "utf8");
+    const content = await materializeTempNotes(root, "sections/intro/temp-notes.md");
+    expect(content).toBe("My notes\n");
+  });
+
+  it("404 when INDEX.md is missing", async () => {
+    await mkdir(path.join(root, "sections/intro"), { recursive: true });
+    await expect(materializeTempNotes(root, "sections/intro/temp-notes.md")).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+});
+
 describe("shellQuote", () => {
   it("wraps paths safely for shell", () => {
     expect(shellQuote("papers/foo/draft.md")).toBe("'papers/foo/draft.md'");
@@ -365,6 +391,7 @@ describe("createNode asset containers", () => {
       await readFile(path.join(root, "papers/demo/figures/INDEX.md"), "utf8"),
     );
     expect(figuresIndex.data.child_order).toEqual(["fig1"]);
+    expect(existsSync(path.join(root, "papers/demo/figures/fig1/temp-notes.md"))).toBe(false);
   });
 });
 

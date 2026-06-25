@@ -131,6 +131,7 @@ export function HighlightToolbarButton({
               ref={menuRef}
               role="menu"
               aria-label="Highlight colors"
+              data-editor-floating-chrome
               className="fixed z-overlay w-40 rounded-md border border-border bg-popover p-2 text-popover-foreground shadow-lg"
               style={{ top: position.top, left: position.left }}
             >

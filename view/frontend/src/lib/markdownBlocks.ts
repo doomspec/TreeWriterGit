@@ -93,6 +93,25 @@ export function joinMarkdownBlocks(blocks: MarkdownBlock[]): string {
     .join("\n\n");
 }
 
+/** Line number in joined markdown for a caret position inside a block. */
+export function globalLineFromBlockPosition(
+  blocks: MarkdownBlock[],
+  blockId: string,
+  inBlockCharOffset: number,
+): number | null {
+  let lineBefore = 0;
+  for (const block of blocks) {
+    const text = block.markdown.trimEnd();
+    if (!text) continue;
+    if (block.id === blockId) {
+      const clamped = Math.max(0, Math.min(inBlockCharOffset, text.length));
+      return lineBefore + text.slice(0, clamped).split("\n").length;
+    }
+    lineBefore += text.split("\n").length + 1;
+  }
+  return null;
+}
+
 function normalizeForMatch(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }

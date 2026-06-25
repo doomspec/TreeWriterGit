@@ -130,6 +130,7 @@ export function fixAdjacentMathFragments(text: string): string {
   result = result.replace(/\$\\sim\$([\d.]+)\$\s*[×x]\s*\$/g, "$\\sim $1\\times$");
   result = result.replace(/\$\\sim\$([\d.]+)\s*[×x]\s*\$/g, "$\\sim $1\\times$");
   result = result.replace(/(\d+)\$\s*[×x]\s*\$/g, "$$$1\\times$$");
+  result = result.replace(/(\d+(?:\.\d+)?)\$\\times\$([\d.]+)/g, "$$$1 \\times $2$");
   result = result.replace(/\$\s*[×x]\s*\$/g, "$\\times$");
   result = result.replace(/\$\s*→\s*\$/g, "$\\to$");
   result = result.replace(/\$\s*[→]\s*\$/g, "$\\to$");
@@ -176,6 +177,92 @@ export function buildHighlightColorLatexPreamble(): string {
   ].join("\n");
 }
 
+const SUPERSCRIPT_DIGITS: Record<string, string> = {
+  "0": "⁰",
+  "1": "¹",
+  "2": "²",
+  "3": "³",
+  "4": "⁴",
+  "5": "⁵",
+  "6": "⁶",
+  "7": "⁷",
+  "8": "⁸",
+  "9": "⁹",
+  "-": "⁻",
+  "+": "⁺",
+};
+
+function toSuperscriptDigits(exp: string): string {
+  if (/^[0-9+-]+$/.test(exp)) {
+    return exp
+      .split("")
+      .map((char) => SUPERSCRIPT_DIGITS[char] ?? char)
+      .join("");
+  }
+  return `^(${exp})`;
+}
+
+/** Convert a LaTeX math fragment to plain Unicode for Word export. */
+export function latexMathInnerToUnicode(inner: string): string {
+  let result = inner.trim();
+  result = result.replace(/\\times/g, "×");
+  result = result.replace(/\\sim/g, "~");
+  result = result.replace(/\\to/g, "→");
+  result = result.replace(/\\mu\\mathrm\{m\}/g, "µm");
+  result = result.replace(/\\mu\\mathrm\{L\}/g, "µL");
+  result = result.replace(/\\mu\s*m\b/g, "µm");
+  result = result.replace(/\\mu\s*L\b/g, "µL");
+  result = result.replace(/\\mathrm\{([^}]+)\}/g, "$1");
+  result = result.replace(/\\text\{([^}]+)\}/g, "$1");
+  result = result.replace(/\^\{([^}]+)\}/g, (_full, exp: string) => toSuperscriptDigits(exp));
+  result = result.replace(/_\{([^}]+)\}/g, (_full, sub: string) => `_${sub}`);
+  result = result.replace(/\\,/g, " ");
+  result = result.replace(/~/g, " ");
+  result = result.replace(/(\d)\s*×\s*(\d)/g, "$1×$2");
+  result = result.replace(/\s+/g, " ").trim();
+  return result;
+}
+
+function flattenInlineMathInPlainSegment(text: string): string {
+  let result = text;
+  result = result.replace(/(\d+(?:\.\d+)?)\$\\times\$([\d.]+)/g, "$1×$2");
+  result = result.replace(/(\d+(?:\.\d+)?)\$×\$([\d.]+)/g, "$1×$2");
+  result = result.replace(/\$\\times\$/g, "×");
+  result = result.replace(/\$×\$/g, "×");
+  result = result.replace(/\$\\sim\$([\d.]+)\$\\times\$/g, "~$1×");
+  result = result.replace(/\$\\sim\$([\d.]+)\s*[×x]\s*\$/g, "~$1×");
+  result = result.replace(/\$([^$\n]+?)\$/g, (_full, inner: string) => latexMathInnerToUnicode(inner));
+  return result;
+}
+
+/** Replace inline `$...$` math with Unicode so Word keeps flowing paragraphs. */
+export function flattenInlineMathToUnicodeForDocx(markdown: string): string {
+  const parts: string[] = [];
+  const fenceRe = /(```[\s\S]*?```)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = fenceRe.exec(markdown)) !== null) {
+    parts.push(flattenInlineMathInPlainSegment(markdown.slice(lastIndex, match.index)));
+    parts.push(match[1]!);
+    lastIndex = match.index + match[1]!.length;
+  }
+
+  parts.push(flattenInlineMathInPlainSegment(markdown.slice(lastIndex)));
+  return parts.join("");
+}
+
+/** Shared math/unit cleanup before format-specific export prep. */
+export function normalizeManuscriptMathForExport(markdown: string): string {
+  let result = markdown;
+  result = fixSplitUnicodeUnitTokens(result);
+  result = fixMicroliterUnitsForExport(result);
+  result = fixMicrometerUnitsForExport(result);
+  result = fixAdjacentMathFragments(result);
+  result = normalizeInlineMathSegments(result);
+  return result;
+}
+
 /** Full markdown cleanup pipeline before pandoc export. */
 export function prepareMarkdownForLatexExport(markdown: string): string {
   let result = markdown;
@@ -183,11 +270,7 @@ export function prepareMarkdownForLatexExport(markdown: string): string {
   result = normalizeTextHighlightMacros(result);
   result = restoreEncodedHighlights(result);
   result = restoreLatexRefTokens(result);
-  result = fixSplitUnicodeUnitTokens(result);
-  result = fixMicroliterUnitsForExport(result);
-  result = fixMicrometerUnitsForExport(result);
-  result = fixAdjacentMathFragments(result);
-  result = normalizeInlineMathSegments(result);
+  result = normalizeManuscriptMathForExport(result);
   result = fixDuplicatedRefSuffixes(result);
   result = stripPlaceholderFigures(result);
   result = convertTextHighlightsToLatex(result);

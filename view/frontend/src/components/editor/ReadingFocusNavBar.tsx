@@ -1,76 +1,51 @@
 import { useLayoutEffect } from "react";
 
+import { EditorPaneToggleHost } from "@/components/editor/EditorPaneToggle";
+import {
+  countVisibleEditorPanes,
+  type EditorVisiblePanes,
+} from "@/lib/editorVisiblePanes";
 import { useReadingFocus } from "@/lib/readingFocus";
-import type { DualPaneView } from "@/lib/workspacePreferences";
-import { cn } from "@/lib/utils";
+import type { DualPaneActive } from "@/lib/workspacePreferences";
 
-export function useReadingFocusSplitPaneTitles(paneView: DualPaneView): boolean {
-  const { active } = useReadingFocus();
-  return active && paneView === "split";
+export function useReadingFocusSplitPaneTitles(visiblePanes: EditorVisiblePanes): boolean {
+  return countVisibleEditorPanes(visiblePanes) === 2;
 }
 
 export function ReadingFocusExtra({
-  focusedPane,
-  onPaneChange,
-  labels,
+  visiblePanes,
+  onVisiblePanesChange,
+  activePane,
+  onActivePaneChange,
+  showNotes = true,
 }: {
-  focusedPane: "outline" | "draft" | "split";
-  onPaneChange: (pane: "outline" | "draft" | "split") => void;
-  labels?: { left: string; right: string; split: string };
+  visiblePanes: EditorVisiblePanes;
+  onVisiblePanesChange: (panes: EditorVisiblePanes) => void;
+  activePane: DualPaneActive;
+  onActivePaneChange: (pane: DualPaneActive) => void;
+  showNotes?: boolean;
 }) {
-  const { active, setExtraChrome } = useReadingFocus();
+  const { setExtraChrome } = useReadingFocus();
 
   useLayoutEffect(() => {
-    if (!active) {
-      setExtraChrome(null);
-      return;
-    }
     setExtraChrome(
-      <ReadingFocusPaneToggle focusedPane={focusedPane} onPaneChange={onPaneChange} labels={labels} />,
+      <EditorPaneToggleHost
+        visiblePanes={visiblePanes}
+        onVisiblePanesChange={onVisiblePanesChange}
+        activePane={activePane}
+        onActivePaneChange={onActivePaneChange}
+        showNotes={showNotes}
+      />,
     );
     return () => setExtraChrome(null);
-  }, [active, focusedPane, labels, onPaneChange, setExtraChrome]);
+  }, [
+    activePane,
+    onActivePaneChange,
+    onVisiblePanesChange,
+    setExtraChrome,
+    showNotes,
+    visiblePanes,
+  ]);
 
   return null;
-}
-
-export function ReadingFocusPaneToggle({
-  focusedPane,
-  onPaneChange,
-  labels = { left: "Outline", right: "Draft", split: "Both" },
-}: {
-  focusedPane: "outline" | "draft" | "split";
-  onPaneChange: (pane: "outline" | "draft" | "split") => void;
-  labels?: { left: string; right: string; split: string };
-}) {
-  const options = [
-    { id: "outline" as const, label: labels.left },
-    { id: "draft" as const, label: labels.right },
-    { id: "split" as const, label: labels.split },
-  ];
-
-  return (
-    <div
-      className="inline-flex rounded-md border border-border/80 bg-background/80 p-0.5"
-      role="group"
-      aria-label="Switch pane"
-    >
-      {options.map(({ id, label }) => (
-        <button
-          key={id}
-          type="button"
-          className={cn(
-            "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
-            focusedPane === id
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-          aria-pressed={focusedPane === id}
-          onClick={() => onPaneChange(id)}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
 }

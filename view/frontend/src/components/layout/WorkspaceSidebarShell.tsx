@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PanelBottomClose } from "lucide-react";
 
 import type { AppView } from "@/components/commands/AppCommands";
 import { SidebarIconRail } from "@/components/layout/SidebarIconRail";
-import { Button } from "@/components/ui/button";
 import { SidebarPanelHeader } from "@/components/layout/SidebarPanelHeader";
 import { clampSidebarWidth } from "@/components/layout/ResizableSidebarLayout";
 import type { GitSyncState } from "@/lib/gitSync";
@@ -33,7 +31,6 @@ export function WorkspaceSidebarShell({
   onWidthChange,
   onOpenTerminalPanel,
   onOpenDispatchPanel,
-  onCloseAgentPanel,
   onGitClick,
   onSetAppView,
   onCycleTheme,
@@ -59,7 +56,6 @@ export function WorkspaceSidebarShell({
   onWidthChange: (width: number) => void;
   onOpenTerminalPanel: () => void;
   onOpenDispatchPanel: () => void;
-  onCloseAgentPanel: () => void;
   onGitClick: () => void;
   onSetAppView: (view: AppView) => void;
   onCycleTheme: () => void;
@@ -68,14 +64,17 @@ export function WorkspaceSidebarShell({
 }) {
   const [dragging, setDragging] = useState(false);
   const [hoverRevealed, setHoverRevealed] = useState(false);
+  const [railRevealed, setRailRevealed] = useState(false);
   const leaveTimerRef = useRef<number | undefined>(undefined);
   const effectiveWidth = panelOpen ? clampSidebarWidth(sidebarWidth) : 0;
   const hoverReveal = panelOpen && !pinned && !readingFocusActive;
   const readingFocusPanelReveal = readingFocusActive && panelOpen;
   const railHoverReveal = hoverReveal || readingFocusPanelReveal;
+  const readingFocusRailAutoHide = readingFocusActive;
   const panelVisible = readingFocusPanelReveal
     ? hoverRevealed
     : panelOpen && (pinned || hoverRevealed);
+  const railVisible = !readingFocusRailAutoHide || railRevealed || (panelOpen && panelVisible);
   const panelInGrid = panelOpen && pinned && !readingFocusActive;
 
   const clearLeaveTimer = useCallback(() => {
@@ -87,12 +86,18 @@ export function WorkspaceSidebarShell({
     clearLeaveTimer();
     leaveTimerRef.current = window.setTimeout(() => {
       setHoverRevealed(false);
+      if (readingFocusRailAutoHide) setRailRevealed(false);
     }, HOVER_REVEAL_LEAVE_MS);
-  }, [clearLeaveTimer]);
+  }, [clearLeaveTimer, readingFocusRailAutoHide]);
 
   const revealPanel = useCallback(() => {
     clearLeaveTimer();
     setHoverRevealed(true);
+  }, [clearLeaveTimer]);
+
+  const revealRail = useCallback(() => {
+    clearLeaveTimer();
+    setRailRevealed(true);
   }, [clearLeaveTimer]);
 
   useEffect(() => {
@@ -109,15 +114,29 @@ export function WorkspaceSidebarShell({
     }
   }, [panelOpen, clearLeaveTimer]);
 
+  useEffect(() => {
+    if (!readingFocusActive) {
+      setRailRevealed(false);
+    }
+  }, [readingFocusActive]);
+
   useEffect(() => () => clearLeaveTimer(), [clearLeaveTimer]);
 
   const handleSelectPanel = useCallback(
     (panel: SidebarPanel) => {
-      if (!pinned || readingFocusActive) revealPanel();
+      if (!pinned || readingFocusActive) {
+        revealRail();
+        revealPanel();
+      }
       onSelectPanel(panel);
     },
-    [onSelectPanel, pinned, readingFocusActive, revealPanel],
+    [onSelectPanel, pinned, readingFocusActive, revealPanel, revealRail],
   );
+
+  const handleRailPointerEnter = useCallback(() => {
+    if (readingFocusRailAutoHide) revealRail();
+    if (railHoverReveal) revealPanel();
+  }, [railHoverReveal, readingFocusRailAutoHide, revealPanel, revealRail]);
 
   const onPointerMove = useCallback(
     (event: PointerEvent) => {
@@ -153,9 +172,18 @@ export function WorkspaceSidebarShell({
         hoverReveal && "workspace-sidebar-shell--hover-reveal",
         panelVisible && "workspace-sidebar-shell--revealed",
         readingFocusActive && "workspace-sidebar-shell--reading-focus",
+        railVisible && "workspace-sidebar-shell--rail-revealed",
         className,
       )}
     >
+      {readingFocusRailAutoHide ? (
+        <div
+          className="reading-focus-rail-hover-zone"
+          aria-hidden="true"
+          onPointerEnter={handleRailPointerEnter}
+          onPointerLeave={scheduleHide}
+        />
+      ) : null}
       <SidebarIconRail
         activePanel={activePanel}
         panelOpen={panelOpen}
@@ -176,8 +204,8 @@ export function WorkspaceSidebarShell({
         onGitClick={onGitClick}
         onSetAppView={onSetAppView}
         onCycleTheme={onCycleTheme}
-        onPointerEnter={railHoverReveal ? revealPanel : undefined}
-        onPointerLeave={railHoverReveal ? scheduleHide : undefined}
+        onPointerEnter={handleRailPointerEnter}
+        onPointerLeave={railHoverReveal || readingFocusRailAutoHide ? scheduleHide : undefined}
       />
       {panelOpen ? (
         <>
@@ -187,8 +215,8 @@ export function WorkspaceSidebarShell({
               !panelInGrid && "workspace-sidebar-shell__panel--overlay",
               panelVisible && "workspace-sidebar-shell__panel--visible",
             )}
-            onPointerEnter={railHoverReveal ? revealPanel : undefined}
-            onPointerLeave={railHoverReveal ? scheduleHide : undefined}
+            onPointerEnter={railHoverReveal || readingFocusRailAutoHide ? handleRailPointerEnter : undefined}
+            onPointerLeave={railHoverReveal || readingFocusRailAutoHide ? scheduleHide : undefined}
           >
             <SidebarPanelHeader
               gitSync={gitSync}
@@ -232,21 +260,6 @@ export function WorkspaceSidebarShell({
             />
           ) : null}
         </>
-      ) : null}
-      {agentPanelOpen ? (
-        <div className="workspace-sidebar-shell__bottom">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            title="Hide bottom panel"
-            aria-label="Hide bottom panel"
-            onClick={onCloseAgentPanel}
-          >
-            <PanelBottomClose className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        </div>
       ) : null}
     </div>
   );

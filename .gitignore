@@ -8,8 +8,10 @@ view/frontend/vite.config.js
 .treewriter-exports/
 .treewriter-prompt.txt
 .treewriter-prompts/
+.treewriter/
 model/.treewriter-prompts/
 .overleaf/
+**/temp-notes.md
 
 # Python bytecode
 __pycache__/

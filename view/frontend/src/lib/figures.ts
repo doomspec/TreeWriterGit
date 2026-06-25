@@ -87,7 +87,11 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export async function uploadFigureImage(figurePath: string, file: File): Promise<FigureMetadata> {
+export async function uploadFigureImage(
+  figurePath: string,
+  file: File,
+  role: "preview" | "source" | "both" | "auto" = "auto",
+): Promise<FigureMetadata> {
   const key = figurePath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
   figureCache.delete(key);
 
@@ -98,6 +102,7 @@ export async function uploadFigureImage(figurePath: string, file: File): Promise
       path: key,
       filename: file.name,
       data,
+      ...(role !== "auto" ? { role } : {}),
     }),
   });
   figureCache.set(key, result.figure);

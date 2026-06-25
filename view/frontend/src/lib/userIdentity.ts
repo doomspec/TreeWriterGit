@@ -54,3 +54,16 @@ export function setGitHubHandle(handle: string): void {
     // ignore
   }
 }
+
+/** Preferred author for new comments: GitHub handle, then display name. */
+export function getCommentAuthor(): string {
+  const handle = getGitHubHandle()?.trim();
+  if (handle) return handle;
+  const name = getUserName();
+  if (name && name !== "Anonymous") return name;
+  return "";
+}
+
+export function hasCommentAuthorIdentity(): boolean {
+  return Boolean(getCommentAuthor());
+}

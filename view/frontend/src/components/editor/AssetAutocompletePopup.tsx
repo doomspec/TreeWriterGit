@@ -11,6 +11,7 @@ const KIND_ICONS: Record<AssetCommandKind, typeof Image> = {
   table: Table2,
   eq: Sigma,
   cite: BookOpen,
+  ref: Image,
 };
 
 export function AssetAutocompletePopup({

@@ -5,6 +5,7 @@ import type { SidebarPanel } from "@/lib/workspacePreferences";
 import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import { useCommandPalette } from "@/lib/CommandPaletteProvider";
 import type { AppCommand } from "@/lib/commandPaletteTypes";
+import type { EditorPaneId, EditorPanePresetId } from "@/lib/editorVisiblePanes";
 import type { NodeKind } from "@/modelApi";
 
 export type AppView = "workspace" | "settings" | "info";
@@ -18,6 +19,8 @@ export type AppCommandsContext = {
   canCreateSection: boolean;
   canCreateSubsection: boolean;
   showSectionViewBack: boolean;
+  dualPaneEditorActive: boolean;
+  notesPaneAvailable: boolean;
   onSetAppView: (view: AppView) => void;
   onSetSidebarTab: (tab: WorkspaceNavTab) => void;
   onSetSidebarPanel: (panel: SidebarPanel) => void;
@@ -31,6 +34,8 @@ export type AppCommandsContext = {
   onSetEditorLayout: (layout: EditorLayout) => void;
   onGitSync: () => void;
   onCycleTheme: () => void;
+  onFocusEditorPane: (pane: EditorPaneId) => void;
+  onApplyEditorPanePreset: (preset: EditorPanePresetId) => void;
 };
 
 export function AppCommands(context: AppCommandsContext) {
@@ -206,6 +211,71 @@ export function AppCommands(context: AppCommandsContext) {
         aliases: ["reading view", "rendered"],
         when: () => ctx().appView === "workspace",
         run: () => ctx().onSetEditorLayout("preview"),
+      },
+      {
+        id: "editor.pane.outline",
+        label: "Focus outline pane",
+        category: "Editor",
+        aliases: ["show outline", "outline pane"],
+        when: () => ctx().appView === "workspace" && ctx().dualPaneEditorActive,
+        run: () => ctx().onFocusEditorPane("outline"),
+      },
+      {
+        id: "editor.pane.draft",
+        label: "Focus draft pane",
+        category: "Editor",
+        aliases: ["show draft", "draft pane"],
+        when: () => ctx().appView === "workspace" && ctx().dualPaneEditorActive,
+        run: () => ctx().onFocusEditorPane("draft"),
+      },
+      {
+        id: "editor.pane.notes",
+        label: "Focus notes pane",
+        category: "Editor",
+        aliases: ["show notes", "scratchpad", "temp notes"],
+        when: () =>
+          ctx().appView === "workspace" &&
+          ctx().dualPaneEditorActive &&
+          ctx().notesPaneAvailable,
+        run: () => ctx().onFocusEditorPane("notes"),
+      },
+      {
+        id: "editor.preset.split",
+        label: "Pane layout: split (outline + draft)",
+        category: "Editor",
+        aliases: ["outline and draft"],
+        when: () => ctx().appView === "workspace" && ctx().dualPaneEditorActive,
+        run: () => ctx().onApplyEditorPanePreset("split"),
+      },
+      {
+        id: "editor.preset.write",
+        label: "Pane layout: write (draft + notes)",
+        category: "Editor",
+        aliases: ["draft and notes"],
+        when: () =>
+          ctx().appView === "workspace" &&
+          ctx().dualPaneEditorActive &&
+          ctx().notesPaneAvailable,
+        run: () => ctx().onApplyEditorPanePreset("write"),
+      },
+      {
+        id: "editor.preset.plan",
+        label: "Pane layout: plan (outline only)",
+        category: "Editor",
+        aliases: ["outline only"],
+        when: () => ctx().appView === "workspace" && ctx().dualPaneEditorActive,
+        run: () => ctx().onApplyEditorPanePreset("plan"),
+      },
+      {
+        id: "editor.preset.notes",
+        label: "Pane layout: notes only",
+        category: "Editor",
+        aliases: ["notes only", "scratchpad only"],
+        when: () =>
+          ctx().appView === "workspace" &&
+          ctx().dualPaneEditorActive &&
+          ctx().notesPaneAvailable,
+        run: () => ctx().onApplyEditorPanePreset("notes"),
       },
       {
         id: "theme.cycle",

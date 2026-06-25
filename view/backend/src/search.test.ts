@@ -4,11 +4,13 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 import { ModelFsError, resolveModelPath } from "./modelFs.js";
+import { resetModelIndexStores } from "./modelIndex/index.js";
 import { searchModel, validateSearchQuery } from "./search.js";
 
 let modelRoot: string;
 
 beforeEach(async () => {
+  resetModelIndexStores();
   modelRoot = await mkdtemp(path.join(tmpdir(), "tw-search-"));
   await mkdir(path.join(modelRoot, "papers", "demo"), { recursive: true });
   await mkdir(path.join(modelRoot, "notes"), { recursive: true });
@@ -25,6 +27,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  resetModelIndexStores();
   await rm(modelRoot, { recursive: true, force: true });
 });
 

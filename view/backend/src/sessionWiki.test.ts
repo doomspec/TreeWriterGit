@@ -5,6 +5,7 @@ import {
   listSessionWikiEntries,
   sessionFilenameFromId,
   sessionIdFromAt,
+  sessionMatchesUnitFilter,
   updateSessionWikiEntry,
 } from "./sessionWiki.js";
 
@@ -12,6 +13,19 @@ describe("sessionWiki", () => {
   it("derives stable session ids from timestamps", () => {
     expect(sessionIdFromAt("2026-06-23T04:35:14.886Z")).toBe("2026-06-23_04-35-14-886Z");
     expect(sessionFilenameFromId("2026-06-23_04-35-14-886Z")).toBe("2026-06-23_04-35-14-886Z.md");
+  });
+
+  it("matches descendant unit sessions when filtering by container path", () => {
+    expect(
+      sessionMatchesUnitFilter(
+        "papers/vibecount/introduction/background",
+        "papers/vibecount/introduction",
+      ),
+    ).toBe(true);
+    expect(sessionMatchesUnitFilter("papers/vibecount/abstract", "papers/vibecount")).toBe(true);
+    expect(
+      sessionMatchesUnitFilter("papers/vibecount/introduction/background", "papers/vibecount/results"),
+    ).toBe(false);
   });
 });
 

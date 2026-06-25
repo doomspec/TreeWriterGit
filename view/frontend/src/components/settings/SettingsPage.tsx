@@ -446,6 +446,21 @@ export function SettingsPage({
                   </SettingRow>
                 ) : null}
 
+                {syncStatus?.pendingStashRestore ? (
+                  <div
+                    className="rounded-md border border-[hsl(var(--warning))]/40 bg-[hsl(var(--warning))]/10 px-3 py-2 text-xs text-foreground"
+                    role="status"
+                  >
+                    <p className="font-medium">Local edits are still in git stash</p>
+                    <p className="mt-1 text-muted-foreground">
+                      Model changes synced, but files outside commit paths were stashed and could not
+                      be restored automatically. In the repository root, run{" "}
+                      <code className="rounded bg-muted px-1 py-0.5 text-foreground">git stash pop</code>{" "}
+                      to restore them. Resolve any conflicts, then sync again.
+                    </p>
+                  </div>
+                ) : null}
+
                 <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                   <div className="flex flex-wrap gap-x-4 gap-y-1">
                     <span>
@@ -568,7 +583,7 @@ export function SettingsPage({
               <SettingsSection title="AI harness" icon={Bot}>
                 <SettingRow
                   label="Default provider"
-                  hint="Used for AI dispatch in outline and draft panes"
+                  hint="Default CLI for AI dispatch; context comes from prompt prefetch + tw-context CLI"
                 >
                   <select
                     className="h-8 min-w-[10rem] rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -622,7 +637,7 @@ export function SettingsPage({
                 </SettingRow>
                 <SettingRow
                   label="GitHub handle"
-                  hint="Recorded on draft edits and approvals (without @)"
+                  hint="Default comment author and draft edit/approval provenance (without @)"
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">@</span>

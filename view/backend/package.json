@@ -7,20 +7,27 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc && cp src/pty_bridge.py dist/pty_bridge.py && cp src/dispatch_run.py dist/dispatch_run.py",
     "start": "node dist/server.js",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@treewriter/shared": "workspace:*",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "gray-matter": "^4.0.3",
+    "jszip": "^3.10.1",
+    "markdown-docx": "^1.6.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
+    "@types/supertest": "^6.0.2",
     "@types/ws": "^8.5.13",
+    "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^4.1.9"

@@ -116,29 +116,30 @@ export function SidebarIconRail({
   return (
     <aside
       className={cn(
-        "sidebar-icon-rail flex min-h-0 w-9 shrink-0 flex-col items-center gap-1 border-r border-border bg-[hsl(var(--sidebar-bg))] py-2",
+        "sidebar-icon-rail flex min-h-0 w-9 shrink-0 flex-col border-r border-border bg-[hsl(var(--sidebar-bg))]",
         className,
       )}
       aria-label="Sidebar navigation"
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
     >
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className={cn("h-8 w-8", gitSyncRailIconClass(gitSync))}
-        title={gitTitle}
-        aria-label={gitTitle}
-        disabled={!gitSync?.enabled || gitSync?.running}
-        onClick={onGitClick}
-      >
-        <GitBranch className="h-4 w-4" aria-hidden="true" />
-      </Button>
+      <div className="flex h-[var(--workspace-pane-header-height,2.25rem)] shrink-0 items-center justify-center border-b border-border">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn("h-7 w-7", gitSyncRailIconClass(gitSync))}
+          title={gitTitle}
+          aria-label={gitTitle}
+          disabled={!gitSync?.enabled || gitSync?.running}
+          onClick={onGitClick}
+        >
+          <GitBranch className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </div>
 
-      <div className="my-0.5 h-px w-6 bg-border" aria-hidden="true" />
-
-      {RAIL_ITEMS.map(({ id, label, icon: Icon }) => {
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto py-1">
+        {RAIL_ITEMS.map(({ id, label, icon: Icon }) => {
         if (id === "graph" && !graphAvailable) return null;
         const active = appView === "workspace" && activePanel === id && panelOpen;
         return (
@@ -160,8 +161,9 @@ export function SidebarIconRail({
           </Button>
         );
       })}
+      </div>
 
-      <div className="mt-auto flex flex-col items-center gap-1 pt-2">
+      <div className="mt-auto flex shrink-0 flex-col items-center gap-1 border-t border-border py-1">
         {!agentPanelOpen ? (
           <>
             <Button
@@ -207,8 +209,8 @@ export function SidebarIconRail({
           variant={appView === "info" ? "default" : "ghost"}
           size="icon"
           className="h-8 w-8"
-          title="Guide & shortcuts"
-          aria-label="Guide and shortcuts"
+          title="Guide & workspace status"
+          aria-label="Guide and workspace status"
           aria-pressed={appView === "info"}
           onClick={() => onSetAppView(appView === "info" ? "workspace" : "info")}
         >

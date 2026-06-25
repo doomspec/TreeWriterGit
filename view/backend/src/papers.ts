@@ -7,43 +7,15 @@ import { ModelFsError, createNode, deleteNode, resolveModelPath, isUnitDir, orde
 import { collectPendingApprovalPaths } from "./draftApproval.js";
 import { parseJournalExportStyle, type JournalExportStyle } from "./journalExportStyle.js";
 
+import type {
+  PaperDetail,
+  PaperSummary,
+  SectionRollup,
+  UnitStatusCounts,
+} from "@treewriter/shared";
+
+export type { PaperDetail, PaperSummary, SectionRollup, UnitStatusCounts };
 export type UnitStatus = "outline" | "drafted" | "approved";
-
-export interface UnitStatusCounts {
-  approved: number;
-  drafted: number;
-  outline: number;
-  total: number;
-}
-
-export interface SectionRollup {
-  path: string;
-  title: string;
-  counts: UnitStatusCounts;
-}
-
-export interface PaperSummary {
-  slug: string;
-  path: string;
-  title: string;
-  journal: string;
-  status: string;
-  lastExport: string | null;
-  counts: UnitStatusCounts;
-}
-
-export interface PaperDetail extends PaperSummary {
-  authors: string[];
-  targetWords: number;
-  sectionOrder: string[];
-  overleafRepoPath: string | null;
-  overleafGitUrl: string | null;
-  sections: SectionRollup[];
-  /** Unit approval rollups for every folder under the paper (sections, subsections, units). */
-  containerCounts: Record<string, UnitStatusCounts>;
-  /** draft.md / outline.md paths that differ from approved baselines. */
-  pendingApprovalPaths: string[];
-}
 
 export interface JournalTemplate {
   journal: string;

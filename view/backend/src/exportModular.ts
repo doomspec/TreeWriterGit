@@ -6,17 +6,13 @@ import { promisify } from "node:util";
 import matter from "gray-matter";
 
 import { ModelFsError } from "./modelFs.js";
-import { buildInlineNoteLatexPreamble } from "./inlineNotes.js";
 import {
-  buildBibliography,
   buildCombinedMarkdown,
   buildSectionMarkdown,
   buildSectionOutlineNotePreamble,
   detectPdfEngine,
-  findMissingCitations,
   formatSectionOutlineNoteForExport,
   readSectionOutlineNoteBody,
-  resolveCslPath,
   type ExportFormat,
 } from "./export.js";
 import {
@@ -25,15 +21,26 @@ import {
 } from "./exportEmbeds.js";
 import { listPaperFigures } from "./figures.js";
 import {
-  buildHighlightColorLatexPreamble,
-  prepareMarkdownForLatexExport,
-} from "./exportMarkdown.js";
-import {
   appendPandocExportStyleArgs,
-  buildCombinedExportHeader,
   type JournalExportStyle,
 } from "./journalExportStyle.js";
+import { prepareMarkdownForLatexExport } from "./exportMarkdown.js";
+import { validatePaperCrossRefs } from "./crossRefValidation.js";
+import {
+  buildNatureMainTexDocument,
+  classifyNatureSectionSlugs,
+  copyJournalTemplateBundle,
+  usesNatureLatexTemplate,
+} from "./exportNature.js";
 import { listPaperSections, loadJournalTemplate } from "./papers.js";
+import {
+  assertExportAllowed,
+  paperHasUnapprovedUnits,
+  resolveExportBibliography,
+  resolveExportHeader,
+  writeStubFrontmatterFile,
+} from "./export/runExportPipeline.js";
+import type { ExportValidationConfig } from "@treewriter/shared";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,6 +56,7 @@ export interface ModularExportBundle {
   assetFiles: string[];
   unitCount: number;
   missingCitations: string[];
+  orphanCrossRefs: string[];
 }
 
 async function collectIncludegraphicsAssetPaths(
@@ -137,13 +145,13 @@ async function runPandocFragment(
   exportStyle: JournalExportStyle | undefined,
   headerPath?: string,
   format: ExportFormat = "latex",
+  useBibtexStyle = false,
 ): Promise<void> {
   const pandocArgs = [
     inputPath,
     "--from=markdown+raw_tex+pipe_tables",
     `--to=${format === "pdf" ? "pdf" : "latex"}`,
     "--standalone=false",
-    "--citeproc",
     "--output",
     outPath,
   ];
@@ -154,8 +162,11 @@ async function runPandocFragment(
   if (bibliography) {
     pandocArgs.push("--bibliography", bibPath);
   }
-  if (cslPath) {
-    pandocArgs.push("--csl", cslPath);
+  if (!useBibtexStyle) {
+    pandocArgs.push("--citeproc");
+    if (cslPath) {
+      pandocArgs.push("--csl", cslPath);
+    }
   }
   if (format === "pdf") {
     const engine = await detectPdfEngine();
@@ -227,7 +238,7 @@ async function exportBibliographyFragment(
 export async function exportModularPaper(
   modelRoot: string,
   repoRoot: string,
-  input: { paperSlug: string; includeDrafts?: boolean },
+  input: { paperSlug: string; includeDrafts?: boolean; validation?: ExportValidationConfig },
 ): Promise<ModularExportBundle> {
   const paperRel = `papers/${input.paperSlug.trim()}`;
   const paperIndex = path.join(modelRoot, paperRel, "INDEX.md");
@@ -247,7 +258,7 @@ export async function exportModularPaper(
   } catch {
     exportStyle = undefined;
   }
-  const cslPath = resolveCslPath(modelRoot, journal, exportStyle?.csl);
+  const natureTemplate = usesNatureLatexTemplate(exportStyle);
 
   const { markdown: combinedRaw, unitCount } = await buildCombinedMarkdown(
     modelRoot,
@@ -258,18 +269,28 @@ export async function exportModularPaper(
     throw new ModelFsError("Nothing to export — no unit content found.", 400);
   }
 
+  const bundleParent = path.join(repoRoot, ".treewriter-exports");
+  const { bibliography, missingCitations, cslPath, useBibtexStyle } =
+    await resolveExportBibliography(modelRoot, paperRel, combinedRaw, journal, exportStyle, bundleParent);
+  const { orphanCrossRefs } = await validatePaperCrossRefs(modelRoot, paperRel, combinedRaw);
+  assertExportAllowed(
+    {
+      orphanCrossRefs,
+      missingCitations,
+      hasUnapprovedUnits: await paperHasUnapprovedUnits(modelRoot, paperRel),
+    },
+    { ...(input.validation ?? {}), includeDrafts },
+  );
+
   const combinedExpanded = await expandManuscriptEmbedsForExport(modelRoot, combinedRaw);
-  const combined = prepareMarkdownForLatexExport(combinedExpanded.markdown);
-  const bibliography = await buildBibliography(modelRoot, paperRel, combined);
-  const missingCitations = findMissingCitations(combined, bibliography);
+  const combined = await prepareMarkdownForLatexExport(combinedExpanded.markdown);
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const bundleName = `${input.paperSlug}-${stamp}`;
-  const bundleDir = path.join(repoRoot, ".treewriter-exports", bundleName);
+  const bundleDir = path.join(bundleParent, bundleName);
+  const bibPath = path.join(bundleDir, "references.bib");
   const sectionsDir = path.join(bundleDir, "sections");
   await mkdir(sectionsDir, { recursive: true });
-
-  const bibPath = path.join(bundleDir, "references.bib");
   if (bibliography) {
     await writeFile(bibPath, bibliography, "utf8");
   } else {
@@ -278,13 +299,12 @@ export async function exportModularPaper(
 
   await writeFile(path.join(bundleDir, "combined.md"), combined, "utf8");
 
-  const highlightPreamble = buildHighlightColorLatexPreamble();
-  const notesPreamble = buildInlineNoteLatexPreamble(combinedRaw);
   const outlineNotesPreamble = buildSectionOutlineNotePreamble();
-  const combinedHeader = await buildCombinedExportHeader(
+  const combinedHeader = await resolveExportHeader(
     modelRoot,
+    combinedRaw,
     exportStyle,
-    [highlightPreamble, notesPreamble, outlineNotesPreamble, buildFigureExportPreamble()].filter(Boolean).join("\n\n"),
+    [outlineNotesPreamble, buildFigureExportPreamble()].filter(Boolean).join("\n\n"),
   );
   let headerPath: string | undefined;
   if (combinedHeader) {
@@ -317,7 +337,7 @@ export async function exportModularPaper(
       `${sectionOutlineNote}${sectionRaw}`,
     );
     for (const asset of sectionExpanded.assets) exportAssetPaths.add(asset);
-    const sectionMarkdown = prepareMarkdownForLatexExport(sectionExpanded.markdown);
+    const sectionMarkdown = await prepareMarkdownForLatexExport(sectionExpanded.markdown);
     sectionSourcesForAssets.push(sectionMarkdown);
     const sectionMdPath = path.join(bundleDir, `${section.slug}.md`);
     const sectionTexPath = path.join(sectionsDir, `${section.slug}.tex`);
@@ -331,6 +351,8 @@ export async function exportModularPaper(
       cslPath,
       exportStyle,
       headerPath,
+      "latex",
+      useBibtexStyle,
     );
     const fragment = stripBibliographyBlock(await readFile(sectionTexPath, "utf8"));
     await writeFile(sectionTexPath, fragment, "utf8");
@@ -349,7 +371,7 @@ export async function exportModularPaper(
 
   const assetFiles = await copyExportAssetsToDir(modelRoot, bundleDir, [...exportAssetPaths]);
 
-  if (bibliography.trim()) {
+  if (bibliography.trim() && !useBibtexStyle) {
     const refsTexPath = await exportBibliographyFragment(
       bundleDir,
       bibPath,
@@ -357,7 +379,7 @@ export async function exportModularPaper(
       exportStyle,
     );
     sectionFiles.push(path.relative(repoRoot, refsTexPath).split(path.sep).join("/"));
-  } else {
+  } else if (!useBibtexStyle) {
     await writeFile(
       path.join(sectionsDir, "references.tex"),
       "% No references.bib entries\n",
@@ -368,32 +390,39 @@ export async function exportModularPaper(
     );
   }
 
-  const stubPath = path.join(bundleDir, "stub.md");
-  const stubFrontmatter = bibliography.trim()
-    ? {
-        nocite: "@*\n",
-        bibliography: path.basename(bibPath),
-        "reference-section": false,
-      }
-    : undefined;
-  await writeFile(
-    stubPath,
-    matter.stringify(`# ${paperTitle}\n`, stubFrontmatter),
-    "utf8",
-  );
-  const stubTexPath = path.join(bundleDir, "stub.tex");
-  const stubTex = await runPandocStandaloneStub(
-    stubPath,
-    stubTexPath,
-    exportStyle,
-    headerPath,
-    bibliography,
-    bibPath,
-    cslPath,
-  );
-  const { preamble, bodyPrefix } = splitPandocStandaloneTex(stubTex);
   const mainTexPath = path.join(bundleDir, "main.tex");
-  await writeFile(mainTexPath, buildMainTexDocument(preamble, bodyPrefix, sectionSlugs), "utf8");
+  if (natureTemplate && exportStyle?.templateBundle) {
+    await copyJournalTemplateBundle(modelRoot, exportStyle.templateBundle, bundleDir);
+    const roles = classifyNatureSectionSlugs(sectionSlugs);
+    const author = typeof paperData.author === "string" ? paperData.author : undefined;
+    await writeFile(
+      mainTexPath,
+      buildNatureMainTexDocument({
+        title: paperTitle,
+        author,
+        abstractSection: roles.abstract,
+        bodySections: roles.body,
+        methodsSection: roles.methods,
+        supplementarySection: roles.supplementary,
+        bibBaseName: "references",
+      }),
+      "utf8",
+    );
+  } else {
+    const stubPath = await writeStubFrontmatterFile(bundleDir, paperTitle, bibliography, bibPath);
+    const stubTexPath = path.join(bundleDir, "stub.tex");
+    const stubTex = await runPandocStandaloneStub(
+      stubPath,
+      stubTexPath,
+      exportStyle,
+      headerPath,
+      bibliography,
+      bibPath,
+      cslPath,
+    );
+    const { preamble, bodyPrefix } = splitPandocStandaloneTex(stubTex);
+    await writeFile(mainTexPath, buildMainTexDocument(preamble, bodyPrefix, sectionSlugs), "utf8");
+  }
 
   const rel = (abs: string) => path.relative(repoRoot, abs).split(path.sep).join("/");
 
@@ -405,6 +434,7 @@ export async function exportModularPaper(
     assetFiles,
     unitCount,
     missingCitations,
+    orphanCrossRefs,
   };
 }
 
@@ -439,7 +469,7 @@ export async function copyModularBundleToDir(
   }
 
   for (const file of await readdir(bundleAbs)) {
-    if (/\.(png|jpe?g|pdf|svg|webp|gif)$/i.test(file)) {
+    if (/\.(png|jpe?g|pdf|svg|webp|gif|cls|bst|sty|tex)$/i.test(file)) {
       await copyRelative(file);
     }
   }

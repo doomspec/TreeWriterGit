@@ -29,10 +29,10 @@ export function resolvePendingSourceOnEdit(
 
 export function showSessionApprovalChrome(
   isPendingApproval: boolean,
-  isDirty: boolean,
-  pendingSource: DraftPendingSource | null,
+  _isDirty: boolean,
+  _pendingSource: DraftPendingSource | null,
 ): boolean {
-  return isPendingApproval && (isDirty || pendingSource !== null);
+  return isPendingApproval;
 }
 
 export function useDraftAutosave({

@@ -1,4 +1,4 @@
-import { isDraftPath, isOutlineDocPath, parentPath } from "@/lib/modelTree";
+import { isDraftPath, isOutlineDocPath, isTempNotesPath, parentPath } from "@/lib/modelTree";
 import { getGitHubHandle } from "@/lib/userIdentity";
 import { loadLastAgentProvider } from "@/lib/lastAgentProvider";
 import {
@@ -19,6 +19,7 @@ export const DRAFT_APPROVED_DOC = "draft.approved.md";
 export const OUTLINE_APPROVED_DOC = "outline.approved.md";
 
 export function requiresDraftApproval(filePath: string): boolean {
+  if (isTempNotesPath(filePath)) return false;
   return isDraftPath(filePath) || isOutlineDocPath(filePath);
 }
 

@@ -156,4 +156,66 @@ describe("exportModularPaper", () => {
     expect(introTex).toContain("Section planning note for introduction");
     expect(introTex).not.toContain("Unit outline only text");
   });
+
+  it("uses the Nature LaTeX template when the paper journal is Nature", async () => {
+    await seedPaper();
+    await mkdir(path.join(modelRoot, "templates", "nature-latex"), { recursive: true });
+    await writeFile(path.join(modelRoot, "templates", "nature-latex", "nature.cls"), "% cls", "utf8");
+    await writeFile(path.join(modelRoot, "templates", "nature-latex", "preamble.tex"), "% preamble", "utf8");
+    await writeFile(
+      path.join(modelRoot, "templates", "nature.md"),
+      matter.stringify("# Nature\n", {
+        journal: "Nature",
+        section_order: ["introduction", "results", "methods"],
+        export: {
+          documentclass: "nature",
+          template_bundle: "nature-latex",
+          bib_style: "naturemag",
+        },
+      }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/INDEX.md"),
+      matter.stringify("", {
+        kind: "paper",
+        title: "Demo Paper",
+        journal: "Nature",
+        section_order: ["introduction", "results", "methods"],
+      }),
+      "utf8",
+    );
+    await mkdir(path.join(modelRoot, "papers/demo/methods", "protocol"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/demo/methods/INDEX.md"),
+      matter.stringify("", { kind: "section", title: "Methods", child_order: ["protocol"] }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/methods/protocol/INDEX.md"),
+      matter.stringify("", { kind: "unit", title: "Protocol", status: "approved" }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "papers/demo/methods/protocol/draft.md"),
+      "Methods text.",
+      "utf8",
+    );
+
+    const bundle = await exportModularPaper(modelRoot, repoRoot, {
+      paperSlug: "demo",
+      includeDrafts: false,
+    });
+
+    const bundleAbs = path.join(repoRoot, bundle.bundleDir);
+    const mainTex = await readFile(path.join(bundleAbs, "main.tex"), "utf8");
+    expect(mainTex).toContain("\\documentclass{nature}");
+    expect(mainTex).toContain("\\input{preamble.tex}");
+    expect(mainTex).toContain("\\input{sections/introduction}");
+    expect(mainTex).toContain("\\input{sections/results}");
+    expect(mainTex).toContain("\\input{sections/methods}");
+    expect(mainTex).toContain("\\bibliography{references}");
+    expect(mainTex).not.toContain("\\input{sections/references}");
+    expect(existsSync(path.join(bundleAbs, "nature.cls"))).toBe(true);
+  });
 });

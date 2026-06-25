@@ -40,6 +40,21 @@ describe("pendingHighlightMarkdown", () => {
     expect(applyPendingMarksToMarkdown("same", "same")).toBeNull();
   });
 
+  it("returns null when only text highlights differ", () => {
+    const baseline = "Onboarding documentation shipped as a real paper.";
+    const current = "Onboarding \\hl{yellow}{documentation} shipped as a real paper.";
+    expect(applyPendingMarksToMarkdown(baseline, current)).toBeNull();
+  });
+
+  it("still marks real word edits when highlights are present", () => {
+    const result = applyPendingMarksToMarkdown(
+      "Onboarding documentation shipped.",
+      "Onboarding \\hl{yellow}{docs} shipped.",
+    );
+    expect(result).toContain('<del class="highlight-inline--deleted">documentation</del>');
+    expect(result).toContain('<mark class="highlight-inline--pending">docs</mark>');
+  });
+
   it("uses loaded content when nothing is approved yet", () => {
     const result = markdownWithPendingHighlights("", "Hello world.", "Hello beautiful world.");
     expect(result).toMatch(/highlight-inline--pending">beautiful\s*<\/mark>/);

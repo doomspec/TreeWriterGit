@@ -1,6 +1,13 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { describe, expect, it } from "vitest";
 
-import { buildMarkdownVisibleOffsetMap } from "./markdownVisibleSelection";
+import {
+  buildMarkdownVisibleOffsetMap,
+  pendingAwareDomVisibleText,
+  resolveMarkdownSelectionRange,
+} from "./markdownVisibleSelection";
 
 describe("buildMarkdownVisibleOffsetMap", () => {
   it("maps ref badges to visible ref+key text", () => {
@@ -30,5 +37,44 @@ describe("buildMarkdownVisibleOffsetMap", () => {
     expect(startVisible).toBe(13);
     expect(map.startToMarkdown[startVisible]).toBe(25);
     expect(map.endToMarkdown[startVisible + "first rotates".length - 1]).toBe(38);
+  });
+});
+
+describe("pendingAwareDomVisibleText", () => {
+  it("omits deleted track-change spans", () => {
+    const surface = document.createElement("div");
+    surface.innerHTML =
+      'Onboarding <del class="highlight-inline--deleted">documentation</del><mark class="highlight-inline--pending">documentation</mark> shipped.';
+    expect(pendingAwareDomVisibleText(surface).replace(/\s+/g, " ").trim()).toBe(
+      "Onboarding documentation shipped.",
+    );
+  });
+});
+
+describe("resolveMarkdownSelectionRange", () => {
+  it("maps selection inside pending track-change html to markdown offsets", () => {
+    const markdown = "Onboarding documentation shipped as a real paper.";
+    const surface = document.createElement("div");
+    surface.innerHTML =
+      'Onboarding <del class="highlight-inline--deleted">documentation</del><mark class="highlight-inline--pending">documentation</mark> shipped as a real paper.';
+    document.body.appendChild(surface);
+
+    const textNode = surface.querySelector("mark")?.firstChild;
+    expect(textNode).toBeTruthy();
+    const range = document.createRange();
+    range.setStart(textNode!, 0);
+    range.setEnd(textNode!, "documentation".length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    const resolved = resolveMarkdownSelectionRange(surface, markdown);
+    expect(resolved).toEqual({
+      start: markdown.indexOf("documentation"),
+      end: markdown.indexOf("documentation") + "documentation".length,
+    });
+
+    selection?.removeAllRanges();
+    document.body.removeChild(surface);
   });
 });

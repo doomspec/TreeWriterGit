@@ -1,6 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import {
+  expandPathspecs,
+  otherRepoPathspecs,
+  type GitSyncConfig,
+} from "./gitSyncConfig.js";
+
 const execFileAsync = promisify(execFile);
 
 export type GitSyncState = {
@@ -15,7 +21,11 @@ export type GitSyncState = {
   viewChangesBlocked: boolean;
 };
 
-export function createGitSyncRunner(repoRoot: string, gitSyncEnabled: boolean) {
+export function createGitSyncRunner(
+  repoRoot: string,
+  gitSyncEnabled: boolean,
+  getConfig: () => Promise<GitSyncConfig>,
+) {
   const state: GitSyncState = {
     enabled: gitSyncEnabled,
     running: false,
@@ -50,27 +60,22 @@ export function createGitSyncRunner(repoRoot: string, gitSyncEnabled: boolean) {
     let stashCreated = false;
 
     try {
+      const config = await getConfig();
+      const commitSpecs = expandPathspecs(config.commitPaths);
+      const outsideSpecs = otherRepoPathspecs(config.commitPaths, config.excludePaths);
+
       const output: string[] = [`sync reason: ${reason}`];
       const branch = (await git(["rev-parse", "--abbrev-ref", "HEAD"])).trim();
       output.push(await git(["fetch", "origin"]));
 
-      const modelStatus = await git(["status", "--porcelain", "--", "model"]);
-      if (modelStatus) {
-        output.push(await git(["add", "model"]));
+      const commitStatus = await git(["status", "--porcelain", "--", ...commitSpecs]);
+      if (commitStatus) {
+        output.push(await git(["add", "--", ...commitSpecs]));
         output.push(await git(["commit", "-m", "Automated sync"]));
       }
 
-      const outsideModelView = await git([
-        "status",
-        "--porcelain",
-        "--",
-        ".",
-        ":!model",
-        ":!model/**",
-        ":!view",
-        ":!view/**",
-      ]);
-      if (outsideModelView) {
+      const outsideCommitPaths = await git(["status", "--porcelain", "--", ...outsideSpecs]);
+      if (outsideCommitPaths) {
         output.push(
           await git([
             "stash",
@@ -78,11 +83,7 @@ export function createGitSyncRunner(repoRoot: string, gitSyncEnabled: boolean) {
             "-m",
             "treewriter-sync-wip",
             "--",
-            ".",
-            ":!model",
-            ":!model/**",
-            ":!view",
-            ":!view/**",
+            ...outsideSpecs,
           ]),
         );
         stashCreated = true;
@@ -110,9 +111,10 @@ export function createGitSyncRunner(repoRoot: string, gitSyncEnabled: boolean) {
           } else {
             state.viewChangesBlocked = true;
           }
+          const excluded = config.excludePaths.join(", ") || "none";
           throw new Error(
             blockedByLocalChanges
-              ? "Sync paused — local view/ changes prevented rebase; model/ was committed. Commit view/ or sync manually."
+              ? `Sync paused — local changes outside commit paths (${config.commitPaths.join(", ")}) prevented rebase. Excluded: ${excluded}. Commit or stash manually.`
               : "Rebase conflict — aborted; resolve manually in the terminal, then run sync again.",
           );
         }
@@ -131,7 +133,7 @@ export function createGitSyncRunner(repoRoot: string, gitSyncEnabled: boolean) {
           output.push(`stash pop failed: ${message}`);
           state.pendingStashRestore = true;
           state.lastError =
-            "Model synced, but local view/ edits were left in git stash. In the repo root run: git stash pop";
+            "Model synced, but local edits outside commit paths were left in git stash. In the repo root run: git stash pop";
         }
       }
 
@@ -144,7 +146,7 @@ export function createGitSyncRunner(repoRoot: string, gitSyncEnabled: boolean) {
         } catch {
           state.pendingStashRestore = true;
           state.lastError =
-            "Sync failed and local view/ edits may still be in git stash. In the repo root run: git stash pop";
+            "Sync failed and local edits outside commit paths may still be in git stash. In the repo root run: git stash pop";
         }
       }
       if (!state.lastError) {

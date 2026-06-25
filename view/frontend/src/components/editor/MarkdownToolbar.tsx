@@ -186,6 +186,7 @@ function FormatToolsPopover({
             <div
               ref={menuRef}
               role="menu"
+              data-editor-floating-chrome
               className="fixed z-overlay w-44 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
               style={{ top: position.top, left: position.left }}
             >
@@ -233,12 +234,41 @@ function FormatToolsPopover({
   );
 }
 
+function ToolbarIconButton({
+  item,
+  disabled,
+  pressed,
+  onClick,
+}: {
+  item: ToolbarItem;
+  disabled?: boolean;
+  pressed?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={pressed ? "default" : "ghost"}
+      size="sm"
+      className="h-7 w-7 shrink-0 px-0"
+      title={item.title}
+      aria-label={item.label}
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <item.icon className="h-3.5 w-3.5" aria-hidden="true" />
+    </Button>
+  );
+}
+
 export function MarkdownToolbar({
   renderedMode = false,
   commentsOpen = false,
   unresolvedComments = 0,
   disabled = false,
   embedded = false,
+  inline = false,
   paperPath = null,
   filePath = "",
   refreshVersion = 0,
@@ -253,6 +283,8 @@ export function MarkdownToolbar({
   unresolvedComments?: number;
   disabled?: boolean;
   embedded?: boolean;
+  /** Compact icon-only layout for the floating inline selection toolbar. */
+  inline?: boolean;
   paperPath?: string | null;
   filePath?: string;
   refreshVersion?: number;
@@ -270,11 +302,18 @@ export function MarkdownToolbar({
     (item) => item.action !== "comment" && item.action !== "inlineNote",
   );
   const noteItem = visibleItems.find((item) => item.action === "inlineNote");
+  const quickFormatItems = formatItems.filter((item) =>
+    ["bold", "italic", "link"].includes(item.action),
+  );
+  const overflowFormatItems = formatItems.filter(
+    (item) => !["bold", "italic", "link"].includes(item.action),
+  );
 
   return (
     <div
       className={cn(
         embedded ? "markdown-toolbar min-w-0" : "ui-toolbar markdown-toolbar px-2 py-1",
+        inline && "markdown-toolbar--inline",
       )}
       role="toolbar"
       aria-label="Formatting"
@@ -290,7 +329,10 @@ export function MarkdownToolbar({
             type="button"
             variant={commentsOpen ? "default" : "ghost"}
             size="sm"
-            className="relative h-7 shrink-0 gap-1 px-2 text-[10px]"
+            className={cn(
+              "relative h-7 shrink-0 gap-1 text-[10px]",
+              inline ? "w-7 px-0" : "px-2",
+            )}
             title={commentItem.title}
             aria-label={commentItem.label}
             aria-pressed={commentsOpen}
@@ -313,10 +355,11 @@ export function MarkdownToolbar({
             refreshVersion={refreshVersion}
             disabled={disabled}
             embedded={embedded}
+            inline={inline}
             onInsert={onInsertSnippet}
           />
         ) : null}
-        {noteItem && !embedded ? (
+        {noteItem && !embedded && !inline ? (
           <Button
             type="button"
             variant="ghost"
@@ -331,14 +374,31 @@ export function MarkdownToolbar({
             <span className="hidden md:inline">{noteItem.label}</span>
           </Button>
         ) : null}
+        {inline
+          ? quickFormatItems.map((item) => (
+              <ToolbarIconButton
+                key={item.action}
+                item={item}
+                disabled={disabled}
+                onClick={() => onFormat(item.action as MarkdownFormatAction)}
+              />
+            ))
+          : null}
         <HighlightToolbarButton disabled={disabled} onInsertHighlight={onInsertHighlight} />
+        {noteItem && inline ? (
+          <ToolbarIconButton
+            item={noteItem}
+            disabled={disabled || !onInsertInlineNote}
+            onClick={() => onInsertInlineNote?.()}
+          />
+        ) : null}
         <FormatToolsPopover
           items={[
-            ...(noteItem && embedded ? [noteItem] : []),
-            ...formatItems,
+            ...(noteItem && embedded && !inline ? [noteItem] : []),
+            ...(inline ? overflowFormatItems : formatItems),
           ]}
           disabled={disabled}
-          embedded={embedded}
+          embedded={embedded || inline}
           onFormat={onFormat}
           onInsertInlineNote={onInsertInlineNote}
         />

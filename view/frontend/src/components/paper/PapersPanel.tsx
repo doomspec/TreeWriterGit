@@ -1,29 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GripVertical } from "lucide-react";
 
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
-import { SectionTreeRowMeta, resolveSectionTreeCreateParent } from "@/components/paper/SectionTreeRowMeta";
+import { SectionTreeRowMeta } from "@/components/paper/SectionTreeRowMeta";
+import {
+  SectionOrderList,
+  sectionTreeNavButtonClassName,
+  type SectionRow,
+} from "@/components/paper/PaperSectionTree";
+import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { UnapprovedIndicator } from "@/components/nav/UnapprovedIndicator";
 import { cn } from "@/lib/utils";
 import { useDraftPendingPaths, replaceServerDraftPendingPaths } from "@/lib/draftPendingStore";
-import {
-  sectionNeedsHighlight,
-  unapprovedSectionRowClass,
-  unapprovedSectionTitle,
-} from "@/lib/unapprovedHighlight";
+import { sectionNeedsHighlight, unapprovedSectionRowClass, unapprovedSectionTitle } from "@/lib/unapprovedHighlight";
 import { loadIndexChildOrder } from "@/lib/indexChildOrder";
 import { navigateAfterArchive, useArchiveNodeDialog } from "@/lib/useArchiveNodeDialog";
-import {
-  findNode,
-  isLeafEditorFolder,
-  orderedChildFolders,
-  sectionsForPaper,
-  type ModelNode,
-  type PaperSectionItem,
-} from "@/lib/modelTree";
 import {
   createNode,
   fetchPaperDetail,
@@ -31,13 +24,11 @@ import {
   reorderChildren,
   type NodeKind,
   type PaperDetail,
-  type UnitStatusCounts,
 } from "@/modelApi";
+import { sectionsForPaper } from "@/lib/modelTree";
 import { usePaperList } from "@/lib/usePaperList";
-
-type SectionRow = PaperSectionItem & {
-  counts?: UnitStatusCounts;
-};
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
+import { defaultPaperPath } from "@/lib/defaultGuidePaper";
 
 type CreatePrompt = {
   parentPath: string;
@@ -49,453 +40,21 @@ type RenameTarget = {
   label: string;
 };
 
-function sectionTreeDragHandleClass(compact = false): string {
-  return cn(
-    "flex shrink-0 cursor-grab items-center justify-center rounded-l-md text-muted-foreground transition-colors",
-    "hover:bg-muted/80 hover:text-foreground active:cursor-grabbing",
-    compact ? "w-5" : "w-7",
-  );
+function isPathUnderAncestor(currentPath: string, ancestorPath: string): boolean {
+  return currentPath === ancestorPath || currentPath.startsWith(`${ancestorPath}/`);
 }
 
-function sectionTreeNavButtonClass(options: {
-  active: boolean;
-  highlight: boolean;
-  textSize: string;
-  rowPad?: string;
-}): string {
-  const { active, highlight, textSize, rowPad } = options;
-  return cn(
-    "section-tree-row__nav flex items-center gap-1.5 rounded-md px-2 text-left transition-colors",
-    textSize,
-    rowPad,
-    highlight
-      ? active
-        ? "bg-amber-500/20 font-medium text-amber-950 hover:bg-amber-500/30 dark:text-amber-50"
-        : "text-amber-900 hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-100 dark:hover:text-amber-50"
-      : active
-        ? "bg-accent/50 font-medium text-foreground hover:bg-primary/15 hover:text-foreground"
-        : "text-muted-foreground hover:bg-accent/45 hover:text-foreground",
-  );
-}
-
-function FolderChildrenList({
-  parent,
-  paperPath,
-  currentPath,
-  tree,
-  childOrders,
-  containerCounts,
-  reordering,
-  depth = 0,
-  onNavigate,
-  onReorder,
-  onDelete,
-  onRename,
-  onCreate,
-}: {
-  parent: PaperSectionItem;
-  paperPath: string;
-  currentPath: string;
-  tree: ModelNode[];
-  childOrders: Record<string, string[]>;
-  containerCounts: Record<string, UnitStatusCounts>;
-  reordering: boolean;
-  depth?: number;
-  onNavigate: (path: string) => void;
-  onReorder: (parentPath: string, order: string[]) => Promise<void>;
-  onDelete: (path: string, label: string) => void;
-  onRename: (path: string, label: string) => void;
-  onCreate: (parentPath: string, kind: NodeKind) => void;
-}) {
-  const expanded =
-    currentPath === parent.path || currentPath.startsWith(`${parent.path}/`);
-  if (!expanded) return null;
-
-  const parentNode = findNode(tree, parent.path);
-  if (isLeafEditorFolder(parentNode)) return null;
-
-  const children = orderedChildFolders(tree, parent.path, childOrders[parent.path] ?? []);
-
-  if (children.length === 0 && depth !== 0) return null;
-
-  return (
-    <div
-      className={cn(
-        "border-l border-border/60 pl-2",
-        depth === 0 ? "ml-6" : "ml-3 border-border/40",
-      )}
-    >
-      {children.length === 0 ? (
-        <p className="px-2 py-1 text-[10px] text-muted-foreground">
-          No subsections or units yet — use + on a folder above to add a subsection or unit.
-        </p>
-      ) : (
-        <ChildOrderList
-          parentPath={parent.path}
-          parentTitle={parent.title}
-          items={children}
-          paperPath={paperPath}
-          currentPath={currentPath}
-          tree={tree}
-          childOrders={childOrders}
-          containerCounts={containerCounts}
-          reordering={reordering}
-          depth={depth}
-          onNavigate={onNavigate}
-          onReorder={onReorder}
-          onDelete={onDelete}
-          onRename={onRename}
-          onCreate={onCreate}
-        />
-      )}
-    </div>
-  );
-}
-
-function ChildOrderList({
-  parentPath,
-  parentTitle,
-  items,
-  paperPath,
-  currentPath,
-  tree,
-  childOrders,
-  containerCounts,
-  reordering,
-  depth,
-  onNavigate,
-  onReorder,
-  onDelete,
-  onRename,
-  onCreate,
-}: {
-  parentPath: string;
-  parentTitle: string;
-  items: PaperSectionItem[];
-  paperPath: string;
-  currentPath: string;
-  tree: ModelNode[];
-  childOrders: Record<string, string[]>;
-  containerCounts: Record<string, UnitStatusCounts>;
-  reordering: boolean;
-  depth: number;
-  onNavigate: (path: string) => void;
-  onReorder: (parentPath: string, order: string[]) => Promise<void>;
-  onDelete: (path: string, label: string) => void;
-  onRename: (path: string, label: string) => void;
-  onCreate: (parentPath: string, kind: NodeKind) => void;
-}) {
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-
-  const handleDrop = async (toIndex: number) => {
-    if (dragIndex === null || dragIndex === toIndex) {
-      setDragIndex(null);
-      setOverIndex(null);
-      return;
-    }
-    const next = [...items];
-    const [moved] = next.splice(dragIndex, 1);
-    next.splice(toIndex, 0, moved);
-    setDragIndex(null);
-    setOverIndex(null);
-    await onReorder(parentPath, next.map((c) => c.name));
-  };
-
-  return (
-    <ul className="space-y-0.5" aria-label={`Children of ${parentTitle}`}>
-      {items.map((child, index) => {
-        const childActive = currentPath === child.path || currentPath.startsWith(`${child.path}/`);
-        const textSize = depth === 0 ? "text-[11px]" : "text-[10px]";
-        const rowPad = depth === 0 ? "py-1" : "py-0.5";
-        const { highlight, pending, unapproved } = sectionNeedsHighlight(
-          child.path,
-          containerCounts[child.path],
-        );
-
-        return (
-          <li key={child.path}>
-            <div
-              className={cn(
-                "section-tree-row group flex items-stretch gap-0.5 rounded-md",
-                unapprovedSectionRowClass({ highlight, pending, active: childActive, compact: true }),
-                dragIndex === index ? "opacity-50" : undefined,
-                overIndex === index && dragIndex !== null && dragIndex !== index
-                  ? "ring-1 ring-primary/40"
-                  : undefined,
-                reordering ? "pointer-events-none opacity-60" : undefined,
-              )}
-            >
-              <div
-                draggable={!reordering}
-                onDragStart={() => setDragIndex(index)}
-                onDragEnd={() => {
-                  setDragIndex(null);
-                  setOverIndex(null);
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setOverIndex(index);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  void handleDrop(index);
-                }}
-                className={sectionTreeDragHandleClass(true)}
-                title="Drag to reorder"
-                aria-hidden="true"
-              >
-                <GripVertical className="h-3 w-3" />
-              </div>
-              <button
-                type="button"
-                className={sectionTreeNavButtonClass({
-                  active: childActive,
-                  highlight,
-                  textSize,
-                  rowPad,
-                })}
-                onClick={() => onNavigate(child.path)}
-              >
-                <UnapprovedIndicator pending={pending} unapproved={unapproved} />
-                <span
-                  className={cn(
-                    "section-tree-row__title",
-                    highlight && "text-amber-950 dark:text-amber-50",
-                  )}
-                >
-                  {child.title}
-                </span>
-              </button>
-              <SectionTreeRowMeta
-                createParentPath={resolveSectionTreeCreateParent(
-                  child.path,
-                  parentPath,
-                  tree,
-                  paperPath,
-                )}
-                paperPath={paperPath}
-                tree={tree}
-                title={child.title}
-                disabled={reordering}
-                onCreate={onCreate}
-                onRename={() => onRename(child.path, child.title)}
-                onDelete={() => onDelete(child.path, child.title)}
-              />
-            </div>
-            <FolderChildrenList
-              parent={child}
-              paperPath={paperPath}
-              currentPath={currentPath}
-              tree={tree}
-              childOrders={childOrders}
-              containerCounts={containerCounts}
-              reordering={reordering}
-              depth={depth + 1}
-              onNavigate={onNavigate}
-              onReorder={onReorder}
-              onDelete={onDelete}
-              onRename={onRename}
-              onCreate={onCreate}
-            />
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function SubsectionOrderList({
-  parent,
-  paperPath,
-  currentPath,
-  tree,
-  childOrders,
-  containerCounts,
-  reordering,
-  onNavigate,
-  onReorder,
-  onDelete,
-  onRename,
-  onCreate,
-}: {
-  parent: SectionRow;
-  paperPath: string;
-  currentPath: string;
-  tree: ModelNode[];
-  childOrders: Record<string, string[]>;
-  containerCounts: Record<string, UnitStatusCounts>;
-  reordering: boolean;
-  onNavigate: (path: string) => void;
-  onReorder: (parentPath: string, order: string[]) => Promise<void>;
-  onDelete: (path: string, label: string) => void;
-  onRename: (path: string, label: string) => void;
-  onCreate: (parentPath: string, kind: NodeKind) => void;
-}) {
-  return (
-    <FolderChildrenList
-      parent={parent}
-      paperPath={paperPath}
-      currentPath={currentPath}
-      tree={tree}
-      childOrders={childOrders}
-      containerCounts={containerCounts}
-      reordering={reordering}
-      onNavigate={onNavigate}
-      onReorder={onReorder}
-      onDelete={onDelete}
-      onRename={onRename}
-      onCreate={onCreate}
-    />
-  );
-}
-
-function SectionOrderList({
-  sections,
-  paperPath,
-  currentPath,
-  tree,
-  childOrders,
-  containerCounts,
-  reordering,
-  onNavigate,
-  onReorder,
-  onChildReorder,
-  onDelete,
-  onRename,
-  onCreate,
-}: {
-  sections: SectionRow[];
-  paperPath: string;
-  currentPath: string;
-  tree: ModelNode[];
-  childOrders: Record<string, string[]>;
-  containerCounts: Record<string, UnitStatusCounts>;
-  reordering: boolean;
-  onNavigate: (path: string) => void;
-  onReorder: (order: string[]) => Promise<void>;
-  onChildReorder: (parentPath: string, order: string[]) => Promise<void>;
-  onDelete: (path: string, label: string) => void;
-  onRename: (path: string, label: string) => void;
-  onCreate: (parentPath: string, kind: NodeKind) => void;
-}) {
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-
-  const handleDrop = async (toIndex: number) => {
-    if (dragIndex === null || dragIndex === toIndex) {
-      setDragIndex(null);
-      setOverIndex(null);
-      return;
-    }
-    const next = [...sections];
-    const [moved] = next.splice(dragIndex, 1);
-    next.splice(toIndex, 0, moved);
-    setDragIndex(null);
-    setOverIndex(null);
-    await onReorder(next.map((s) => s.name));
-  };
-
-  const renderChildren = (parent: SectionRow) => {
-    const expanded =
-      currentPath === parent.path || currentPath.startsWith(`${parent.path}/`);
-    if (!expanded) return null;
-
-    return (
-      <SubsectionOrderList
-        parent={parent}
-        paperPath={paperPath}
-        currentPath={currentPath}
-        tree={tree}
-        childOrders={childOrders}
-        containerCounts={containerCounts}
-        reordering={reordering}
-        onNavigate={onNavigate}
-        onReorder={onChildReorder}
-        onDelete={onDelete}
-        onRename={onRename}
-        onCreate={onCreate}
-      />
-    );
-  };
-
-  return (
-    <ul className="space-y-1" aria-label="Paper sections">
-      {sections.map((section, index) => {
-        const active =
-          currentPath === section.path || currentPath.startsWith(`${section.path}/`);
-        const { highlight, pending, unapproved } = sectionNeedsHighlight(
-          section.path,
-          containerCounts[section.path] ?? section.counts,
-        );
-        return (
-          <li key={section.path}>
-            <div
-              className={cn(
-                "section-tree-row group flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
-                unapprovedSectionRowClass({ highlight, pending, active }),
-                active && !highlight ? "border-primary/40 bg-accent/50" : undefined,
-                dragIndex === index ? "opacity-50" : undefined,
-                overIndex === index && dragIndex !== null && dragIndex !== index
-                  ? "border-primary ring-1 ring-primary/30"
-                  : undefined,
-                reordering ? "pointer-events-none opacity-60" : undefined,
-              )}
-            >
-              <div
-                draggable={!reordering}
-                onDragStart={() => setDragIndex(index)}
-                onDragEnd={() => {
-                  setDragIndex(null);
-                  setOverIndex(null);
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setOverIndex(index);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  void handleDrop(index);
-                }}
-                className={sectionTreeDragHandleClass()}
-                title="Drag to reorder"
-                aria-hidden="true"
-              >
-                <GripVertical className="h-3.5 w-3.5" />
-              </div>
-              <button
-                type="button"
-                className={sectionTreeNavButtonClass({
-                  active,
-                  highlight,
-                  textSize: "text-xs",
-                  rowPad: "py-1.5",
-                })}
-                onClick={() => onNavigate(section.path)}
-              >
-                <UnapprovedIndicator pending={pending} unapproved={unapproved} />
-                <span className={unapprovedSectionTitle("section-tree-row__title font-medium", highlight)}>
-                  {section.title}
-                </span>
-              </button>
-              <SectionTreeRowMeta
-                createParentPath={section.path}
-                paperPath={paperPath}
-                tree={tree}
-                title={section.title}
-                counts={section.counts}
-                disabled={reordering}
-                onCreate={onCreate}
-                onRename={() => onRename(section.path, section.title)}
-                onDelete={() => onDelete(section.path, section.title)}
-              />
-            </div>
-            {renderChildren(section)}
-          </li>
-        );
-      })}
-    </ul>
-  );
+function ancestorFolderPaths(folderPath: string, paperPath: string): string[] {
+  if (!folderPath.startsWith(paperPath)) return [];
+  if (folderPath === paperPath) return [];
+  const relative = folderPath.slice(paperPath.length + 1);
+  const paths: string[] = [];
+  let acc = paperPath;
+  for (const part of relative.split("/").filter(Boolean)) {
+    acc = `${acc}/${part}`;
+    paths.push(acc);
+  }
+  return paths;
 }
 
 export function PapersPanel({
@@ -509,7 +68,7 @@ export function PapersPanel({
   embedded = false,
   hidePaperHeader = false,
 }: {
-  tree: ModelNode[];
+  tree: import("@/lib/modelTree").ModelNode[];
   currentPath: string;
   refreshVersion?: number;
   onNavigate: (path: string) => void;
@@ -523,14 +82,73 @@ export function PapersPanel({
   useDraftPendingPaths();
   const [detail, setDetail] = useState<PaperDetail | null>(null);
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
-  const [childOrders, setChildOrders] = useState<Record<string, string[]>>({});
+  const [childOrderOverrides, setChildOrderOverrides] = useState<Record<string, string[]>>({});
+  const { commentSummary, paperChildOrders } = useWorkspaceNavigationContext();
+  const childOrders = useMemo(
+    () => ({ ...paperChildOrders, ...childOrderOverrides }),
+    [childOrderOverrides, paperChildOrders],
+  );
   const [detailLoading, setDetailLoading] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [createPrompt, setCreatePrompt] = useState<CreatePrompt | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => new Set());
+  const previousPathRef = useRef(currentPath);
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
+
+  useEffect(() => {
+    const previousPath = previousPathRef.current;
+    previousPathRef.current = currentPath;
+    if (previousPath === currentPath || !paperPath) return;
+
+    setCollapsedPaths((prev) => {
+      const ancestors = ancestorFolderPaths(currentPath, paperPath);
+      let next: Set<string> | null = null;
+      for (const path of ancestors) {
+        if (prev.has(path)) {
+          next ??= new Set(prev);
+          next.delete(path);
+        }
+      }
+      return next ?? prev;
+    });
+  }, [currentPath, paperPath]);
+
+  const isBranchExpanded = useCallback(
+    (folderPath: string) => {
+      if (!paperPath || !isPathUnderAncestor(currentPath, folderPath)) return false;
+      return !collapsedPaths.has(folderPath);
+    },
+    [collapsedPaths, currentPath, paperPath],
+  );
+
+  const onTreeItemClick = useCallback(
+    (path: string) => {
+      if (currentPath === path) {
+        setCollapsedPaths((prev) => {
+          const next = new Set(prev);
+          if (next.has(path)) next.delete(path);
+          else next.add(path);
+          return next;
+        });
+        return;
+      }
+
+      setCollapsedPaths((prev) => {
+        if (!prev.has(path)) return prev;
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
+      onNavigate(path);
+    },
+    [currentPath, onNavigate],
+  );
+
+  const showSectionList =
+    Boolean(paperPath) && (currentPath !== paperPath || !collapsedPaths.has(paperPath));
 
   const requestCreate = useCallback((parentPath: string, kind: NodeKind) => {
     setCreatePrompt({ parentPath, kind });
@@ -540,18 +158,14 @@ export function PapersPanel({
     setRenameTarget({ path, label });
   }, []);
 
-  const loadChildOrder = useCallback(
-    (path: string) => loadIndexChildOrder(path),
-    [],
-  );
-
   const loadSectionOrder = useCallback(
     async (path: string) => {
-      const order = await loadChildOrder(path);
+      const order =
+        childOrders[path]?.length ? childOrders[path] : await loadIndexChildOrder(path);
       setSectionOrder(order);
       return order;
     },
-    [loadChildOrder],
+    [childOrders],
   );
 
   const submitCreate = useCallback(
@@ -563,8 +177,8 @@ export function PapersPanel({
         const created = await createNode(parentPath, name, kind);
         onModelChanged?.();
         onNavigate(created.path);
-        const order = await loadChildOrder(parentPath);
-        setChildOrders((prev) => ({ ...prev, [parentPath]: order }));
+        const order = await loadIndexChildOrder(parentPath);
+        setChildOrderOverrides((prev) => ({ ...prev, [parentPath]: order }));
         if (paperPath && parentPath === paperPath) {
           await loadSectionOrder(paperPath);
         }
@@ -572,7 +186,7 @@ export function PapersPanel({
         onError(err instanceof Error ? err.message : String(err));
       }
     },
-    [createPrompt, loadChildOrder, loadSectionOrder, onError, onModelChanged, onNavigate, paperPath],
+    [createPrompt, loadSectionOrder, onError, onModelChanged, onNavigate, paperPath],
   );
 
   const reload = useCallback(async () => {
@@ -591,7 +205,7 @@ export function PapersPanel({
       } else {
         setDetail(null);
         setSectionOrder([]);
-        setChildOrders({});
+        setChildOrderOverrides({});
         replaceServerDraftPendingPaths([]);
       }
     } catch (err) {
@@ -641,7 +255,7 @@ export function PapersPanel({
   useEffect(() => {
     if (papersLoading || detailLoading || selectedSlug || papers.length === 0) return;
     if (currentPath === "papers" || currentPath === "") {
-      onNavigate(`papers/${papers[0].slug}`);
+      onNavigate(defaultPaperPath(papers));
     }
   }, [currentPath, detailLoading, onNavigate, papers, papersLoading, selectedSlug]);
 
@@ -663,41 +277,6 @@ export function PapersPanel({
     }));
   }, [detail, paperPath, sectionOrder, tree]);
 
-  const foldersNeedingChildOrder = useMemo(() => {
-    if (!paperPath || !currentPath.startsWith(paperPath)) return [];
-    const paths: string[] = [];
-    if (currentPath === paperPath) {
-      paths.push(paperPath);
-      return paths;
-    }
-    const relative = currentPath.slice(paperPath.length + 1);
-    const parts = relative.split("/").filter(Boolean);
-    let acc = paperPath;
-    paths.push(acc);
-    for (const part of parts) {
-      acc = `${acc}/${part}`;
-      paths.push(acc);
-    }
-    return paths;
-  }, [currentPath, paperPath]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      for (const folderPath of foldersNeedingChildOrder) {
-        if (folderPath in childOrders) continue;
-        const order = await loadChildOrder(folderPath);
-        if (cancelled) return;
-        setChildOrders((prev) =>
-          folderPath in prev ? prev : { ...prev, [folderPath]: order },
-        );
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [childOrders, foldersNeedingChildOrder, loadChildOrder]);
-
   const handleSectionReorder = async (order: string[]) => {
     if (!paperPath) return;
     setReordering(true);
@@ -717,7 +296,7 @@ export function PapersPanel({
     setReordering(true);
     try {
       await reorderChildren(parentPath, order);
-      setChildOrders((prev) => ({ ...prev, [parentPath]: order }));
+      setChildOrderOverrides((prev) => ({ ...prev, [parentPath]: order }));
       onModelChanged?.();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -740,11 +319,20 @@ export function PapersPanel({
         />
       ) : null}
 
+      {papersLoading && papers.length === 0 ? (
+        <LoadingSkeleton className="px-1 py-2" lines={5} />
+      ) : null}
+
+      {detailLoading && !detail ? (
+        <LoadingSkeleton className="px-1 py-2" lines={4} />
+      ) : null}
+
       {detail && !hidePaperHeader ? (
         <PaperInfoLine
           slug={selectedSlug}
           refreshVersion={refreshVersion ?? 0}
           onError={onError}
+          commentSummary={commentSummary}
         />
       ) : null}
 
@@ -764,13 +352,13 @@ export function PapersPanel({
             >
               <button
                 type="button"
-                className={sectionTreeNavButtonClass({
+                className={sectionTreeNavButtonClassName({
                   active: currentPath === paperPath,
                   highlight: paperHighlight.highlight,
                   textSize: "text-xs",
                   rowPad: "py-1.5",
                 })}
-                onClick={() => onNavigate(paperPath)}
+                onClick={() => onTreeItemClick(paperPath)}
               >
                 <UnapprovedIndicator
                   pending={paperHighlight.pending}
@@ -793,6 +381,7 @@ export function PapersPanel({
                 paperPath={paperPath}
                 tree={tree}
                 title={detail?.title ?? "Paper overview"}
+                rowPath={paperPath}
                 disabled={reordering}
                 onCreate={requestCreate}
                 showRename={false}
@@ -810,26 +399,28 @@ export function PapersPanel({
                   No sections yet — use + on the paper row above to add a section.
                 </p>
               </div>
-            ) : (
+            ) : showSectionList ? (
               <SectionOrderList
                 sections={sections}
-                paperPath={paperPath!}
+                paperPath={paperPath}
                 currentPath={currentPath}
                 tree={tree}
                 childOrders={childOrders}
                 containerCounts={containerCounts}
                 reordering={reordering}
-                onNavigate={onNavigate}
+                isBranchExpanded={isBranchExpanded}
+                onTreeItemClick={onTreeItemClick}
                 onReorder={handleSectionReorder}
                 onChildReorder={handleChildReorder}
                 onDelete={requestArchive}
                 onRename={requestRename}
                 onCreate={requestCreate}
               />
-            )}
+            ) : null}
             {sections.length > 0 ? (
               <p className="text-[10px] text-muted-foreground">
-                Drag to reorder · hover for + rename remove · ⋯ on narrow sidebar ·{" "}
+                Drag to reorder · click again on a selected folder to collapse · hover for + rename
+                remove · ⋯ on narrow sidebar ·{" "}
                 <span className="text-amber-700 dark:text-amber-300">amber = unapproved text</span>
               </p>
             ) : null}

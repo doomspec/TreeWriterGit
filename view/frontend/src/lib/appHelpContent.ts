@@ -66,6 +66,9 @@ export const HELP_SHORTCUT_GROUPS: HelpShortcutGroup[] = [
       { label: "Layout: source", chordId: "editor.layout.source" },
       { label: "Layout: split", chordId: "editor.layout.split" },
       { label: "Layout: preview", chordId: "editor.layout.preview" },
+      { label: "Focus outline pane", chordId: "editor.pane.outline" },
+      { label: "Focus draft pane", chordId: "editor.pane.draft" },
+      { label: "Focus notes pane", chordId: "editor.pane.notes" },
     ],
   },
 ];
@@ -81,10 +84,12 @@ export const HELP_FEATURES: HelpFeature[] = [
   },
   {
     title: "Outline, draft & approval",
-    body: "Each unit has outline.md and draft.md. Edit in split view; approve draft changes to sync composed section text. Section-level actions can approve all pending children at once.",
+    body: "Each unit has outline.md and draft.md. Edit in split view; approve draft changes to sync composed section text. Section-level actions can approve all pending children at once. Each unit, section, and subsection also has temp-notes.md — a local scratchpad that autosaves but is not exported and needs no approval.",
     hints: [
       "Unapproved draft edits stay local until you approve them.",
       "Composed drafts roll up approved unit text for export.",
+      "Use Split / Write / Plan presets in the header. Shift+Alt+1/2/3 still focus individual panes.",
+      "Pane layout is remembered separately for each paper, section, and unit.",
     ],
   },
   {
@@ -101,9 +106,12 @@ export const HELP_FEATURES: HelpFeature[] = [
   },
   {
     title: "Reading focus",
-    body: "Distraction-free editing hides most chrome. Use the nav bar or edit bar to switch Outline, Draft, or Both panes. Click the document title to go up one section. Press Esc to exit.",
+    body: "Distraction-free editing hides most chrome. Use Split / Write / Plan in the top header to switch pane layouts. Press Esc to exit.",
     hints: [
-      "Split pane labels (Outline / Draft) appear in the markdown toolbar row.",
+      "Split pane labels (Outline / Draft) appear in the markdown toolbar row when two panes are side by side.",
+      "Select text or place the caret in the draft to show a floating format toolbar (bold, link, assets, highlights).",
+      "Draft + Notes stack vertically; Outline pairs horizontally with Draft or Notes.",
+      "Shift+Alt+1/2/3 focus outline, draft, or notes.",
       "Optional link graph sits beside the title in focus mode.",
     ],
   },
@@ -125,8 +133,12 @@ export const HELP_FEATURES: HelpFeature[] = [
   },
   {
     title: "Terminal & AI dispatch",
-    body: "The bottom panel combines a terminal with AI dispatch. Send context-aware jobs from section or unit panes — make draft, sync outline, revise, expand, cite-check, and custom prompts.",
-    hints: ["Configure AI providers in Settings.", "Git sync keeps the model tree aligned with your repository."],
+    body: "The bottom panel combines a terminal with AI dispatch. Each preview bundles outline, draft, links, sibling units, and paper search hits. Optional file checklist overrides defaults; agents can run node ../scripts/tw-context.mjs from model/ for more context (no project MCP).",
+    hints: [
+      "Dispatch → Skills: enable treewriter-context-cli.md and writing skills.",
+      "Dispatch → Integration: copy system prompt or context CLI cheatsheet.",
+      "Configure AI providers in Settings; keep pnpm dev running for FTS search.",
+    ],
   },
   {
     title: "Command palette",
@@ -177,6 +189,7 @@ export const HELP_QUICK_START = [
   "Edit outline and draft in split view; approve draft changes to sync composed text.",
   "Use the document outline panel or graph to jump between linked sections.",
   "Connect Overleaf from Export when you are ready to share LaTeX with collaborators.",
+  "Use AI dispatch from unit panes; tw-context CLI in the terminal fetches extra manuscript context on demand.",
   "Press ⌘⇧F for reading focus; press ⌘K whenever you forget a shortcut.",
 ] as const;
 

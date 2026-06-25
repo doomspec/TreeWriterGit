@@ -5,28 +5,12 @@ import { Button } from "@/components/ui/button";
 import {
   clearDraftPendingPaths,
   pendingChildApprovalPaths,
-  replaceServerDraftPendingPaths,
   useDraftPendingPaths,
 } from "@/lib/draftPendingStore";
+import { refreshPaperPendingPaths } from "@/lib/refreshPaperPending";
 import { getGitHubHandle } from "@/lib/userIdentity";
 import { cn } from "@/lib/utils";
-import { approveDraftChildren, fetchPaperDetail } from "@/modelApi";
-
-function paperSlugFromSectionPath(sectionPath: string): string | null {
-  const match = sectionPath.match(/^papers\/([^/]+)/);
-  return match?.[1] ?? null;
-}
-
-async function refreshPaperPendingPaths(sectionPath: string): Promise<void> {
-  const slug = paperSlugFromSectionPath(sectionPath);
-  if (!slug) return;
-  try {
-    const data = await fetchPaperDetail(slug);
-    replaceServerDraftPendingPaths(data.paper.pendingApprovalPaths ?? []);
-  } catch {
-    replaceServerDraftPendingPaths([]);
-  }
-}
+import { approveDraftChildren } from "@/modelApi";
 
 export function SectionApproveChildrenButton({
   sectionPath,

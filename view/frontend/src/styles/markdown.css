@@ -154,6 +154,14 @@ del.highlight-inline--deleted {
   background: hsl(var(--warning) / 0.28);
 }
 
+mark.highlight-inline--pending.pending-change-focus,
+span.highlight-line--pending.pending-change-focus,
+del.highlight-inline--deleted.pending-change-focus {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .highlighting-textarea__input--overlay {
   color: transparent;
   -webkit-text-fill-color: transparent;
@@ -394,9 +402,41 @@ del.highlight-inline--deleted {
 }
 
 .block-markdown-editor__block {
+  position: relative;
   padding: 0.5rem 0;
-  border-left: 3px solid transparent;
+  border-left: none;
   border-radius: 0;
+}
+
+.block-markdown-editor__block--focused {
+  padding-right: 2rem;
+}
+
+.block-markdown-editor__block--focused::before {
+  content: "";
+  position: absolute;
+  left: -1rem;
+  top: 0.35rem;
+  bottom: 0.35rem;
+  width: 3px;
+  border-radius: 9999px;
+  background: hsl(var(--primary) / 0.45);
+  pointer-events: none;
+}
+
+.block-unit-insert-button {
+  position: absolute;
+  right: 0;
+  bottom: 0.35rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.block-markdown-editor__block--focused .block-unit-insert-button,
+.block-unit-insert-button:has([aria-expanded="true"]) {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .block-markdown-editor__block a {
@@ -408,6 +448,17 @@ del.highlight-inline--deleted {
 
 .block-markdown-editor__block a:hover {
   text-decoration-color: hsl(var(--primary) / 0.7);
+}
+
+.block-markdown-editor__block a.outline-nav-link--active,
+.markdown-body a.outline-nav-link--active {
+  background: hsl(var(--accent) / 0.65);
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  border-radius: 0.25rem;
+  padding-inline: 0.15rem;
+  text-decoration: none;
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.35);
 }
 
 .block-markdown-editor__block-surface {
@@ -511,6 +562,15 @@ del.highlight-inline--deleted {
 
 .dark .latex-ref-badge {
   background: hsl(var(--primary) / 0.16);
+}
+
+.latex-ref-badge--linked {
+  cursor: pointer;
+}
+
+.latex-ref-badge--linked:hover {
+  background: hsl(var(--primary) / 0.18);
+  border-color: hsl(var(--primary) / 0.35);
 }
 
 .text-highlight-badge {

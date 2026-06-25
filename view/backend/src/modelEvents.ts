@@ -1,12 +1,14 @@
 import { invalidateGraphCache, invalidateGraphCacheForChange } from "./graphCache.js";
+import { invalidateModelIndexForChange } from "./modelIndex/index.js";
+import { invalidateModelTreeCache, invalidateModelTreeCacheForChange } from "./modelTreeCache.js";
+import type { ModelEventKind } from "@treewriter/shared";
+
+export type { ModelEventKind };
 
 type BroadcastSource = "api" | "watch";
 
 const WATCH_DEDUPE_MS = 2_500;
 let lastApiBroadcast: { path: string; at: number } | null = null;
-
-/** Content-only saves should not rebuild the link graph on every keystroke. */
-export type ModelEventKind = "structure" | "content" | "comments";
 
 let treeVersion = 0;
 
@@ -64,10 +66,12 @@ export type ModelEventBroadcaster = (
 export function createModelEventBroadcaster(
   clients: Set<{ readyState: number; send: (data: string) => void }>,
   openState: number,
+  modelRoot: string,
 ): ModelEventBroadcaster {
   return (event, source = "api") => {
     const enriched = enrichModelEvent(event);
     const path = typeof enriched.path === "string" ? enriched.path : null;
+    const kind = enriched.kind as ModelEventKind;
 
     if (source === "watch" && isDuplicateWatchEvent(path)) {
       return;
@@ -79,6 +83,12 @@ export function createModelEventBroadcaster(
 
     if (changeAffectsGraph(path)) {
       invalidateGraphCacheForChange(path);
+    }
+    if (kind === "structure") {
+      invalidateModelTreeCacheForChange(path);
+    }
+    if (kind !== "comments") {
+      invalidateModelIndexForChange(modelRoot, path);
     }
 
     const payload = JSON.stringify({
@@ -98,4 +108,5 @@ export function resetModelEventBroadcastState(): void {
   lastApiBroadcast = null;
   treeVersion = 0;
   invalidateGraphCache();
+  invalidateModelTreeCache();
 }

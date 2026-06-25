@@ -3,9 +3,10 @@ import { Check, Copy } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { buildAgentIntegrationPrompt, buildDispatchGuideText } from "@/lib/agentIntegrationPrompt";
+import { buildContextCliQuickRef } from "@/lib/dispatchContextGuide";
 import { cn } from "@/lib/utils";
 
-type IntegrationTab = "system-prompt" | "dispatch-guide";
+type IntegrationTab = "system-prompt" | "dispatch-guide" | "context-cli";
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -36,18 +37,23 @@ export function DispatchIntegrationPanel({
   );
 
   const dispatchGuide = useMemo(() => buildDispatchGuideText(), []);
+  const contextCliRef = useMemo(() => buildContextCliQuickRef(currentPath || undefined), [currentPath]);
 
   const activeText =
     tab === "system-prompt"
       ? systemPrompt
-      : previewPrompt?.trim() || previewCommand?.trim() || dispatchGuide;
+      : tab === "context-cli"
+        ? contextCliRef
+        : previewPrompt?.trim() || previewCommand?.trim() || dispatchGuide;
 
   const activeLabel =
     tab === "system-prompt"
       ? "System prompt"
-      : previewPrompt?.trim()
-        ? "Latest dispatch prompt"
-        : "Dispatch guide";
+      : tab === "context-cli"
+        ? "Context CLI"
+        : previewPrompt?.trim()
+          ? "Latest dispatch prompt"
+          : "Dispatch guide";
 
   useEffect(() => {
     setCopied(false);
@@ -68,6 +74,7 @@ export function DispatchIntegrationPanel({
           [
             ["system-prompt", "System prompt"],
             ["dispatch-guide", previewPrompt?.trim() ? "Latest prompt" : "Dispatch guide"],
+            ["context-cli", "Context CLI"],
           ] as const
         ).map(([value, label]) => (
           <button

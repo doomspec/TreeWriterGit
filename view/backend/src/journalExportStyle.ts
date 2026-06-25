@@ -14,6 +14,10 @@ export interface JournalExportStyle {
   latexHeader?: string;
   /** Template-relative .tex file under model/templates/ merged into the header */
   includeHeader?: string;
+  /** Directory under model/templates/ copied into LaTeX export bundles (e.g. nature-latex) */
+  templateBundle?: string;
+  /** BibTeX style file basename without extension (e.g. naturemag) */
+  bibStyle?: string;
 }
 
 export function parseJournalExportStyle(raw: unknown): JournalExportStyle | undefined {
@@ -50,13 +54,23 @@ export function parseJournalExportStyle(raw: unknown): JournalExportStyle | unde
   if (typeof data.include_header === "string" && data.include_header.trim()) {
     style.includeHeader = data.include_header.trim();
   }
+  if (typeof data.template_bundle === "string" && data.template_bundle.trim()) {
+    style.templateBundle = data.template_bundle.trim();
+  }
+  if (typeof data.bib_style === "string" && data.bib_style.trim()) {
+    style.bibStyle = data.bib_style.trim();
+  }
 
   return Object.keys(style).length > 0 ? style : undefined;
 }
 
+export function usesBibtexExportStyle(style: JournalExportStyle | undefined): boolean {
+  return Boolean(style?.bibStyle?.trim());
+}
+
 export function buildJournalLatexHeader(style: JournalExportStyle): string {
   const lines: string[] = [];
-  if (style.geometry) {
+  if (style.geometry && style.documentclass !== "nature") {
     lines.push(`\\usepackage[${style.geometry}]{geometry}`);
   }
   if (style.latexHeader?.trim()) {

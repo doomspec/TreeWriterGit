@@ -24,7 +24,10 @@ export function registerModelAssetRoutes(app: Express, deps: ServerDeps): void {
         response.status(400).json({ error: "File too large (max 20MB)" });
         return;
       }
-      const result = await uploadFigureImage(deps.modelRoot, figurePath, filename, buffer);
+      const roleRaw = bodyString(request, "role");
+      const role =
+        roleRaw === "preview" || roleRaw === "source" || roleRaw === "both" ? roleRaw : "auto";
+      const result = await uploadFigureImage(deps.modelRoot, figurePath, filename, buffer, role);
       deps.broadcastModelEvent({ type: "model-changed", path: result.assetPath });
       response.status(201).json(result);
     }),

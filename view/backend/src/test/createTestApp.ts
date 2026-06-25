@@ -61,6 +61,9 @@ export function createTestDeps(overrides: Partial<ServerDeps> = {}): ServerDeps 
         includeDrafts: true,
         pushOverleaf: true,
         debounceMs: 60_000,
+        blockOnOrphanRefs: false,
+        blockOnUnapproved: false,
+        blockOnMissingCitations: false,
       })),
     getAutoExportState:
       overrides.getAutoExportState ??
@@ -74,6 +77,7 @@ export function createTestDeps(overrides: Partial<ServerDeps> = {}): ServerDeps 
       })),
     runAutoExportNow: overrides.runAutoExportNow ?? (async () => {}),
     reloadGitSyncSchedule: overrides.reloadGitSyncSchedule ?? (() => {}),
+    agentJobs: overrides.agentJobs,
     ...overrides,
   };
 }

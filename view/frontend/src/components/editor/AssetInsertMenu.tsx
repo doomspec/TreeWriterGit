@@ -30,6 +30,8 @@ type AssetInsertMenuProps = {
   refreshVersion: number;
   disabled?: boolean;
   embedded?: boolean;
+  /** Compact icon-only button for the floating inline toolbar. */
+  inline?: boolean;
   onInsert: (snippet: string) => void;
 };
 
@@ -89,6 +91,7 @@ export function AssetInsertMenu({
   refreshVersion,
   disabled = false,
   embedded = false,
+  inline = false,
   onInsert,
 }: AssetInsertMenuProps) {
   const [open, setOpen] = useState(false);
@@ -219,6 +222,7 @@ export function AssetInsertMenu({
         ref={panelRef}
         role="listbox"
         aria-label="Paper assets"
+        data-editor-floating-chrome
         style={{ top: panelPosition.top, left: panelPosition.left }}
         className="asset-insert-menu__panel asset-insert-menu__panel--portal"
       >
@@ -323,6 +327,8 @@ export function AssetInsertMenu({
       </div>
     ) : null;
 
+  const toggleOpen = () => setOpen((value) => !value);
+
   return (
     <div ref={rootRef} className={cn("asset-insert-menu", embedded && "asset-insert-menu--embedded")}>
       <Button
@@ -330,16 +336,27 @@ export function AssetInsertMenu({
         type="button"
         variant={open ? "default" : "ghost"}
         size="sm"
-        className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+        className={cn(
+          "h-7 shrink-0 gap-1 text-[10px]",
+          inline || embedded ? "w-7 px-0" : "px-2",
+        )}
         title="Insert figure, table, equation, or reference — or type \\fig{}, \\table{}, \\cite{}, \\eq{}"
         aria-label="Insert asset"
         aria-expanded={open}
         aria-haspopup="listbox"
         disabled={disabled}
-        onClick={() => setOpen((value) => !value)}
+        onMouseDown={
+          inline
+            ? (event) => {
+                event.preventDefault();
+                if (!disabled) toggleOpen();
+              }
+            : undefined
+        }
+        onClick={inline ? undefined : () => !disabled && toggleOpen()}
       >
         <Layers className="h-3.5 w-3.5" aria-hidden="true" />
-        <span className={embedded ? "sr-only" : "hidden sm:inline"}>Assets</span>
+        <span className={inline || embedded ? "sr-only" : "hidden sm:inline"}>Assets</span>
       </Button>
 
       {panel ? createPortal(panel, document.body) : null}

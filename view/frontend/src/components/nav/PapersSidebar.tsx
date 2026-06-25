@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Search } from "lucide-react";
 
+import { SearchResults } from "@/components/layout/SearchResults";
 import { PaperAssetsPanel } from "@/components/nav/PaperAssetsPanel";
 import { TrashPanel } from "@/components/nav/TrashPanel";
-import { GraphPanel } from "@/components/graph/GraphPanel";
 import { PaperInfoLine } from "@/components/nav/PaperInfoLine";
 import { PaperSelectorBar } from "@/components/nav/PaperSelectorBar";
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
@@ -15,8 +15,9 @@ import {
   saveWorkspacePreferences,
   type PapersSidebarPanels,
 } from "@/lib/workspacePreferences";
-import type { GraphScope } from "@/lib/graphLocal";
 import type { ModelNode } from "@/lib/modelTree";
+import { PAPERS_ROOT } from "@/lib/modelTree";
+import type { SearchHit } from "@/modelApi";
 
 function SidebarSection({
   title,
@@ -61,11 +62,9 @@ export function PapersSidebar({
   onPaperCreated,
   onModelChanged,
   onError,
-  graphFetchRoot,
-  graphFocusPath,
-  graphScope,
-  onGraphScopeChange,
-  onGraphSelectNode,
+  searchQuery = "",
+  onSearchChange,
+  onSearchSelect,
   embedded = false,
 }: {
   tree: ModelNode[];
@@ -77,11 +76,9 @@ export function PapersSidebar({
   onPaperCreated: (path: string) => void;
   onModelChanged: () => void;
   onError: (message: string) => void;
-  graphFetchRoot: string;
-  graphFocusPath: string;
-  graphScope: GraphScope;
-  onGraphScopeChange: (scope: GraphScope) => void;
-  onGraphSelectNode: (id: string) => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
+  onSearchSelect?: (hit: SearchHit) => void;
   embedded?: boolean;
 }) {
   const [panels, setPanels] = useState<PapersSidebarPanels>(() =>
@@ -98,7 +95,7 @@ export function PapersSidebar({
     setPanels((current) => ({ ...current, [key]: !current[key] }));
   }, []);
 
-  const { sectionsOpen, assetsOpen, removedOpen, graphOpen } = panels;
+  const { sectionsOpen, assetsOpen, removedOpen } = panels;
 
   return (
     <div
@@ -123,6 +120,31 @@ export function PapersSidebar({
             refreshVersion={refreshVersion}
             onError={onError}
           />
+          {onSearchChange ? (
+            <div>
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <input
+                  type="search"
+                  placeholder={paperPath ? "Search this paper…" : "Search papers…"}
+                  value={searchQuery}
+                  className="ui-input pl-8"
+                  onChange={(event) => onSearchChange(event.target.value)}
+                />
+              </div>
+              {onSearchSelect ? (
+                <SearchResults
+                  query={searchQuery}
+                  root={paperPath ?? PAPERS_ROOT}
+                  onSelect={onSearchSelect}
+                  className="mt-2 rounded-md border-t-0"
+                />
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <SidebarSection
@@ -172,25 +194,6 @@ export function PapersSidebar({
             onNavigate={onNavigate}
             onError={onError}
           />
-        </SidebarSection>
-
-        <SidebarSection
-          title="Graph"
-          open={graphOpen}
-          onToggle={() => togglePanel("graphOpen")}
-        >
-          <div className="graph-tab-host flex h-[min(240px,36vh)] min-h-[200px] shrink-0 flex-col overflow-hidden">
-            <GraphPanel
-              embedded
-              active={graphOpen}
-              fetchRoot={graphFetchRoot}
-              focusPath={graphFocusPath}
-              graphScope={graphScope}
-              refreshVersion={refreshVersion}
-              onGraphScopeChange={onGraphScopeChange}
-              onSelectNode={onGraphSelectNode}
-            />
-          </div>
         </SidebarSection>
       </div>
     </div>

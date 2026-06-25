@@ -11,7 +11,7 @@ type UseEditorDispatchOptions = {
   enabled: boolean;
   compact: boolean;
   paneLabel?: string;
-  unitPath: string;
+  unitPath: string | null;
   previewBody: string;
   content: string;
   isFigureUnit: boolean;

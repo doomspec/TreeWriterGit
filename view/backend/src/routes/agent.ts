@@ -26,12 +26,69 @@ import {
   listSessions,
   updateSessionStatus,
 } from "../sessions.js";
+import {
+  deleteDispatchSkill,
+  listDispatchSkills,
+  saveDispatchSkill,
+  saveDispatchSkillsEnabled,
+} from "../dispatchSkills.js";
 import type { ServerDeps } from "./types.js";
+import { asyncHandler } from "./asyncHandler.js";
 
 export function registerAgentRoutes(app: Express, deps: ServerDeps) {
   app.get("/api/agent/providers", async (_request, response, next) => {
     try {
       response.json(await loadProviders(deps.repoRoot));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/agent/skills", async (_request, response, next) => {
+    try {
+      response.json({ skills: await listDispatchSkills(deps.repoRoot) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/agent/skills", async (request, response, next) => {
+    try {
+      const { filename, content } = request.body as { filename?: string; content?: string };
+      if (!filename?.trim() || typeof content !== "string") {
+        response.status(400).json({ error: "filename and content required" });
+        return;
+      }
+      const skill = await saveDispatchSkill(deps.repoRoot, filename, content);
+      response.status(201).json({ skill });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/agent/skills/enabled", async (request, response, next) => {
+    try {
+      const { enabled } = request.body as { enabled?: string[] };
+      if (!Array.isArray(enabled)) {
+        response.status(400).json({ error: "enabled array required" });
+        return;
+      }
+      const normalized = await saveDispatchSkillsEnabled(deps.repoRoot, enabled);
+      response.json({ enabled: normalized, skills: await listDispatchSkills(deps.repoRoot) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/agent/skills/:filename", async (request, response, next) => {
+    try {
+      const filename = String(request.params.filename ?? "");
+      if (!filename) {
+        response.status(400).json({ error: "filename required" });
+        return;
+      }
+      await deleteDispatchSkill(deps.repoRoot, filename);
+      response.json({ ok: true, skills: await listDispatchSkills(deps.repoRoot) });
     } catch (error) {
       next(error);
     }
@@ -329,4 +386,18 @@ export function registerAgentRoutes(app: Express, deps: ServerDeps) {
       next(error);
     }
   });
+
+  app.get(
+    "/api/agent/jobs",
+    asyncHandler(async (request, response) => {
+      const unitPath = String(request.query.unitPath ?? "").trim();
+      if (!unitPath) {
+        response.status(400).json({ error: "unitPath required" });
+        return;
+      }
+      resolveModelPath(deps.modelRoot, unitPath);
+      const jobs = deps.agentJobs?.listForUnit(unitPath) ?? [];
+      response.json({ jobs });
+    }),
+  );
 }

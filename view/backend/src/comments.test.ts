@@ -97,5 +97,31 @@ describe("summarizeCommentsForPaper", () => {
     const summary = await summarizeCommentsForPaper(modelRoot, "ml");
     expect(summary.total).toBe(2);
     expect(summary.unresolved).toBe(1);
+    expect(summary.assigned).toBe(0);
+    expect(summary.assignedUnresolved).toBe(0);
+  });
+
+  it("assigns and clears assignee with summary counts", async () => {
+    const fileRel = "papers/ml/sections/intro/draft.md";
+    await mkdir(path.join(modelRoot, path.dirname(fileRel)), { recursive: true });
+    await writeFile(path.join(modelRoot, fileRel), "text", "utf8");
+    const created = await createComment(modelRoot, fileRel, {
+      line: 1,
+      author: "Alice",
+      text: "Fix this",
+    });
+    const assigned = await updateComment(modelRoot, fileRel, created.id, {
+      assigned_to: { type: "human", id: "bob", label: "Bob" },
+      assigned_by: "Alice",
+    });
+    expect(assigned.assigned_to?.id).toBe("bob");
+
+    let summary = await summarizeCommentsForPaper(modelRoot, "ml");
+    expect(summary.assigned).toBe(1);
+    expect(summary.assignedUnresolved).toBe(1);
+
+    await updateComment(modelRoot, fileRel, created.id, { assigned_to: null });
+    summary = await summarizeCommentsForPaper(modelRoot, "ml");
+    expect(summary.assigned).toBe(0);
   });
 });

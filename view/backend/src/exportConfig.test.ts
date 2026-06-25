@@ -22,13 +22,23 @@ describe("loadExportConfig", () => {
     expect(config.autoExport).toBe(false);
     expect(config.includeDrafts).toBe(true);
     expect(config.pushOverleaf).toBe(true);
+    expect(config.blockOnOrphanRefs).toBe(false);
+    expect(config.blockOnUnapproved).toBe(false);
+    expect(config.blockOnMissingCitations).toBe(false);
   });
 
   it("reads export block from .treewriter.json", async () => {
     await writeFile(
       path.join(repoRoot, ".treewriter.json"),
       JSON.stringify({
-        export: { autoExport: true, includeDrafts: false, pushOverleaf: false },
+        export: {
+          autoExport: true,
+          includeDrafts: false,
+          pushOverleaf: false,
+          blockOnOrphanRefs: true,
+          blockOnUnapproved: true,
+          blockOnMissingCitations: true,
+        },
       }),
       "utf8",
     );
@@ -36,6 +46,9 @@ describe("loadExportConfig", () => {
     expect(config.autoExport).toBe(true);
     expect(config.includeDrafts).toBe(false);
     expect(config.pushOverleaf).toBe(false);
+    expect(config.blockOnOrphanRefs).toBe(true);
+    expect(config.blockOnUnapproved).toBe(true);
+    expect(config.blockOnMissingCitations).toBe(true);
   });
 });
 
@@ -44,12 +57,18 @@ describe("saveExportPreferences", () => {
     await saveExportPreferences(repoRoot, {
       autoExport: true,
       pushOverleaf: false,
+      blockOnOrphanRefs: true,
     });
     const raw = JSON.parse(await readFile(path.join(repoRoot, ".treewriter.json"), "utf8")) as {
-      export: { autoExport: boolean; pushOverleaf: boolean };
+      export: {
+        autoExport: boolean;
+        pushOverleaf: boolean;
+        blockOnOrphanRefs: boolean;
+      };
     };
     expect(raw.export.autoExport).toBe(true);
     expect(raw.export.pushOverleaf).toBe(false);
+    expect(raw.export.blockOnOrphanRefs).toBe(true);
   });
 
   it("persists debounce preset and normalizes unknown values", async () => {
@@ -69,6 +88,7 @@ describe("auto export path helpers", () => {
     expect(shouldAutoExportPath("papers/vibecount/abstract/outline.md")).toBe(true);
     expect(shouldAutoExportPath("papers/vibecount/INDEX.md")).toBe(false);
     expect(shouldAutoExportPath("papers/vibecount/notes/literature/x.md")).toBe(false);
+    expect(shouldAutoExportPath("papers/vibecount/intro/temp-notes.md")).toBe(false);
   });
 
   it("extracts paper slug from model paths", () => {

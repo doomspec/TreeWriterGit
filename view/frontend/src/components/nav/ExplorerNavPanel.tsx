@@ -10,6 +10,8 @@ import {
   transformTreeForDisplay,
   type ModelNode,
 } from "@/lib/modelTree";
+import { findNode } from "@/lib/modelTreeQuery";
+import { nodeNeedsSubtreeLoad } from "@/lib/modelTreeMerge";
 import type { SearchHit } from "@/modelApi";
 
 function FileTreeNode({
@@ -134,6 +136,7 @@ export function ExplorerNavPanel({
   onSearchSelect,
   onNavigate,
   onOpenFile,
+  onLoadSubtree,
   embedded = false,
 }: {
   tree: ModelNode[];
@@ -144,6 +147,7 @@ export function ExplorerNavPanel({
   onSearchSelect?: (hit: SearchHit) => void;
   onNavigate: (path: string) => void;
   onOpenFile: (path: string) => void;
+  onLoadSubtree?: (folderPath: string, depth?: number) => Promise<boolean>;
   embedded?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([""]));
@@ -172,11 +176,20 @@ export function ExplorerNavPanel({
     });
   };
 
+  const handleToggle = (path: string) => {
+    const node = findNode(tree, path);
+    if (node && nodeNeedsSubtreeLoad(node) && onLoadSubtree) {
+      void onLoadSubtree(path, 1).finally(() => toggleExpanded(path));
+      return;
+    }
+    toggleExpanded(path);
+  };
+
   const treeProps = {
     currentPath,
     activeFile,
     expanded,
-    onToggle: toggleExpanded,
+    onToggle: handleToggle,
     onNavigate,
     onOpenFile,
   };

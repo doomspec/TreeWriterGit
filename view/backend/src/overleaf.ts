@@ -7,6 +7,7 @@ import matter from "gray-matter";
 
 import { ModelFsError, resolveModelPath } from "./modelFs.js";
 import { copyModularBundleToDir, exportModularPaper } from "./exportModular.js";
+import type { ExportValidationConfig } from "@treewriter/shared";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,6 +17,7 @@ export interface OverleafPushResult {
   message: string;
   exportPath: string;
   missingCitations?: string[];
+  orphanCrossRefs?: string[];
 }
 
 export interface OverleafImportResult {
@@ -268,6 +270,7 @@ export async function pushToOverleaf(
   repoRoot: string,
   paperSlug: string,
   includeDrafts = false,
+  validation?: ExportValidationConfig,
 ): Promise<OverleafPushResult> {
   const { parsed } = await readPaperIndex(modelRoot, paperSlug);
   const overleafPath = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
@@ -284,6 +287,7 @@ export async function pushToOverleaf(
   const bundle = await exportModularPaper(modelRoot, repoRoot, {
     paperSlug,
     includeDrafts,
+    validation,
   });
 
   const copied = await copyModularBundleToDir(repoRoot, bundle, overleafPath);
@@ -325,6 +329,7 @@ export async function pushToOverleaf(
     message,
     exportPath: bundle.mainTex,
     ...(bundle.missingCitations.length > 0 ? { missingCitations: bundle.missingCitations } : {}),
+    ...(bundle.orphanCrossRefs.length > 0 ? { orphanCrossRefs: bundle.orphanCrossRefs } : {}),
   };
 }
 

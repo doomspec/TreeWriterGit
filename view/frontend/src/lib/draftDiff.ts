@@ -1,3 +1,5 @@
+import { stripTextHighlightMacrosForDiff } from "@/lib/textHighlight";
+
 export type DiffLineKind = "equal" | "insert" | "delete";
 
 export type DiffLine = {
@@ -204,7 +206,10 @@ export function hasPendingApprovalDiff(
   loadedContent: string,
   current: string,
 ): boolean {
-  return effectiveDiffBaseline(approvedBaseline, loadedContent) !== current;
+  const baseline = effectiveDiffBaseline(approvedBaseline, loadedContent);
+  return (
+    stripTextHighlightMacrosForDiff(baseline) !== stripTextHighlightMacrosForDiff(current)
+  );
 }
 
 export function pendingChangesRows(

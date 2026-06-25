@@ -1,4 +1,6 @@
 import { invalidateGraphCache } from "./graphCache.js";
+import { resetModelIndexStores } from "./modelIndex/index.js";
+import { invalidateModelTreeCache } from "./modelTreeCache.js";
 import { resetModelEventBroadcastState } from "./modelEvents.js";
 import { resetPresenceState } from "./presence.js";
 import type { TerminalSessionManager } from "./terminalSessions.js";
@@ -14,6 +16,8 @@ export function resetServerMemoryState(options?: {
   resetModelEventBroadcastState();
   resetPresenceState();
   invalidateGraphCache();
+  invalidateModelTreeCache();
+  resetModelIndexStores();
   options?.terminalSessions?.resetAllSessions();
   return {
     graphCacheCleared: true,

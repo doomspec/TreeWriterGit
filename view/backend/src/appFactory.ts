@@ -28,10 +28,8 @@ import {
   parseTerminalConnectParams,
   type TerminalSessionManager,
 } from "./terminalSessions.js";
-
-type ClientMessage =
-  | { type: "input"; data: string }
-  | { type: "resize"; cols: number; rows: number };
+import { parseTerminalClientMessage } from "./terminalMessages.js";
+import { createAgentJobManager, type AgentJobManager } from "./agentJobManager.js";
 
 export type AppConfig = {
   repoRoot: string;
@@ -58,6 +56,7 @@ export type AppRuntime = {
   stopWatch?: () => void;
   stopGitSyncInterval?: () => void;
   stopAutoExport?: () => void;
+  agentJobs: AgentJobManager;
 };
 
 function defaultShellArgs(shell: string): string[] {
@@ -94,7 +93,8 @@ export function createApp(config: AppConfig): AppRuntime {
     return exportConfigCache.current;
   };
 
-  const { state: gitSyncState, runGitSync } = createGitSyncRunner(repoRoot, gitSyncEnabled);
+  const { state: gitSyncState, runGitSync } = createGitSyncRunner(repoRoot, gitSyncEnabled, getGitSyncConfig);
+  const agentJobs = createAgentJobManager();
 
   const app = express();
   app.use(cors({ origin: corsOrigin }));
@@ -105,7 +105,11 @@ export function createApp(config: AppConfig): AppRuntime {
   app.use(express.json({ limit: "2mb" }));
 
   const modelEventClients = new Set<WebSocket>();
-  const baseBroadcastModelEvent = createModelEventBroadcaster(modelEventClients, WebSocket.OPEN);
+  const baseBroadcastModelEvent = createModelEventBroadcaster(
+    modelEventClients,
+    WebSocket.OPEN,
+    modelRoot,
+  );
   const autoExportRunner = createAutoExportRunner({
     modelRoot,
     repoRoot,
@@ -129,6 +133,7 @@ export function createApp(config: AppConfig): AppRuntime {
     getAutoExportState: () => autoExportRunner.state,
     runAutoExportNow: autoExportRunner.runAutoExportNow,
     reloadGitSyncSchedule: () => scheduleGitSyncInterval(),
+    agentJobs,
   };
 
   registerSettingsRoutes(app, deps);
@@ -152,9 +157,14 @@ export function createApp(config: AppConfig): AppRuntime {
     },
   });
 
-  app.post("/api/dev/reset", (_request, response) => {
-    response.json(resetServerMemoryState({ terminalSessions }));
-  });
+  const devEndpointsEnabled =
+    process.env.NODE_ENV !== "production" || process.env.TREEWRITER_DEV_ENDPOINTS === "true";
+
+  if (devEndpointsEnabled) {
+    app.post("/api/dev/reset", (_request, response) => {
+      response.json(resetServerMemoryState({ terminalSessions }));
+    });
+  }
 
   app.use(
     (error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
@@ -176,17 +186,24 @@ export function createApp(config: AppConfig): AppRuntime {
 
   terminalServer.on("connection", (socket, request) => {
     const { sessionId, forceNew } = parseTerminalConnectParams(request.url ?? "/terminal");
-    const session = terminalSessions.resolveSession(sessionId, forceNew);
+    let session;
+    try {
+      session = terminalSessions.resolveSession(sessionId, forceNew);
+    } catch (error) {
+      socket.send(
+        JSON.stringify({
+          type: "error",
+          message: error instanceof Error ? error.message : "Failed to start terminal session",
+        }),
+      );
+      socket.close();
+      return;
+    }
     terminalSessions.attach(socket, session);
 
     socket.on("message", (rawMessage) => {
-      const text = rawMessage.toString();
-      let message: ClientMessage;
-      try {
-        message = JSON.parse(text) as ClientMessage;
-      } catch {
-        return;
-      }
+      const message = parseTerminalClientMessage(rawMessage.toString());
+      if (!message) return;
       if (message.type === "input") {
         terminalSessions.handleInput(session, message.data);
         return;
@@ -267,6 +284,7 @@ export function createApp(config: AppConfig): AppRuntime {
     stopWatch,
     stopGitSyncInterval,
     stopAutoExport: autoExportRunner.dispose,
+    agentJobs,
   };
 }
 
@@ -277,8 +295,21 @@ export type HttpServerRuntime = AppRuntime & {
 };
 
 export function attachWebSocketUpgrade(runtime: AppRuntime, server: Server): void {
+  const wsToken = process.env.TREEWRITER_WS_TOKEN?.trim();
   server.on("upgrade", (request, socket, head) => {
     const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+    if (wsToken) {
+      const token =
+        requestUrl.searchParams.get("token") ??
+        (typeof request.headers["x-treewriter-token"] === "string"
+          ? request.headers["x-treewriter-token"]
+          : "");
+      if (token !== wsToken) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+    }
     const websocketServer =
       requestUrl.pathname === "/terminal"
         ? runtime.terminalServer
@@ -299,7 +330,8 @@ export function attachWebSocketUpgrade(runtime: AppRuntime, server: Server): voi
 
 export function createServer(config: AppConfig, port = Number(process.env.PORT ?? 4000)): HttpServerRuntime {
   const runtime = createApp(config);
-  const server = runtime.app.listen(port);
+  const host = process.env.HOST ?? "127.0.0.1";
+  const server = runtime.app.listen(port, host);
   attachWebSocketUpgrade(runtime, server);
 
   const close = () =>

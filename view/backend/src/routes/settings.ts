@@ -111,7 +111,15 @@ export function registerSettingsRoutes(app: Express, deps: ServerDeps) {
 
   app.patch("/api/settings/export", async (request, response, next) => {
     try {
-      const { autoExport, includeDrafts, pushOverleaf, debounceMs } = request.body ?? {};
+      const {
+        autoExport,
+        includeDrafts,
+        pushOverleaf,
+        debounceMs,
+        blockOnOrphanRefs,
+        blockOnUnapproved,
+        blockOnMissingCitations,
+      } = request.body ?? {};
       if (
         autoExport !== undefined &&
         typeof autoExport !== "boolean"
@@ -143,11 +151,26 @@ export function registerSettingsRoutes(app: Express, deps: ServerDeps) {
           return;
         }
       }
+      if (blockOnOrphanRefs !== undefined && typeof blockOnOrphanRefs !== "boolean") {
+        response.status(400).json({ error: "blockOnOrphanRefs must be a boolean" });
+        return;
+      }
+      if (blockOnUnapproved !== undefined && typeof blockOnUnapproved !== "boolean") {
+        response.status(400).json({ error: "blockOnUnapproved must be a boolean" });
+        return;
+      }
+      if (blockOnMissingCitations !== undefined && typeof blockOnMissingCitations !== "boolean") {
+        response.status(400).json({ error: "blockOnMissingCitations must be a boolean" });
+        return;
+      }
       if (
         autoExport === undefined &&
         includeDrafts === undefined &&
         pushOverleaf === undefined &&
-        debounceMs === undefined
+        debounceMs === undefined &&
+        blockOnOrphanRefs === undefined &&
+        blockOnUnapproved === undefined &&
+        blockOnMissingCitations === undefined
       ) {
         response.status(400).json({ error: "No export settings provided" });
         return;
@@ -157,6 +180,9 @@ export function registerSettingsRoutes(app: Express, deps: ServerDeps) {
         ...(includeDrafts !== undefined ? { includeDrafts } : {}),
         ...(pushOverleaf !== undefined ? { pushOverleaf } : {}),
         ...(debounceMs !== undefined ? { debounceMs } : {}),
+        ...(blockOnOrphanRefs !== undefined ? { blockOnOrphanRefs } : {}),
+        ...(blockOnUnapproved !== undefined ? { blockOnUnapproved } : {}),
+        ...(blockOnMissingCitations !== undefined ? { blockOnMissingCitations } : {}),
       });
       const config = await deps.getExportConfig();
       response.json({

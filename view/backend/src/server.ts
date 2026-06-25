@@ -20,7 +20,7 @@ const { close } = createServer(
   port,
 );
 
-console.log(`TreeWriter backend listening on http://localhost:${port}`);
+console.log(`TreeWriter backend listening on http://${process.env.HOST ?? "127.0.0.1"}:${port}`);
 console.log(`Terminal working directory: ${modelRoot}`);
 console.log(
   gitSyncEnabled

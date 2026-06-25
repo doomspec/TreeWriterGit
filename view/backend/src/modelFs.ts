@@ -8,6 +8,12 @@ export type NodeKind = "section" | "subsection" | "unit" | "figure" | "table" | 
 /** Top-level paper folders managed in Assets, not the section outline. */
 export const PAPER_ASSET_DIRS = new Set(["figures", "tables", "equations"]);
 
+export const TEMP_NOTES_DOC = "temp-notes.md";
+
+export function tempNotesDocSkeleton(): string {
+  return "";
+}
+
 export class ModelFsError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -370,6 +376,36 @@ export async function materializeDraft(modelRoot: string, draftRel: string): Pro
   return "";
 }
 
+/** Create temp-notes.md when the node folder exists but scratchpad is missing. */
+export async function materializeTempNotes(modelRoot: string, tempNotesRel: string): Promise<string> {
+  const normalized = tempNotesRel.split(path.sep).join("/");
+  if (normalized !== TEMP_NOTES_DOC && !normalized.endsWith(`/${TEMP_NOTES_DOC}`)) {
+    throw new ModelFsError("Not a temp-notes path", 400);
+  }
+  const tempNotesAbs = resolveModelPath(modelRoot, normalized);
+  if (existsSync(tempNotesAbs)) {
+    return readFile(tempNotesAbs, "utf8");
+  }
+  const dir = path.posix.dirname(normalized);
+  const parentRel = dir === "." ? "" : dir;
+  if (isNotesContainerRel(parentRel)) {
+    throw new ModelFsError(`Notes containers do not use temp-notes.md: ${normalized}`, 404);
+  }
+  const parentAbs = resolveModelPath(modelRoot, parentRel || ".");
+  if (!existsSync(parentAbs)) {
+    throw new ModelFsError(`Folder not found for ${normalized}`, 404);
+  }
+  const indexRel = parentRel ? `${parentRel}/INDEX.md` : "INDEX.md";
+  const indexAbs = resolveModelPath(modelRoot, indexRel);
+  if (!existsSync(indexAbs)) {
+    throw new ModelFsError(`No INDEX.md for ${normalized}`, 404);
+  }
+  const skeleton = tempNotesDocSkeleton();
+  await mkdir(path.dirname(tempNotesAbs), { recursive: true });
+  await writeFile(tempNotesAbs, skeleton, "utf8");
+  return skeleton;
+}
+
 export async function createFile(
   modelRoot: string,
   relativePath: string,
@@ -400,6 +436,9 @@ export async function createNode(
   await mkdir(abs, { recursive: true });
   await writeFile(path.join(abs, "INDEX.md"), indexSkeleton(name, kind), "utf8");
   await writeFile(path.join(abs, "outline.md"), outlineDocSkeleton(name, kind), "utf8");
+  if (kind === "section" || kind === "subsection" || kind === "unit") {
+    await writeFile(path.join(abs, TEMP_NOTES_DOC), tempNotesDocSkeleton(), "utf8");
+  }
   if (kind === "unit" || kind === "figure" || kind === "table" || kind === "equation") {
     await writeFile(
       path.join(abs, "draft.md"),
@@ -449,7 +488,11 @@ export async function deleteNode(
   const info = await stat(abs);
   if (info.isDirectory()) {
     const entries = (await readdir(abs)).filter(
-      (e) => e !== "INDEX.md" && e !== "outline.md" && e !== "draft.md",
+      (e) =>
+        e !== "INDEX.md" &&
+        e !== "outline.md" &&
+        e !== "draft.md" &&
+        e !== TEMP_NOTES_DOC,
     );
     if (entries.length > 0 && !recursive) {
       throw new ModelFsError(`Directory not empty: ${relativePath}`, 409);

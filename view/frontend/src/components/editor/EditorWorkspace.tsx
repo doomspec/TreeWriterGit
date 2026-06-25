@@ -6,14 +6,14 @@ import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
 import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
 import {
-  ReadingFocusExtra,
-  useReadingFocusSplitPaneTitles,
-} from "@/components/editor/ReadingFocusNavBar";
-import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
+  DualPaneController,
+  DualPanePane,
+} from "@/components/editor/DualPaneController";
+import { useReadingFocusSplitPaneTitles } from "@/components/editor/ReadingFocusNavBar";
 import { ResizableVerticalSplit } from "@/components/layout/ResizableVerticalSplit";
-import { outlinePathFor, stripFrontmatter, type NavigateTarget } from "@/lib/modelTree";
+import { outlinePathFor, stripFrontmatter, tempNotesPathFor, draftPathFor, type NavigateTarget } from "@/lib/modelTree";
 import { useReadingFocus } from "@/lib/readingFocus";
-import type { DualPaneActive, DualPaneView } from "@/lib/workspacePreferences";
+import type { DualPaneActive, EditorVisiblePanes } from "@/lib/workspacePreferences";
 import { cn } from "@/lib/utils";
 
 function captionFromDraft(content: string): string {
@@ -27,6 +27,7 @@ function LeafUnitEditor({
   outlinePath,
   draftPath,
   refreshVersion,
+  getPathVersion,
   isFigure,
   isEquation,
   isPaperEditor,
@@ -42,14 +43,18 @@ function LeafUnitEditor({
   onDualPaneSplitChange,
   assetPreviewSplit,
   onAssetPreviewSplitChange,
-  paneView,
-  onPaneViewChange,
+  visiblePanes,
+  onVisiblePanesChange,
+  activePane,
   onActivePaneChange,
+  notesSplitPercent,
+  onNotesSplitChange,
 }: {
   unitPath: string;
   outlinePath: string;
   draftPath: string;
   refreshVersion: number;
+  getPathVersion: (path: string) => number;
   isFigure: boolean;
   isEquation: boolean;
   isPaperEditor: boolean;
@@ -65,14 +70,18 @@ function LeafUnitEditor({
   onDualPaneSplitChange: (percent: number) => void;
   assetPreviewSplit: number;
   onAssetPreviewSplitChange: (percent: number) => void;
-  paneView: DualPaneView;
-  onPaneViewChange: (view: DualPaneView) => void;
+  visiblePanes: EditorVisiblePanes;
+  onVisiblePanesChange: (panes: EditorVisiblePanes) => void;
+  activePane: DualPaneActive;
   onActivePaneChange: (pane: DualPaneActive) => void;
+  notesSplitPercent: number;
+  onNotesSplitChange: (percent: number) => void;
 }) {
+  const notesPath = !isFigure && !isEquation ? tempNotesPathFor(unitPath) : null;
   const [liveDraftCaption, setLiveDraftCaption] = useState<string | null>(null);
   const liveCaptionTimerRef = useRef<number | null>(null);
   const readingFocus = useReadingFocus();
-  const showSplitPaneTitles = useReadingFocusSplitPaneTitles(paneView);
+  const showSplitPaneTitles = useReadingFocusSplitPaneTitles(visiblePanes);
 
   const handleDraftContentChange = useCallback(
     (content: string) => {
@@ -108,19 +117,18 @@ function LeafUnitEditor({
 
   const outlinePane = useMemo(
     () => (
-      <div
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
-        tabIndex={-1}
-        onFocusCapture={() => onActivePaneChange("outline")}
-        onMouseDown={() => onActivePaneChange("outline")}
+      <DualPanePane
+        pane="outline"
+        activePane={activePane}
+        onActivePaneChange={onActivePaneChange}
       >
         <MarkdownEditor
           key={outlinePath}
           filePath={outlinePath}
           refreshVersion={refreshVersion}
+          pathVersion={getPathVersion(outlinePath)}
           layout="preview"
           compact
-          showFocusGraph
           splitPaneTitle={showSplitPaneTitles ? "Outline" : undefined}
           paneLabel={isPaperEditor ? "Paper outline" : "Outline"}
           defaultPaneMode="rendered"
@@ -134,9 +142,10 @@ function LeafUnitEditor({
           onDispatchComplete={onDispatchComplete}
           paperPath={paperPath}
         />
-      </div>
+      </DualPanePane>
     ),
     [
+      activePane,
       isPaperEditor,
       isFigure,
       linkContextPath,
@@ -149,25 +158,25 @@ function LeafUnitEditor({
       outlinePath,
       paperPath,
       refreshVersion,
+      getPathVersion,
       showSplitPaneTitles,
     ],
   );
 
   const draftPane = useMemo(
     () => (
-      <div
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
-        tabIndex={-1}
-        onFocusCapture={() => onActivePaneChange("draft")}
-        onMouseDown={() => onActivePaneChange("draft")}
+      <DualPanePane
+        pane="draft"
+        activePane={activePane}
+        onActivePaneChange={onActivePaneChange}
       >
         <MarkdownEditor
           key={draftPath}
           filePath={draftPath}
           refreshVersion={refreshVersion}
+          pathVersion={getPathVersion(draftPath)}
           layout="preview"
           compact
-          showFocusGraph={paneView === "draft"}
           splitPaneTitle={showSplitPaneTitles ? "Draft" : undefined}
           paneLabel={isPaperEditor ? "Paper draft" : "Draft"}
           defaultPaneMode="rendered"
@@ -181,10 +190,12 @@ function LeafUnitEditor({
           onDispatchComplete={onDispatchComplete}
           onContentChange={isFigure || isEquation ? handleDraftContentChange : undefined}
           paperPath={paperPath}
+          showReadingFocusBar={activePane === "draft"}
         />
-      </div>
+      </DualPanePane>
     ),
     [
+      activePane,
       draftPath,
       handleDraftContentChange,
       isEquation,
@@ -197,7 +208,45 @@ function LeafUnitEditor({
       onError,
       onNavigate,
       onSendToTerminal,
-      paneView,
+      paperPath,
+      refreshVersion,
+      getPathVersion,
+      showSplitPaneTitles,
+    ],
+  );
+
+  const notesPane = useMemo(
+    () =>
+      notesPath ? (
+        <DualPanePane pane="notes" activePane={activePane} onActivePaneChange={onActivePaneChange}>
+          <MarkdownEditor
+            key={notesPath}
+            filePath={notesPath}
+            refreshVersion={refreshVersion}
+            pathVersion={getPathVersion(notesPath)}
+            layout="preview"
+            compact
+            splitPaneTitle={showSplitPaneTitles ? "Notes" : undefined}
+            paneLabel="Notes"
+            defaultPaneMode="rendered"
+            className="min-h-0 flex-1"
+            onError={onError}
+            linkContextPath={linkContextPath}
+            onNavigate={onNavigate}
+            paperPath={paperPath}
+            enableDispatch={false}
+            showReadingFocusBar={activePane === "notes"}
+          />
+        </DualPanePane>
+      ) : undefined,
+    [
+      activePane,
+      getPathVersion,
+      linkContextPath,
+      notesPath,
+      onActivePaneChange,
+      onError,
+      onNavigate,
       paperPath,
       refreshVersion,
       showSplitPaneTitles,
@@ -205,37 +254,34 @@ function LeafUnitEditor({
   );
 
   const editorDualPane = useMemo(
-    () =>
-      readingFocus.active ? (
-        paneView === "split" ? (
-          <ResizableDualPane
-            className="reading-focus-dual-pane min-h-0 flex-1"
-            splitPercent={dualPaneSplit}
-            onSplitChange={onDualPaneSplitChange}
-            left={outlinePane}
-            right={draftPane}
-          />
-        ) : paneView === "outline" ? (
-          outlinePane
-        ) : (
-          draftPane
-        )
-      ) : (
-        <ResizableDualPane
-          className="min-h-0 flex-1"
-          splitPercent={dualPaneSplit}
-          onSplitChange={onDualPaneSplitChange}
-          left={outlinePane}
-          right={draftPane}
-        />
-      ),
+    () => (
+      <DualPaneController
+        className="min-h-0 flex-1"
+        splitPercent={dualPaneSplit}
+        onSplitChange={onDualPaneSplitChange}
+        visiblePanes={visiblePanes}
+        onVisiblePanesChange={onVisiblePanesChange}
+        activePane={activePane}
+        onActivePaneChange={onActivePaneChange}
+        outlinePane={outlinePane}
+        draftPane={draftPane}
+        notesPane={notesPane}
+        notesSplitPercent={notesSplitPercent}
+        onNotesSplitChange={onNotesSplitChange}
+      />
+    ),
     [
+      activePane,
       draftPane,
       dualPaneSplit,
+      notesPane,
+      notesSplitPercent,
+      onActivePaneChange,
       onDualPaneSplitChange,
+      onNotesSplitChange,
+      onVisiblePanesChange,
       outlinePane,
-      paneView,
-      readingFocus.active,
+      visiblePanes,
     ],
   );
 
@@ -276,7 +322,6 @@ function LeafUnitEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <ReadingFocusExtra focusedPane={paneView} onPaneChange={onPaneViewChange} />
       {assetPreview && !readingFocus.active ? (
         <ResizableVerticalSplit
           className="min-h-0 flex-1"
@@ -297,6 +342,7 @@ export function EditorWorkspace({
   unitPath,
   activeFile,
   refreshVersion,
+  getPathVersion,
   layout,
   onLayoutChange,
   onError,
@@ -306,10 +352,12 @@ export function EditorWorkspace({
   onDualPaneSplitChange,
   assetPreviewSplit,
   onAssetPreviewSplitChange,
-  paneView,
-  onPaneViewChange,
+  visiblePanes,
+  onVisiblePanesChange,
   activePane,
   onActivePaneChange,
+  notesSplitPercent,
+  onNotesSplitChange,
   onSendToTerminal,
   onBeforeDispatch,
   onDispatchComplete,
@@ -321,6 +369,7 @@ export function EditorWorkspace({
   unitPath: string | null;
   activeFile: string;
   refreshVersion: number;
+  getPathVersion: (path: string) => number;
   layout: EditorLayout;
   onLayoutChange: (layout: EditorLayout) => void;
   onError: (message: string) => void;
@@ -330,10 +379,12 @@ export function EditorWorkspace({
   onDualPaneSplitChange: (percent: number) => void;
   assetPreviewSplit: number;
   onAssetPreviewSplitChange: (percent: number) => void;
-  paneView: DualPaneView;
-  onPaneViewChange: (view: DualPaneView) => void;
+  visiblePanes: EditorVisiblePanes;
+  onVisiblePanesChange: (panes: EditorVisiblePanes) => void;
   activePane: DualPaneActive;
   onActivePaneChange: (pane: DualPaneActive) => void;
+  notesSplitPercent: number;
+  onNotesSplitChange: (percent: number) => void;
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
   onDispatchComplete?: () => void;
@@ -344,7 +395,7 @@ export function EditorWorkspace({
 }) {
   const isLeafEditor = Boolean(unitPath);
   const outlinePath = unitPath ? outlinePathFor(unitPath) : null;
-  const draftPath = unitPath ? `${unitPath}/draft.md` : null;
+  const draftPath = unitPath ? draftPathFor(unitPath) : null;
   const readingFocus = useReadingFocus();
 
   const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = [
@@ -362,6 +413,7 @@ export function EditorWorkspace({
         outlinePath={outlinePath}
         draftPath={draftPath}
         refreshVersion={refreshVersion}
+        getPathVersion={getPathVersion}
         isFigure={isFigure}
         isEquation={isEquation}
         isPaperEditor={isPaperEditor}
@@ -377,9 +429,12 @@ export function EditorWorkspace({
         onDualPaneSplitChange={onDualPaneSplitChange}
         assetPreviewSplit={assetPreviewSplit}
         onAssetPreviewSplitChange={onAssetPreviewSplitChange}
-        paneView={paneView}
-        onPaneViewChange={onPaneViewChange}
+        visiblePanes={visiblePanes}
+        onVisiblePanesChange={onVisiblePanesChange}
+        activePane={activePane}
         onActivePaneChange={onActivePaneChange}
+        notesSplitPercent={notesSplitPercent}
+        onNotesSplitChange={onNotesSplitChange}
       />
     );
   }
@@ -414,6 +469,7 @@ export function EditorWorkspace({
         key={activeFile}
         filePath={activeFile}
         refreshVersion={refreshVersion}
+        pathVersion={getPathVersion(activeFile)}
         layout={layout}
         className="min-h-0 flex-1"
         syncDocumentOutline

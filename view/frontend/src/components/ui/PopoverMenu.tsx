@@ -14,6 +14,7 @@ export function PopoverMenu({
   menuClassName,
   triggerClassName,
   disabled = false,
+  title,
   "aria-label": ariaLabel = "Open menu",
 }: {
   trigger: ReactNode | ((open: boolean) => ReactNode);
@@ -23,6 +24,7 @@ export function PopoverMenu({
   menuClassName?: string;
   triggerClassName?: string;
   disabled?: boolean;
+  title?: string;
   "aria-label"?: string;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -89,6 +91,7 @@ export function PopoverMenu({
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={disabled}
+        title={title}
         onClick={() => setOpen((value) => !value)}
       >
         {triggerNode}

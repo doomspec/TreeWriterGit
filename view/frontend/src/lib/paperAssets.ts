@@ -40,8 +40,17 @@ export type PaperAssetsBundle = {
   referenceCount: number;
 };
 
+export type CrossRefIndex = {
+  figureLabels: Record<string, FigureMetadata>;
+  tableLabels: Record<string, TableMetadata>;
+};
+
 export async function fetchPaperAssets(paperPath: string): Promise<PaperAssetsBundle> {
   return request<PaperAssetsBundle>(`/api/model/assets?paper=${encodeURIComponent(paperPath)}`);
+}
+
+export async function fetchCrossRefIndex(paperPath: string): Promise<CrossRefIndex> {
+  return request<CrossRefIndex>(`/api/model/crossref-index?paper=${encodeURIComponent(paperPath)}`);
 }
 
 export async function fetchReferenceIndex(paperPath: string): Promise<ReferenceMetadata[]> {

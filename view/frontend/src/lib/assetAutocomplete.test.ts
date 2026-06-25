@@ -84,7 +84,7 @@ describe("assetAutocomplete", () => {
     expect(detectAssetTrigger("See \\figure{", 12)).toMatchObject({ kind: "fig", query: "" });
     expect(detectAssetTrigger("\\table{count", 13)).toMatchObject({ kind: "table", query: "count" });
     expect(detectAssetTrigger("\\cite{smith", 12)).toMatchObject({ kind: "cite", query: "smith" });
-    expect(detectAssetTrigger("\\ref{smith", 11)).toMatchObject({ kind: "cite", query: "smith" });
+    expect(detectAssetTrigger("\\ref{smith", 11)).toMatchObject({ kind: "ref", query: "smith" });
     expect(detectAssetTrigger("\\eq{density", 12)).toMatchObject({ kind: "eq", query: "density" });
     expect(detectAssetTrigger("plain text", 10)).toBeNull();
     expect(detectAssetTrigger("\\fig{done}", 11)).toBeNull();

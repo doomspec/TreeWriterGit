@@ -57,6 +57,11 @@ export function createAutoExportRunner(options: {
       const exportArgs = {
         paperSlug,
         includeDrafts: config.includeDrafts,
+        validation: {
+          blockOnOrphanRefs: config.blockOnOrphanRefs,
+          blockOnUnapproved: config.blockOnUnapproved,
+          blockOnMissingCitations: config.blockOnMissingCitations,
+        },
       };
 
       if (config.pushOverleaf) {
@@ -67,6 +72,7 @@ export function createAutoExportRunner(options: {
             options.repoRoot,
             paperSlug,
             config.includeDrafts,
+            exportArgs.validation,
           );
           messages.push(push.message);
         } else {

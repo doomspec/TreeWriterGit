@@ -1,7 +1,8 @@
-import { Bot, User } from "lucide-react";
+import { Bot, ChevronDown, ChevronUp, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { formatGitHubHandle, type DraftPendingSource } from "@/lib/draftApproval";
+import type { PendingChangeNavigation } from "@/lib/usePendingChangeNavigation";
 
 export function DraftApprovalBar({
   pendingSource,
@@ -11,6 +12,7 @@ export function DraftApprovalBar({
   onDiscard,
   approving = false,
   approveLabel = "Approve draft",
+  changeNavigation = null,
 }: {
   pendingSource: DraftPendingSource | null;
   editedBy?: string | null;
@@ -19,6 +21,7 @@ export function DraftApprovalBar({
   onDiscard: () => void;
   approving?: boolean;
   approveLabel?: string;
+  changeNavigation?: PendingChangeNavigation | null;
 }) {
   const source = pendingSource ?? "human";
   const Icon = source === "ai" || aiAssisted ? Bot : User;
@@ -38,6 +41,41 @@ export function DraftApprovalBar({
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        {changeNavigation?.canNavigate ? (
+          <div
+            className="mr-1 flex items-center gap-0.5 rounded-md border border-amber-500/25 bg-background/60 px-0.5"
+            role="group"
+            aria-label="Navigate track changes"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 px-0"
+              title="Previous change (⌥↑)"
+              aria-label="Previous change"
+              onClick={changeNavigation.goToPrevious}
+            >
+              <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+            <span className="min-w-[3.25rem] text-center text-[10px] tabular-nums text-muted-foreground">
+              {changeNavigation.index >= 0
+                ? `${changeNavigation.index + 1}/${changeNavigation.count}`
+                : `—/${changeNavigation.count}`}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 px-0"
+              title="Next change (⌥↓)"
+              aria-label="Next change"
+              onClick={changeNavigation.goToNext}
+            >
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+          </div>
+        ) : null}
         <Button
           type="button"
           variant="outline"

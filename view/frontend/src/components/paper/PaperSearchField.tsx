@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Search } from "lucide-react";
 
 import { SearchResults } from "@/components/layout/SearchResults";
@@ -21,8 +22,10 @@ export function PaperSearchField({
   inputClassName?: string;
   placeholder?: string;
 }) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+
   return (
-    <div className={cn("relative min-w-[8rem] max-w-md flex-1", className)}>
+    <div ref={anchorRef} className={cn("relative min-w-[8rem] max-w-md flex-1", className)}>
       <Search
         className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
         aria-hidden="true"
@@ -38,7 +41,9 @@ export function PaperSearchField({
         query={searchQuery}
         root={paperPath}
         onSelect={onSearchSelect}
-        className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border border-border bg-popover px-3 py-2 shadow-lg"
+        anchorRef={anchorRef}
+        placement="dropdown"
+        className="rounded-md"
       />
     </div>
   );

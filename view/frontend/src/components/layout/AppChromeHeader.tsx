@@ -1,5 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 
+import { paperSlugFromPath } from "@/components/nav/PaperSelect";
+
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { TreeWriterBrand } from "@/components/layout/TreeWriterBrand";
 import { WorkspaceChromeActions } from "@/components/layout/WorkspaceChromeActions";
@@ -23,9 +25,11 @@ export function AppChromeHeader({
   onSearchChange,
   onSearchSelect,
   onRefreshModel,
+  onHomeClick,
   canBack = false,
   onBack,
   backTitle = "Back",
+  homeTitle = "Home",
 }: {
   appView: "workspace" | "settings" | "info";
   browsePath: string;
@@ -39,21 +43,23 @@ export function AppChromeHeader({
   onSearchChange?: (query: string) => void;
   onSearchSelect?: (hit: SearchHit) => void;
   onRefreshModel: () => void;
+  onHomeClick?: () => void;
   canBack?: boolean;
   onBack?: () => void;
   backTitle?: string;
+  homeTitle?: string;
 }) {
   const { active: readingFocusActive, extraChrome } = useReadingFocus();
 
   return (
     <header
       className={cn(
-        "app-chrome-header flex h-11 items-center gap-2 overflow-hidden border-b border-border bg-card px-2 shadow-sm sm:gap-3 sm:px-4",
+        "app-chrome-header flex h-11 items-center gap-2 border-b border-border bg-card px-2 shadow-sm sm:gap-3 sm:px-4",
         readingFocusActive ? "fixed inset-x-0 top-0 z-[60]" : "relative z-[60] shrink-0",
       )}
     >
-      <div className="app-chrome-header__lead flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-3">
-        <TreeWriterBrand />
+      <div className="app-chrome-header__lead flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3">
+        <TreeWriterBrand onHomeClick={onHomeClick} homeTitle={homeTitle} />
         {appView === "workspace" ? (
           <>
             <div className="hidden h-4 w-px shrink-0 bg-border md:block" aria-hidden="true" />
@@ -70,10 +76,10 @@ export function AppChromeHeader({
                 <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               </Button>
             ) : null}
-            {readingFocusActive && extraChrome ? (
-              <div className="flex shrink-0 items-center gap-1">{extraChrome}</div>
+            {extraChrome ? (
+              <div className="editor-pane-toggle-host flex shrink-0 items-center">{extraChrome}</div>
             ) : null}
-            <div className="hidden min-w-0 md:block">
+            <div className="hidden min-w-0 shrink md:block">
               <Breadcrumbs
                 path={browsePath}
                 onNavigate={onNavigate}

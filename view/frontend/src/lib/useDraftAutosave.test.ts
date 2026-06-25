@@ -23,13 +23,15 @@ describe("resolvePendingSourceOnEdit", () => {
 });
 
 describe("showSessionApprovalChrome", () => {
-  it("hides chrome for disk-only pending state", () => {
-    expect(showSessionApprovalChrome(true, false, null)).toBe(false);
-  });
-
-  it("shows chrome while editing or after a session edit", () => {
+  it("shows chrome whenever content differs from the approved baseline", () => {
+    expect(showSessionApprovalChrome(true, false, null)).toBe(true);
     expect(showSessionApprovalChrome(true, true, null)).toBe(true);
     expect(showSessionApprovalChrome(true, false, "human")).toBe(true);
     expect(showSessionApprovalChrome(true, false, "ai")).toBe(true);
+  });
+
+  it("hides chrome when content matches the approved baseline", () => {
+    expect(showSessionApprovalChrome(false, true, "human")).toBe(false);
+    expect(showSessionApprovalChrome(false, false, null)).toBe(false);
   });
 });

@@ -2,35 +2,32 @@ import { useMemo } from "react";
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSection } from "@/components/ui/PopoverMenu";
+import { paperRootFromPath } from "@/components/nav/PaperSelect";
 import { cn } from "@/lib/utils";
-import { useFolderChildOrder } from "@/lib/useFolderChildOrder";
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import {
   breadcrumbSegments,
-  childCardsForFolder,
   findNode,
   isUnitFolder,
+  orderedChildFolders,
   outlinePathFor,
   papersBreadcrumbSegments,
+  sectionsForPaper,
   type ModelNode,
-  type OutlineItem,
 } from "@/lib/modelTree";
 
-function navigateOutlineItem(
-  item: OutlineItem,
+function navigateSectionItem(
+  item: { path: string },
   tree: ModelNode[],
   onNavigate: (path: string) => void,
   onOpenFile: (path: string) => void,
 ) {
-  if (item.kind === "directory") {
-    const node = findNode(tree, item.path);
-    if (isUnitFolder(node)) {
-      onOpenFile(outlinePathFor(item.path));
-      return;
-    }
-    onNavigate(item.path);
+  const node = findNode(tree, item.path);
+  if (isUnitFolder(node)) {
+    onOpenFile(outlinePathFor(item.path));
     return;
   }
-  onOpenFile(item.path);
+  onNavigate(item.path);
 }
 
 function ActiveSectionNav({
@@ -50,10 +47,15 @@ function ActiveSectionNav({
   onOpenFile: (path: string) => void;
   compact: boolean;
 }) {
-  const childOrder = useFolderChildOrder(folderPath, refreshVersion);
+  const paperPath = paperRootFromPath(folderPath);
+  const { paperChildOrders } = useWorkspaceNavigationContext();
+  const childOrder = paperChildOrders[folderPath] ?? [];
   const navItems = useMemo(
-    () => childCardsForFolder(tree, folderPath, childOrder).filter((item) => item.kind === "directory"),
-    [childOrder, folderPath, tree],
+    () =>
+      paperPath && folderPath === paperPath
+        ? sectionsForPaper(tree, paperPath, childOrder)
+        : orderedChildFolders(tree, folderPath, childOrder),
+    [childOrder, folderPath, paperPath, tree],
   );
 
   if (navItems.length === 0) {
@@ -88,17 +90,17 @@ function ActiveSectionNav({
         </>
       )}
     >
-      <PopoverMenuSection label="Subsections & units">
+      <PopoverMenuSection label={paperPath && folderPath === paperPath ? "Sections" : "Subsections & units"}>
         {navItems.map((item) => {
           const node = findNode(tree, item.path);
           const kindLabel = isUnitFolder(node) ? "Unit" : "Section";
           return (
             <PopoverMenuItem
-              key={item.id}
-              onClick={() => navigateOutlineItem(item, tree, onNavigate, onOpenFile)}
+              key={item.path}
+              onClick={() => navigateSectionItem(item, tree, onNavigate, onOpenFile)}
             >
               <Folder className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate">{item.name.replace(/\.md$/, "")}</span>
+              <span className="min-w-0 flex-1 truncate">{item.title}</span>
               <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
                 {kindLabel}
               </span>

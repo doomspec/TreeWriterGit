@@ -14,6 +14,8 @@ const ATX_HEADING = /^(#{1,6})\s+(.+)$/;
 const LINKED_HEADING = /^(#{1,6})\s+\[([^\]]+)\]\(([^)]+)\)\s*$/;
 const LIST_LINK = /^(\s*)([-*+]|\d+\.)\s+\[([^\]]+)\]\(([^)]+)\)\s*$/;
 const OUTLINE_SECTION_TITLE = /^(outline|sections|subsections)$/i;
+const OUTLINE_META_HEADING = /^(summary|outline|sections|subsections|notes)$/i;
+const COMPOSED_DRAFT_MAX_LEVEL = 3;
 
 function slugify(text: string): string {
   const base = text
@@ -132,6 +134,23 @@ export function extractMarkdownHeadings(markdown: string): MarkdownHeading[] {
   }
 
   return headings;
+}
+
+/** Keep title, outline list links, and composed-draft section headings for the sidebar outline. */
+export function filterDocumentOutlineHeadings(headings: MarkdownHeading[]): MarkdownHeading[] {
+  const hasOutlineLinks = headings.some((heading) => heading.href);
+  const hasSectionHeadings = headings.some(
+    (heading) => heading.level >= 2 && !OUTLINE_META_HEADING.test(heading.text),
+  );
+
+  return headings.filter((heading) => {
+    if (OUTLINE_META_HEADING.test(heading.text)) return false;
+    if (heading.level === 1 || heading.href) return true;
+    if (hasOutlineLinks || hasSectionHeadings) {
+      return heading.level <= COMPOSED_DRAFT_MAX_LEVEL;
+    }
+    return false;
+  });
 }
 
 /** Map block ids to stable heading ids for scroll targets. */

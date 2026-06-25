@@ -9,6 +9,11 @@ export function paperSlugFromPath(path: string): string | null {
   return /^papers\/([^/]+)/.exec(path)?.[1] ?? null;
 }
 
+export function paperRootFromPath(path: string): string | null {
+  const slug = paperSlugFromPath(path);
+  return slug ? `papers/${slug}` : null;
+}
+
 export function PaperSelect({
   papers,
   selectedSlug,

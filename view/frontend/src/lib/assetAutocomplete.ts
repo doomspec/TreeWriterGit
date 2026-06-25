@@ -13,6 +13,7 @@ import {
   tableInsertSnippet,
 } from "@/lib/assetInsert";
 import { pathSlug, scoreAssetMatch } from "@/lib/assetSearch";
+import { crossRefInsertSnippet, figureRefKeyFromMeta, tableRefKeyFromMeta } from "@/lib/embedBlocks";
 import type { FigureMetadata } from "@/lib/figures";
 import type {
   EquationMetadata,
@@ -21,7 +22,7 @@ import type {
   TableMetadata,
 } from "@/lib/paperAssets";
 
-export type AssetCommandKind = "fig" | "table" | "eq" | "cite";
+export type AssetCommandKind = "fig" | "table" | "eq" | "cite" | "ref";
 
 export type AssetCompletionItem = {
   kind: AssetCommandKind;
@@ -29,6 +30,7 @@ export type AssetCompletionItem = {
   hint?: string | null;
   snippet: string;
   citeKey?: string;
+  refKey?: string;
 };
 
 export type AssetTrigger = {
@@ -44,7 +46,8 @@ export const ASSET_COMMAND_HELP: { kind: AssetCommandKind; commands: string[]; l
   { kind: "fig", commands: ["\\fig", "\\figure"], label: "Insert figure" },
   { kind: "table", commands: ["\\table", "\\tab"], label: "Insert table" },
   { kind: "eq", commands: ["\\eq", "\\equation"], label: "Insert equation" },
-  { kind: "cite", commands: ["\\cite", "\\ref"], label: "Insert citation" },
+  { kind: "cite", commands: ["\\cite"], label: "Insert citation" },
+  { kind: "ref", commands: ["\\ref"], label: "Insert cross-reference" },
 ];
 
 const TRIGGER_PATTERN =
@@ -63,6 +66,8 @@ function commandToKind(raw: string): AssetCommandKind {
     case "eq":
     case "equation":
       return "eq";
+    case "ref":
+      return "ref";
     default:
       return "cite";
   }
@@ -98,6 +103,26 @@ export function detectAssetTrigger(text: string, cursor: number): AssetTrigger |
   };
 }
 
+function crossRefItem(
+  kind: "fig" | "table",
+  label: string,
+  hint: string,
+  refKey: string,
+): AssetCompletionItem {
+  return {
+    kind: "ref",
+    label,
+    hint,
+    snippet: crossRefInsertSnippet(refKey),
+    refKey,
+  };
+}
+
+function figureCrossRefItem(fig: FigureMetadata): AssetCompletionItem {
+  const refKey = figureRefKeyFromMeta(fig);
+  return crossRefItem("fig", fig.title, refKey, refKey);
+}
+
 function figureItem(fig: FigureMetadata, filePath: string): AssetCompletionItem {
   const mode = defaultFigureInsertMode(filePath);
   return {
@@ -106,6 +131,11 @@ function figureItem(fig: FigureMetadata, filePath: string): AssetCompletionItem 
     hint: fig.figureLabel ?? pathSlug(fig.path),
     snippet: figureInsertSnippet(fig.path, fig.title, mode),
   };
+}
+
+function tableCrossRefItem(table: TableMetadata): AssetCompletionItem {
+  const refKey = tableRefKeyFromMeta(table);
+  return crossRefItem("table", table.title, refKey, refKey);
 }
 
 function tableItem(table: TableMetadata): AssetCompletionItem {
@@ -186,6 +216,15 @@ export function buildAssetCompletions(
         filter,
         (ref) => scoreAssetMatch(filter, ref.label, ref.hint, ref.citeKey),
       );
+    }
+    case "ref": {
+      const figureItems = rankItems(assets.figures, query, (fig) =>
+        scoreAssetMatch(query, fig.title, fig.figureLabel, figureRefKeyFromMeta(fig), pathSlug(fig.path)),
+      ).map((fig) => figureCrossRefItem(fig));
+      const tableItems = rankItems(assets.tables, query, (table) =>
+        scoreAssetMatch(query, table.title, table.tableLabel, tableRefKeyFromMeta(table), pathSlug(table.path)),
+      ).map((table) => tableCrossRefItem(table));
+      return [...figureItems, ...tableItems].slice(0, 20);
     }
     default:
       return [];

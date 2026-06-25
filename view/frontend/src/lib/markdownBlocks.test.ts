@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 
 import {
+  globalLineFromBlockPosition,
   joinMarkdownBlocks,
   reconcileBlocks,
   resetBlockIdCounterForTests,
@@ -109,5 +110,12 @@ Methods body.`;
     const blocks = splitMarkdownIntoBlocks(source);
     expect(blocks).toHaveLength(3);
     expect(blocks[1].markdown).toBe("::figure[papers/vibecount/figures/fig1]");
+  });
+
+  it("maps block caret positions to global line numbers", () => {
+    const blocks = splitMarkdownIntoBlocks("## A\n\nPara one.\n\n## B\n\nPara two.");
+    const secondSection = blocks.find((block) => block.markdown.startsWith("## B"));
+    expect(secondSection).toBeTruthy();
+    expect(globalLineFromBlockPosition(blocks, secondSection!.id, 0)).toBe(5);
   });
 });

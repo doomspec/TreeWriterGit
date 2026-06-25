@@ -15,6 +15,36 @@ function normalizeVisibleText(text: string): string {
   return text.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/** Visible text from a pending track-changes surface (omit deleted spans). */
+export function pendingAwareDomVisibleText(surface: HTMLElement): string {
+  const clone = surface.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll("del, .highlight-inline--deleted").forEach((element) => element.remove());
+  return clone.textContent ?? "";
+}
+
+function pendingAwareSelectionOffsets(element: HTMLElement): { start: number; end: number } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!element.contains(range.commonAncestorContainer)) return null;
+
+  const measure = (container: Node, offset: number): number => {
+    const probe = document.createRange();
+    probe.selectNodeContents(element);
+    probe.setEnd(container, offset);
+    const fragment = probe.cloneContents();
+    fragment.querySelectorAll("del, .highlight-inline--deleted").forEach((node) => node.remove());
+    const wrapper = document.createElement("div");
+    wrapper.appendChild(fragment);
+    return wrapper.textContent?.length ?? 0;
+  };
+
+  return {
+    start: measure(range.startContainer, range.startOffset),
+    end: measure(range.endContainer, range.endOffset),
+  };
+}
+
 function tryMacroAt(
   markdown: string,
   index: number,
@@ -226,12 +256,20 @@ export function resolveMarkdownSelectionRange(
 
   const domText = surface.textContent ?? "";
   const map = buildMarkdownVisibleOffsetMap(markdown);
-  const hintStart = map.startToMarkdown[Math.min(domOffsets.start, map.startToMarkdown.length - 1)] ?? 0;
 
-  if (!isPendingTrackChangeHtml(surface.innerHTML)) {
-    const mapped = mapDomOffsetsToMarkdown(markdown, domOffsets, domText);
+  if (isPendingTrackChangeHtml(surface.innerHTML)) {
+    const pendingDomText = pendingAwareDomVisibleText(surface);
+    const pendingOffsets = pendingAwareSelectionOffsets(surface) ?? domOffsets;
+    const hintStart =
+      map.startToMarkdown[Math.min(pendingOffsets.start, map.startToMarkdown.length - 1)] ?? 0;
+    const mapped = mapDomOffsetsToMarkdown(markdown, pendingOffsets, pendingDomText);
     if (mapped) return mapped;
+    return findBestMatchInMarkdown(markdown, selectedText, hintStart);
   }
+
+  const hintStart = map.startToMarkdown[Math.min(domOffsets.start, map.startToMarkdown.length - 1)] ?? 0;
+  const mapped = mapDomOffsetsToMarkdown(markdown, domOffsets, domText);
+  if (mapped) return mapped;
 
   return findBestMatchInMarkdown(markdown, selectedText, hintStart);
 }

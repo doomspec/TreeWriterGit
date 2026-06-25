@@ -3,14 +3,39 @@ export type WorkspaceNavTab = "explorer" | "papers";
 /** Left rail panel: explorer/papers reuse WorkspaceNav; graph/outline/export are dedicated panels. */
 export type SidebarPanel = "explorer" | "papers" | "graph" | "outline" | "export";
 
-export type DualPaneView = "outline" | "draft" | "split";
-export type DualPaneActive = "outline" | "draft";
+export type DualPaneActive = "outline" | "draft" | "notes";
+
+export type { EditorPaneId, EditorVisiblePanes } from "@/lib/editorVisiblePanes";
+export { DEFAULT_EDITOR_VISIBLE_PANES } from "@/lib/editorVisiblePanes";
+
+import {
+  DEFAULT_EDITOR_VISIBLE_PANES,
+  migrateLegacyPanePrefs,
+  normalizeEditorVisiblePanes,
+  type EditorVisiblePanes,
+  type LegacyDualPaneView,
+} from "@/lib/editorVisiblePanes";
+import {
+  sanitizeEditorPanePrefsByScope,
+  type EditorPaneScopePrefs,
+} from "@/lib/editorPaneScopePrefs";
+
+export const DUAL_PANE_NOTES_SPLIT_MIN = 20;
+export const DUAL_PANE_NOTES_SPLIT_MAX = 75;
+export const DUAL_PANE_NOTES_SPLIT_DEFAULT = 70;
+
+export function clampDualPaneNotesSplit(
+  percent: number,
+  min = DUAL_PANE_NOTES_SPLIT_MIN,
+  max = DUAL_PANE_NOTES_SPLIT_MAX,
+): number {
+  return Math.min(max, Math.max(min, Math.round(percent)));
+}
 
 export type PapersSidebarPanels = {
   sectionsOpen: boolean;
   assetsOpen: boolean;
   removedOpen: boolean;
-  graphOpen: boolean;
 };
 
 export const ASSET_PREVIEW_SPLIT_MIN = 25;
@@ -35,8 +60,10 @@ export type WorkspacePreferences = {
   graphRoot: string;
   graphScope: "local" | "global";
   dualPaneSplit: number;
-  dualPaneView: DualPaneView;
+  editorVisiblePanes: EditorVisiblePanes;
   dualPaneActive: DualPaneActive;
+  /** Top share (percent) when splitting draft from notes vertically. */
+  dualPaneNotesSplitPercent: number;
   /** Top share (percent) when splitting editor from figure/equation preview. */
   assetPreviewSplit: number;
   sidebarWidth: number;
@@ -45,6 +72,10 @@ export type WorkspacePreferences = {
   /** When false, the panel is shown on hover only; the icon rail stays visible. */
   sidebarPinned: boolean;
   bottomPanelHeight: number;
+  /** Last opened paper root (`papers/{slug}`), used for the home link. */
+  lastPaperPath: string | null;
+  /** Per editor-container pane layout (paper / section / unit paths). */
+  editorPanePrefsByScope: Record<string, EditorPaneScopePrefs>;
   papersSidebar: PapersSidebarPanels;
 };
 
@@ -62,7 +93,6 @@ const DEFAULT_PAPERS_SIDEBAR: PapersSidebarPanels = {
   sectionsOpen: true,
   assetsOpen: false,
   removedOpen: false,
-  graphOpen: false,
 };
 
 const DEFAULTS: WorkspacePreferences = {
@@ -75,14 +105,17 @@ const DEFAULTS: WorkspacePreferences = {
   graphRoot: "",
   graphScope: "local",
   dualPaneSplit: 50,
-  dualPaneView: "split",
+  editorVisiblePanes: DEFAULT_EDITOR_VISIBLE_PANES,
   dualPaneActive: "outline",
+  dualPaneNotesSplitPercent: DUAL_PANE_NOTES_SPLIT_DEFAULT,
   assetPreviewSplit: ASSET_PREVIEW_SPLIT_DEFAULT,
   sidebarWidth: 240,
   sidebarPanel: "papers",
   sidebarPanelOpen: true,
   sidebarPinned: true,
   bottomPanelHeight: BOTTOM_PANEL_HEIGHT_DEFAULT,
+  lastPaperPath: null,
+  editorPanePrefsByScope: {},
   papersSidebar: DEFAULT_PAPERS_SIDEBAR,
 };
 
@@ -102,15 +135,28 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     } else {
       delete parsed.assetPreviewSplit;
     }
-    if (
-      parsed.dualPaneView !== "outline" &&
-      parsed.dualPaneView !== "draft" &&
-      parsed.dualPaneView !== "split"
-    ) {
-      delete parsed.dualPaneView;
+    if (parsed.editorVisiblePanes && typeof parsed.editorVisiblePanes === "object") {
+      parsed.editorVisiblePanes = normalizeEditorVisiblePanes(
+        parsed.editorVisiblePanes as Partial<EditorVisiblePanes>,
+      );
+    } else {
+      const legacyView = (parsed as { dualPaneView?: LegacyDualPaneView }).dualPaneView;
+      const legacyNotesStrip = (parsed as { notesStripOpen?: boolean }).notesStripOpen;
+      parsed.editorVisiblePanes = migrateLegacyPanePrefs(legacyView, legacyNotesStrip);
+      delete (parsed as { dualPaneView?: LegacyDualPaneView }).dualPaneView;
+      delete (parsed as { notesStripOpen?: boolean }).notesStripOpen;
     }
-    if (parsed.dualPaneActive !== "outline" && parsed.dualPaneActive !== "draft") {
+    if (
+      parsed.dualPaneActive !== "outline" &&
+      parsed.dualPaneActive !== "draft" &&
+      parsed.dualPaneActive !== "notes"
+    ) {
       delete parsed.dualPaneActive;
+    }
+    if (typeof parsed.dualPaneNotesSplitPercent === "number") {
+      parsed.dualPaneNotesSplitPercent = clampDualPaneNotesSplit(parsed.dualPaneNotesSplitPercent);
+    } else {
+      delete parsed.dualPaneNotesSplitPercent;
     }
     if (typeof parsed.sidebarWidth === "number") {
       parsed.sidebarWidth = Math.min(520, Math.max(180, Math.round(parsed.sidebarWidth)));
@@ -142,6 +188,19 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
         ...DEFAULT_PAPERS_SIDEBAR,
         ...parsed.papersSidebar,
       };
+    }
+    if (
+      typeof parsed.lastPaperPath === "string" &&
+      !/^papers\/[^/]+$/.test(parsed.lastPaperPath)
+    ) {
+      delete parsed.lastPaperPath;
+    }
+    if (parsed.editorPanePrefsByScope && typeof parsed.editorPanePrefsByScope === "object") {
+      parsed.editorPanePrefsByScope = sanitizeEditorPanePrefsByScope(
+        parsed.editorPanePrefsByScope as Record<string, EditorPaneScopePrefs>,
+      );
+    } else {
+      delete parsed.editorPanePrefsByScope;
     }
     return parsed;
   } catch {
@@ -188,5 +247,9 @@ export function scheduleSaveWorkspacePreferences(
 export function mergeWorkspaceDefaults(
   partial: Partial<WorkspacePreferences>,
 ): WorkspacePreferences {
-  return { ...DEFAULTS, ...partial };
+  return {
+    ...DEFAULTS,
+    ...partial,
+    editorPanePrefsByScope: sanitizeEditorPanePrefsByScope(partial.editorPanePrefsByScope),
+  };
 }
