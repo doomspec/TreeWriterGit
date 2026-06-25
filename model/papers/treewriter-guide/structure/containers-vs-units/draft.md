@@ -1,0 +1,1 @@
+**Containers** (paper, section, subsection) hold `INDEX.md` and `outline.md` only — they group children. **Units** (paragraph leaves) add `draft.md` for manuscript text. **Figures, tables, and equations** are special units under `figures/`, `tables/`, and `equations/` with captions in `draft.md` and asset files alongside.
