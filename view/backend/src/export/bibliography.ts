@@ -2,6 +2,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import matter from "gray-matter";
+import { bibtexForCiteKeys } from "../bibLibrary.js";
 
 function journalSlug(journal: string): string {
   return journal
@@ -70,15 +71,11 @@ function bibEntryFromNote(citeKey: string, data: Record<string, unknown>, body: 
   return lines.join("\n");
 }
 
-/** Build a .bib file from literature notes for the keys referenced in the export. */
-export async function buildBibliography(
+async function buildBibliographyFromLiteratureNotes(
   modelRoot: string,
   paperRel: string,
-  combinedMarkdown: string,
+  wanted: Set<string>,
 ): Promise<string> {
-  const wanted = new Set(extractCiteKeys(combinedMarkdown));
-  if (wanted.size === 0) return "";
-
   const literatureDir = path.join(modelRoot, paperRel, "notes", "literature");
   if (!existsSync(literatureDir)) return "";
 
@@ -97,6 +94,23 @@ export async function buildBibliography(
   }
 
   return entries.join("\n\n");
+}
+
+/** Build a .bib file from centralized main.bib, falling back to legacy literature notes. */
+export async function buildBibliography(
+  modelRoot: string,
+  paperRel: string,
+  combinedMarkdown: string,
+): Promise<string> {
+  const wanted = new Set(extractCiteKeys(combinedMarkdown));
+  if (wanted.size === 0) return "";
+
+  const mainBib = await bibtexForCiteKeys(modelRoot, wanted);
+  const covered = new Set<string>();
+  for (const match of mainBib.matchAll(/@\w+\{([^,\s]+)/g)) covered.add(match[1]);
+  const missingFromMain = new Set([...wanted].filter((key) => !covered.has(key)));
+  const legacyBib = await buildBibliographyFromLiteratureNotes(modelRoot, paperRel, missingFromMain);
+  return [mainBib.trim(), legacyBib.trim()].filter(Boolean).join("\n\n");
 }
 
 /** Cite keys in markdown that have no matching @entry in the generated bibliography. */

@@ -103,6 +103,7 @@ export function createApp(config: AppConfig): AppRuntime {
   const json25mb = express.json({ limit: "25mb" });
   app.use("/api/model/figure/upload", json25mb);
   app.use("/api/model/references/import", json25mb);
+  app.use("/api/model/bib/import", json25mb);
   app.use("/api/import/docx", json25mb);
   app.use(express.json({ limit: "2mb" }));
 

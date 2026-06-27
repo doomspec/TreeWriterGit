@@ -337,6 +337,19 @@ describe("buildBibliography", () => {
     expect(bib).toContain("@article{smith2024");
     expect(bib).toContain("Smith Paper");
   });
+
+  it("prefers centralized main.bib entries", async () => {
+    await seedPaper();
+    await writeFile(
+      path.join(root, "main.bib"),
+      "@article{smith2024,\n  title={Central Smith},\n  author={Smith, J.},\n  year={2026}\n}\n",
+      "utf8",
+    );
+    const { markdown } = await buildCombinedMarkdown(root, "papers/demo", true);
+    const bib = await buildBibliography(root, "papers/demo", markdown);
+    expect(bib).toContain("Central Smith");
+    expect(bib).not.toContain("Smith Paper");
+  });
 });
 
 describe("resolveCslPath", () => {

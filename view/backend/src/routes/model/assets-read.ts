@@ -12,6 +12,7 @@ import {
 } from "../../figures.js";
 import { resolveModelPath } from "../../modelFs.js";
 import { listPaperAssets, listPaperReferences } from "../../paperAssets.js";
+import { listMainBibReferences, readMainBibEntries } from "../../bibLibrary.js";
 import { asyncHandler } from "../asyncHandler.js";
 import type { ServerDeps } from "../types.js";
 
@@ -128,7 +129,18 @@ export function registerModelAssetsReadRoutes(app: Express, deps: ServerDeps): v
         return;
       }
       resolveModelPath(deps.modelRoot, paperPath);
-      response.json({ references: await listPaperReferences(deps.modelRoot, paperPath) });
+      const references = await listMainBibReferences(deps.modelRoot);
+      response.json({
+        references:
+          references.length > 0 ? references : await listPaperReferences(deps.modelRoot, paperPath),
+      });
+    }),
+  );
+
+  app.get(
+    "/api/model/bib",
+    asyncHandler(async (_request, response) => {
+      response.json({ entries: await readMainBibEntries(deps.modelRoot) });
     }),
   );
 }

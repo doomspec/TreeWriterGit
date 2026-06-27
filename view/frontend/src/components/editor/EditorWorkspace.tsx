@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, startTransition } fr
 import { Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { BibFilePreview } from "@/components/editor/BibFilePreview";
 import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
 import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
@@ -10,6 +11,7 @@ import {
   DualPanePane,
 } from "@/components/editor/DualPaneController";
 import { useReadingFocusSplitPaneTitles } from "@/components/editor/ReadingFocusNavBar";
+import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { ResizableVerticalSplit } from "@/components/layout/ResizableVerticalSplit";
 import { outlinePathFor, stripFrontmatter, tempNotesPathFor, draftPathFor, type NavigateTarget } from "@/lib/modelTree";
 import { useReadingFocus } from "@/lib/readingFocus";
@@ -405,6 +407,33 @@ export function EditorWorkspace({
   ];
 
   const isPaperEditor = Boolean(paperPath && unitPath === paperPath);
+  const isBibFile = activeFile.toLowerCase().endsWith(".bib");
+
+  const editorChrome = (
+    <div
+      className={cn(
+        "flex h-10 shrink-0 items-center justify-end gap-3 border-b border-border bg-card px-3",
+        readingFocus.active && "editor-chrome-hidden",
+      )}
+    >
+      <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+        {layoutButtons.map(({ id, icon: Icon, label }) => (
+          <Button
+            key={id}
+            type="button"
+            variant={layout === id ? "default" : "ghost"}
+            size="icon"
+            className="h-7 w-7"
+            aria-label={label}
+            title={label}
+            onClick={() => onLayoutChange(id)}
+          >
+            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
 
   if (isLeafEditor && outlinePath && draftPath && unitPath) {
     return (
@@ -439,31 +468,57 @@ export function EditorWorkspace({
     );
   }
 
+  if (isBibFile) {
+    const sourcePane = (
+      <MarkdownEditor
+        key={`${activeFile}:source`}
+        filePath={activeFile}
+        refreshVersion={refreshVersion}
+        pathVersion={getPathVersion(activeFile)}
+        layout="source"
+        className="min-h-0 flex-1"
+        onError={onError}
+        linkContextPath={linkContextPath}
+        onNavigate={onNavigate}
+        splitPercent={dualPaneSplit}
+        onSplitChange={onDualPaneSplitChange}
+        paperPath={paperPath}
+        enableDispatch={false}
+      />
+    );
+    const previewPane = (
+      <BibFilePreview
+        key={`${activeFile}:preview`}
+        filePath={activeFile}
+        onError={onError}
+        onModelChanged={onModelChanged}
+        paperPath={paperPath}
+      />
+    );
+
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {editorChrome}
+        {layout === "source" ? (
+          sourcePane
+        ) : layout === "split" ? (
+          <ResizableDualPane
+            splitPercent={dualPaneSplit}
+            onSplitChange={onDualPaneSplitChange}
+            className="min-h-0 flex-1"
+            left={sourcePane}
+            right={previewPane}
+          />
+        ) : (
+          previewPane
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        className={cn(
-          "flex h-10 shrink-0 items-center justify-end gap-3 border-b border-border bg-card px-3",
-          readingFocus.active && "editor-chrome-hidden",
-        )}
-      >
-        <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-          {layoutButtons.map(({ id, icon: Icon, label }) => (
-            <Button
-              key={id}
-              type="button"
-              variant={layout === id ? "default" : "ghost"}
-              size="icon"
-              className="h-7 w-7"
-              aria-label={label}
-              title={label}
-              onClick={() => onLayoutChange(id)}
-            >
-              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-            </Button>
-          ))}
-        </div>
-      </div>
+      {editorChrome}
 
       <MarkdownEditor
         key={activeFile}

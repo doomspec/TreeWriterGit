@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookOpen, ChevronRight, Image, Plus, Sigma, Table2, Upload } from "lucide-react";
+import {
+  BookOpen,
+  ChevronRight,
+  Image,
+  Plus,
+  Sigma,
+  Table2,
+  Upload,
+} from "lucide-react";
 
 import { TreeRowActions } from "@/components/nav/TreeRowActions";
 import { AssetSearchField } from "@/components/editor/AssetSearchField";
@@ -226,7 +234,8 @@ export function PaperAssetsPanel({
     }
     setLoading(true);
     try {
-      setAssets(await fetchPaperAssets(paperPath));
+      const nextAssets = await fetchPaperAssets(paperPath);
+      setAssets(nextAssets);
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
       setAssets(null);
@@ -284,7 +293,7 @@ export function PaperAssetsPanel({
 
   const openAsset = (item: FigureMetadata | TableMetadata | EquationMetadata | ReferenceMetadata) => {
     if ("citeKey" in item) {
-      onOpenFile(item.path);
+      onOpenFile("main.bib");
       return;
     }
     if (item.kind.endsWith("-note") && item.outlinePath?.endsWith(".md")) {
@@ -351,7 +360,7 @@ export function PaperAssetsPanel({
         handleModelChanged();
       }
       const parts: string[] = [];
-      if (result.created.length > 0) parts.push(`${result.created.length} reference notes created`);
+      if (result.created.length > 0) parts.push(`${result.created.length} main.bib entries created`);
       if (result.skipped.length > 0) parts.push(`${result.skipped.length} skipped`);
       if (parts.length > 0) {
         setImportNotice(parts.join(" · "));
@@ -387,13 +396,19 @@ export function PaperAssetsPanel({
     equations: [],
     referenceCount: 0,
   };
-  const filteredAssets = filterPaperAssets(allAssets, searchQuery, referenceResults);
+  const referenceCount = allAssets.referenceCount;
+  const assetsForCounts = { ...allAssets, referenceCount };
+  const isSearching = searchQuery.trim().length > 0;
+  const filteredAssets = filterPaperAssets(
+    assetsForCounts,
+    searchQuery,
+    isSearching ? referenceResults : [],
+  );
   const figures = filteredAssets.figures;
   const tables = filteredAssets.tables;
   const equations = filteredAssets.equations;
-  const references = filteredAssets.references;
-  const isSearching = searchQuery.trim().length > 0;
-  const totalCount = totalAssetCount(allAssets);
+  const references = isSearching ? filteredAssets.references : [];
+  const totalCount = totalAssetCount(assetsForCounts);
   const visibleCount = filteredAssetCount(filteredAssets);
 
   const groupCountLabel = (filtered: number, total: number) => {
@@ -410,7 +425,9 @@ export function PaperAssetsPanel({
 
   const literaturePath = `${paperPath}/notes/literature`;
   const isReferencesActive =
-    currentPath === literaturePath || currentPath.startsWith(`${literaturePath}/`);
+    activeFile === "main.bib" ||
+    currentPath === literaturePath ||
+    currentPath.startsWith(`${literaturePath}/`);
 
   return (
     <>
@@ -512,7 +529,7 @@ export function PaperAssetsPanel({
         </AssetGroup>
         ) : null}
 
-        {!isSearching || allAssets.referenceCount > 0 ? (
+        {!isSearching || referenceCount > 0 ? (
         <AssetGroup
           title="References"
           icon={BookOpen}
@@ -523,41 +540,44 @@ export function PaperAssetsPanel({
                 : "No references match your search"
               : importing
                 ? "Importing…"
-                : allAssets.referenceCount > 0
-                  ? "Type in the search box above to find references"
-                  : "Import a .bib file — creates one literature note per entry"
+                : referenceCount > 0
+                  ? "Open main.bib to manage references"
+                  : "Import a .bib file — creates centralized main.bib entries"
           }
-          count={isSearching ? references.length : allAssets.referenceCount}
+          count={!isSearching && referenceCount > 0 ? 1 : references.length}
           countLabel={
             isSearching
-              ? groupCountLabel(references.length, allAssets.referenceCount)
-              : allAssets.referenceCount > 0
-                ? `${allAssets.referenceCount} reference${allAssets.referenceCount === 1 ? "" : "s"}`
+              ? groupCountLabel(references.length, referenceCount)
+              : referenceCount > 0
+                ? `${referenceCount} reference${referenceCount === 1 ? "" : "s"}`
                 : undefined
           }
           active={isReferencesActive}
           collapsible
-          defaultExpanded={false}
-          onOpen={() => onNavigate(literaturePath)}
+          defaultExpanded
+          onOpen={() => onOpenFile("main.bib")}
           addIcon={Upload}
           addTitle="Import BibTeX (.bib)"
           onAdd={() => bibInputRef.current?.click()}
         >
-          {isSearching
-            ? references.map((ref) => (
-                <AssetRow
-                  key={ref.path}
-                  label={ref.citeKey ? `@${ref.citeKey}` : ref.title}
-                  hint={ref.authors ? `${ref.authors}${ref.year ? ` (${ref.year})` : ""}` : ref.title}
-                  active={isActive(ref)}
-                  onClick={() => openAsset(ref)}
-                  onDelete={() =>
-                    requestArchive(ref.path, ref.citeKey ? `@${ref.citeKey}` : ref.title)
-                  }
-                  deleteLabel={`Remove reference ${ref.citeKey ?? ref.title}`}
-                />
-              ))
-            : null}
+          {!isSearching && referenceCount > 0 ? (
+            <AssetRow
+              label="main.bib"
+              hint={`${referenceCount} centralized reference${referenceCount === 1 ? "" : "s"}`}
+              active={activeFile === "main.bib"}
+              onClick={() => onOpenFile("main.bib")}
+            />
+          ) : (
+            references.map((ref) => (
+              <AssetRow
+                key={ref.path}
+                label={`@${ref.citeKey}`}
+                hint={ref.title}
+                active={activeFile === "main.bib"}
+                onClick={() => openAsset(ref)}
+              />
+            ))
+          )}
         </AssetGroup>
         ) : null}
 
