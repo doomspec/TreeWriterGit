@@ -1,14 +1,14 @@
 ---
 title: PRD — TreeWriter Scientific Writing Platform
 summary: Product requirements with code-level implementation details, grounded in the actual repo. Supersedes the phase docs as the build authority.
-composed_at_commit: null
+composed_at_commit: b1be1f7
 status: draft
-owner: Ilya Kavets
+owner: Ilya Yakavets
 ---
 
 # PRD — TreeWriter Scientific Writing Platform
 
-This document is the build authority. It is grounded in the actual source (`view/backend/src/server.ts` 382 lines, `view/backend/src/pty_bridge.py` 75 lines, `view/frontend/src/App.tsx` 705 lines). Where the earlier phase docs ([[phase-0-fixes]] … [[phase-5-collaboration]]) describe intent, this document gives the concrete contract: exact endpoints, file changes, schemas, and acceptance criteria.
+This document is the build authority. It is grounded in the actual source (`view/backend/src/server.ts` ~720 lines, `view/backend/src/pty_bridge.py` ~114 lines, `view/frontend/src/App.tsx` ~520 lines, `view/frontend/src/components/nav/FolderBrowse.tsx` ~380 lines). Where the earlier phase docs ([[phase-0-fixes]] … [[phase-5-collaboration]]) describe intent, this document gives the concrete contract: exact endpoints, file changes, schemas, and acceptance criteria.
 
 Related: [[tool-assessment]] (why we skip PageIndex / Quartz-as-server), [[architecture]] (system map), [[ai-terminal-controls]] (dispatch UX).
 
@@ -28,20 +28,37 @@ One local app where AI writes scientific paper text in Markdown and humans colla
 
 | Capability | Where | State |
 |------------|-------|-------|
-| Model tree read | `server.ts:173` `GET /api/model/tree`, `readModelTree()` `:88` | works |
-| File read | `server.ts:184` `GET /api/model/file?path=` | works |
-| File write | `server.ts:205` `PUT /api/model/file` | works |
-| Path safety | `server.ts:73` `toModelPath()` blocks `..` escape | works |
-| Git sync loop | `server.ts:132` `runGitSync()`, 120s interval `:308` | works, no conflict handling |
-| Terminal PTY | `server.ts:314` + `pty_bridge.py` | works, resize is a no-op |
-| Model events WS | `server.ts:255` `/model-events`, `fs.watch` `:297` | works |
-| Frontend 3-col UI | `App.tsx:578` `grid-cols-[260px_minmax(420px,1fr)_minmax(320px,34vw)]` | works |
-| Markdown card edit/autosave | `App.tsx:196` `MarkdownCard`, 800ms debounce `:255` | works |
+| Model tree read | `GET /api/model/tree` | works |
+| File read/write | `GET/PUT /api/model/file` | works |
+| File CRUD + nodes | `POST/DELETE /api/model/file`, `/api/model/node`, move, reorder | works |
+| Path safety | `resolveModelPath()` blocks `..` escape | works |
+| Git sync loop | 120s interval, `gitSync.ts` autostash + conflict detection | works |
+| Terminal PTY + resize | fd-3 control channel in `pty_bridge.py` | works |
+| Model events WS | `/model-events`, `fs.watch` | works |
+| Wikilink graph | `GET /api/model/graph`, `GraphPanel.tsx` — semantic + structural edges | works |
+| AI dispatch (F4 v1) | `DispatchPanel`, `/api/agent/*`, `refresh-index` action | works |
+| Paper model (F5) | `papers.ts`, `POST /api/paper`, `GET /api/papers`, `PapersPanel` | works |
+| Hybrid folder browse | `FolderBrowse.tsx` — INDEX hero, child cards, reorder, stale badge | works |
+| Section compose view | `GET /api/model/section-compose`, `SectionWorkspace.tsx` — stitched child summaries + drafts | works |
+| Unit dual-pane editor | `EditorWorkspace` — outline + draft side-by-side; leaf-unit routing via `isUnitFolder` | works |
+| Clickable outline links | `MarkdownViewer` — wikilink preprocess, in-app nav via `resolveNavigateTarget` | works |
+| Split editor | `MarkdownEditor` — Source / Split / Preview; compact rendered/raw per pane | works |
+| Export (F6 v1) | `POST /api/export`, `GET /api/export/download`, pandoc → `.tex`/`.pdf`, cite warnings | works |
+| Overleaf push (M9) | `POST /api/overleaf/push`, PapersPanel — requires `overleaf_repo_path` | works |
+| Resizable dual-pane + workspace persistence | `ResizableDualPane`, `workspacePreferences` localStorage | works |
+| Full-text search (F2) | `GET /api/model/search`, `SearchResults` in sidebar | works |
+| Graph zoom/pan | `GraphPanel` + d3-zoom, keyboard node focus | works |
+| Inline comments (M11) | `/api/comments`, `CommentsPanel`, sidecar JSON | works |
+| Edit presence (M11) | `/api/presence/*`, lock banner in editor | works |
+| Overleaf feedback import (M11) | `POST /api/overleaf/import`, PapersPanel button | works |
+| F4 polish | Context checklist, ⌘⇧R/P shortcuts, section fan-out draft | works |
+| F6 polish | CSL lookup, approved-only export default, batch export | works |
+| Inline CRUD dialogs | `NamePromptDialog` / `ConfirmDialog` — no `window.prompt` | works |
+| Frontend 3-col UI | sidebar + center (browse / section / unit edit) + hideable Agent panel | works |
 
-**Confirmed gaps (code-level):**
-- `server.ts:375` — `if (message.type === "resize") {}` empty. PTY fixed at 24×80 (`pty_bridge.py:23` calls `set_winsize(slave_fd)` once with defaults).
-- `server.ts:151` — `git rebase` failure caught into `lastError` but repo left mid-rebase; next sync also fails.
-- No create / delete / move endpoints. No wikilink graph. No AI dispatch. No paper model. No export. No `.treewriter.json`. No `d3` / `pandoc` installed.
+**Remaining gaps:**
+- Server-side agent job manager — F4 v1.1
+- AI-autonomous conflict resolution (sync v2) — manual terminal fallback only (v1)
 
 ## 3. Feature Specs
 
@@ -135,17 +152,21 @@ output.push(await git(["push", "origin", "HEAD:main"]));
 
 ### F2 — File CRUD
 
-**Why:** foundation for paper scaffolding (F5) and everyday authoring. No create/delete/move today.
+**Why:** foundation for the recursive paper tree ([[phase-2-paper-model]]) and everyday authoring. Sections, subsections, sub-subsections, and units are all created from the UI. No create/delete/move today.
 
 **Endpoints (all reuse `toModelPath` `server.ts:73` for safety):**
 
 | Method | Path | Body / Query | Behavior |
 |--------|------|--------------|----------|
-| POST | `/api/model/file` | `{ path, content? }` | Create file; `mkdir -p` parents; 409 if exists. If `path` ends `/`, create dir + `INDEX.md` skeleton. |
-| DELETE | `/api/model/file` | `?path=` | Delete file; 409 if directory non-empty; recursive only with `?recursive=true`. |
-| POST | `/api/model/move` | `{ from, to }` | `fs.rename`; `mkdir -p` target parent; broadcast both paths. |
+| POST | `/api/model/file` | `{ path, content? }` | Create a single file; `mkdir -p` parents; 409 if exists. |
+| POST | `/api/model/node` | `{ parent, name, kind }` | Create a tree node. `kind: "container"` → `parent/name/INDEX.md` (section/subsection skeleton). `kind: "unit"` → `parent/name/{INDEX.md (metadata, status:outline), outline.md (overview), draft.md (empty)}`. Appends `name` to the parent `INDEX.md` `child_order`. 409 if exists. |
+| DELETE | `/api/model/file` | `?path=` | Delete file/dir; 409 if non-empty dir unless `?recursive=true`. Removes the entry from parent `child_order`. |
+| POST | `/api/model/move` | `{ from, to }` | `fs.rename`; `mkdir -p` target parent; update both parents' `child_order`; broadcast both paths. |
+| POST | `/api/model/reorder` | `{ parent, child_order[] }` | Rewrite a container `INDEX.md` `child_order` (drag-reorder in UI). |
 
 Each mutation calls `broadcastModelEvent({ type: "model-changed", path })` (same as `:218`). Git sync picks up via existing `git add model` (`:147`).
+
+**`child_order` maintenance is required (not optional):** node order is editorial and drives export (F6) and rendering. The create/delete/move/reorder endpoints keep each container's `INDEX.md` `child_order` in sync. Containers are recursive — a "New subsection" under a section and a "New unit" under a subsection are the same operation at different depths.
 
 **Implementation sketch (POST):**
 ```ts
@@ -166,13 +187,13 @@ app.post("/api/model/file", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 ```
-`indexSkeleton(rel)` returns frontmatter (`title` from last path segment, `summary: ""`, `composed_at_commit: null`) + `# Title` + `## Outline`.
+`indexSkeleton(rel, kind)` returns the frontmatter + body for the node kind ([[phase-2-paper-model]] schemas): container → `kind, title, child_order: []`, body = idea placeholder; unit → `kind: unit, title, status: outline, links: []`, body = idea placeholder. Unit create also writes an empty `draft.md`.
 
-**Frontend:** `App.tsx` sidebar (`:579`) gets a `+` button → modal (file vs folder, name). Card header (`:325`) gets rename + delete buttons (delete behind confirm). On success, existing model-events reload (`:430`) refreshes tree.
+**Comments sidecar:** comments attach to **any** `.md` — both a unit's `outline.md` / `INDEX.md` (idea) and its `draft.md` (text) — stored in `sections/.comments/{relative-path}.comments.json`. Implemented: `GET/POST/PATCH/DELETE /api/comments`, `CommentsPanel` in the editor ([[phase-5-collaboration]]).
 
-**INDEX.md auto-maintenance (optional, v1.1):** on create/delete/move, patch the parent `INDEX.md` `## Outline` list. Defer if it complicates v1 — Quartz/graph reads links live regardless.
+**Frontend:** sidebar context actions — "New section / subsection / unit" → `POST /api/model/node`. Inline rename/delete via `NamePromptDialog`. Drag-reorder siblings → `POST /api/model/reorder`. Model-events reload refreshes tree + graph.
 
-**Acceptance:** create nested file via UI; appears in tree; delete removes it; rename updates path; all reflected after one model-event cycle; path traversal (`../`) rejected with 400.
+**Acceptance:** create a section, then a unit inside it, from the UI; both appear; parent `child_order` updated; a unit has `INDEX.md` + `outline.md` + `draft.md`; delete removes node and its `child_order` entry; reorder persists; path traversal (`../`) rejected with 400.
 
 ---
 
@@ -211,6 +232,8 @@ Keep sidebar tree (cheap, complements graph). Graph replaces nothing destructive
 
 ### F4 — AI dispatch panel (any CLI)
 
+**Status: v1 complete** (2026-06-15). Terminal-dispatch loop shipped; polish items below are v1.1.
+
 **Why:** trigger generation/revision against a specific section without hand-writing prompts; not locked to Claude. See [[ai-terminal-controls]].
 
 **Config file `.treewriter.json` (repo root), read at startup:**
@@ -229,52 +252,46 @@ Keep sidebar tree (cheap, complements graph). Graph replaces nothing destructive
 | Method | Path | Returns |
 |--------|------|---------|
 | GET | `/api/agent/providers` | parsed `aiProviders` (or built-in default if file absent) |
-| POST | `/api/agent/preview` | `{ provider, paperSlug, section, action, contextFiles[], options }` → `{ prompt, command, outputPath }` (no execution) |
+| POST | `/api/agent/preview` | `{ provider, unitPath, action, contextFiles[], options }` → `{ prompt, command, outputPath }` (no execution) |
 
-`preview` builds the prompt from action templates (draft / revise / expand / cite-check / custom) using:
-- outline file for the section,
-- `notes/literature/*` whose frontmatter `relevance` includes the section,
-- `notes/data/*` whose `sections` includes the section,
-- unresolved `notes/feedback/*` for the section.
-`outputPath` = `papers/{slug}/drafts/{section}-v{N+1}.md` (scan existing `-v*.md`).
+The dispatch target is a **unit** (`unitPath` = e.g. `papers/ml-study/sections/introduction/problem`). `preview` builds the prompt from action templates (draft / revise / expand / cite-check / custom) using:
+- the unit's **`outline.md`** overview (what this paragraph must say),
+- comments on the unit's `INDEX.md` and `draft.md` (steer generation/revision),
+- wikilinked nodes in the unit `links:` (e.g. the results unit a claim depends on),
+- `notes/literature/*` whose `relevance` includes this section, `notes/data/*` whose `sections` includes it,
+- unresolved `notes/feedback/*` for the section,
+- for **revise**: the current `draft.md`.
+`outputPath` = the unit's `draft.md` (overwritten in place; Git history is the version trail — no `-vN` files). A "draft section" action fans out over every unit via the section's `child_order`.
 
-**Execution path (minimal, no new process management):** the frontend already owns a terminal WebSocket (`App.tsx:478`). Dispatch = (1) call `/api/agent/preview`, (2) optionally show prompt in a modal to edit, (3) write the returned `command` into the terminal socket as `input` (`:501`). The user sees the AI run live in the existing terminal; Claude Code writes the file itself; `fs.watch` → model-event → tree/graph refresh.
-- For `writesFiles:false` providers (Codex), append a shell redirect in the built command: `codex "<prompt>" > "papers/.../drafts/section-vN.md"`.
+**Execution path (minimal, no new process management):** the frontend already owns a terminal WebSocket (`App.tsx:478`). Dispatch = (1) call `/api/agent/preview`, (2) optionally show prompt in a modal to edit, (3) write the returned `command` into the terminal socket as `input` (`:501`). The user sees the AI run live in the existing terminal; Claude Code writes `draft.md` itself; `fs.watch` → model-event → tree/graph/card refresh.
+- For `writesFiles:false` providers (Codex), the built command appends a redirect to the unit's `draft.md`.
+- On a successful draft/revise, the unit `INDEX.md` `status` advances `outline→drafted`; `approved` stays a human action in the UI.
 
 This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY job tracking is a v1.1 option if we want cancellation + history.)
 
-**Frontend — dispatch panel** (in right column, above/below terminal): selectors Paper / Section / Stage / Provider / Action, auto-filled from the graph/editor selection (F3); checklist of auto-selected context files; "Preview prompt" and "Run" buttons. Run writes to the terminal socket.
+**Frontend — dispatch panel** (in right column, above/below terminal): selectors Unit / Provider / Action, auto-filled from the graph/editor selection (F3); checklist of auto-selected context files; "Preview prompt" and "Run" buttons. Run writes to the terminal socket.
 
-**Acceptance:** select a section, choose Claude Code + Draft, Run; terminal shows `claude -p "…"`; a new `drafts/{section}-v1.md` appears and shows in tree/graph; switching provider to Codex changes the command; Preview shows the full prompt and is editable before Run.
+**Acceptance:** select a unit, choose Claude Code + Draft, Run; terminal shows `claude -p "…"`; the unit's `draft.md` fills in and the card refreshes; switching provider to Codex changes the command; Preview shows the full prompt and is editable before Run.
+
+**v1.1 polish (open):** unit `status` auto-advance to `drafted`; context files checklist; keyboard shortcuts; section fan-out draft.
 
 ---
 
 ### F5 — Scientific paper model
 
+**Status: complete** (2026-06-15). Scaffold, list, dashboard, and notes-aware dispatch context shipped.
+
 **Why:** structure the model for papers; powers context auto-selection (F4) and export ordering (F6). See [[phase-2-paper-model]].
 
-**Scaffold** (via F2 endpoints) under `model/papers/{slug}/` with `outlines/ notes/{literature,data,feedback}/ drafts/ final/`, each with `INDEX.md`.
+**Structure** is the recursive section→unit tree defined in [[phase-2-paper-model]] (containers with `child_order`; units = folder of `INDEX.md` metadata + `outline.md` overview + `draft.md` text; `status` per unit replaces the old `drafts/`/`final/` split). Frontmatter schemas (paper / container / unit / notes) live in that doc.
 
-**Paper `INDEX.md` frontmatter (canonical):**
-```yaml
-title: "…"
-journal: "PLOS ONE"
-status: "Drafting"          # Planning|Drafting|Reviewing|Submitted|Published
-authors: ["Ilya Kavets"]
-target_words: 5000
-section_order: ["outlines/abstract.md","outlines/introduction.md","outlines/methods.md","outlines/results.md","outlines/discussion.md"]
-overleaf_repo_path: null
-last_export: null
-```
+**Scaffold** (via F2 `POST /api/model/node`) under `model/papers/{slug}/`: paper `INDEX.md`, `sections/` containing the journal's standard sections as empty containers (Introduction, Methods, Results, Discussion, Conclusion, Supporting Information), and `notes/{literature,data,feedback}/`. Section set + order come from `model/templates/{journal}.md`.
 
-**Outline / section file frontmatter:** `section`, `target_words`, `status` (outline|drafted|approved|final), `ai_context: []`, `citations_required: []`.
-**Note frontmatter:** literature → `cite_key, authors, year, claim, relevance[]`; data → `figure, path, caption_draft, sections[]`; feedback → `source, date, reviewer, section, resolved`.
+**Backend:** `POST /api/paper` `{ title, journal, authors, slug? }` → scaffold from journal template. `GET /api/papers` → list with status + per-status unit roll-up (walk each paper's `child_order`, count unit `status`).
 
-**Backend:** `POST /api/paper` `{ title, journal, authors, slug? }` → creates scaffold from a journal template in `model/templates/{journal}.md`. `GET /api/papers` → list with status + section counts (read each paper `INDEX.md`).
+**Frontend:** "New Paper" modal; Papers dashboard (journal, status, units `approved/drafted/outline`, last export); per-section roll-up on drill-in. "New section/subsection/unit" via F2.
 
-**Frontend:** "New Paper" button → modal; a Papers dashboard (status, sections drafted/approved, last export).
-
-**Acceptance:** create paper → full tree appears; dashboard shows 0/5 approved; section frontmatter `status` editable; context auto-selection (F4) reads `relevance`/`sections` correctly.
+**Acceptance:** create paper → recursive tree with standard sections appears; dashboard shows `0 approved / 0 drafted / N outline`; adding a unit and drafting it (F4) moves the count; context auto-selection (F4) reads unit `links` + notes `relevance`/`sections` correctly.
 
 ---
 
@@ -282,9 +299,9 @@ last_export: null
 
 **Why:** produce the Overleaf-facing artifact. See [[phase-3-overleaf]]. Requires `brew install pandoc` (+ MacTeX for PDF).
 
-**Endpoint:** `POST /api/export` `{ paperSlug, format: "latex"|"pdf" }` →
-1. Read paper `INDEX.md` `section_order`.
-2. Concatenate `final/` files in that order into a temp `combined.md` (insert `\section{}`-friendly headers).
+**Endpoint:** `POST /api/export` `{ paperSlug, format: "latex"|"pdf", includeDrafts?: boolean }` →
+1. Depth-first walk: paper `INDEX.section_order` → each container's `child_order` → recurse. At each **unit**, take `draft.md`.
+2. Include units with `status: approved` (default) or all when `includeDrafts`. Heading level = tree depth (section→`\section`, subsection→`\subsection`, …). Concatenate into a temp `combined.md`.
 3. Collect `[@cite_key]` used; generate `.bib` from `notes/literature/*` (cite_key→entry).
 4. Run `pandoc combined.md --from markdown --to {latex|pdf} --bibliography gen.bib [--csl templates/{journal}.csl] -o out.{tex|pdf}` via `execFile`.
 5. Return `{ path, downloadUrl }`; write `last_export` timestamp back to paper `INDEX.md`.
@@ -293,36 +310,53 @@ last_export: null
 
 **Frontend:** Export dropdown in paper dashboard (Download .tex / .pdf; Open in Overleaf when configured).
 
-**Acceptance:** export assembles sections in `section_order` (not alphabetical); `[@key]` becomes `\cite{key}`; `.tex` compiles in Overleaf; missing pandoc returns a clear install hint, not a 500 stack.
+**Acceptance:** export walks `section_order` then `child_order` (not alphabetical); only `approved` units appear by default; nesting maps to heading depth; `[@key]` becomes `\cite{key}`; `.tex` compiles in Overleaf; missing pandoc returns a clear install hint, not a 500 stack.
 
 ## 4. API Contract (summary)
 
-| Method | Endpoint | Feature | New? |
-|--------|----------|---------|------|
-| GET | `/api/model/tree` | core | exists `:173` |
-| GET/PUT | `/api/model/file` | core | exists `:184/:205` |
-| POST/DELETE | `/api/model/file` | F2 | new |
-| POST | `/api/model/move` | F2 | new |
-| GET | `/api/model/graph` | F3 | new |
-| GET | `/api/agent/providers` | F4 | new |
-| POST | `/api/agent/preview` | F4 | new |
-| POST | `/api/paper` · GET `/api/papers` | F5 | new |
-| POST | `/api/export` | F6 | new |
-| GET/POST | `/api/git-sync/status` · `/run` | core | exists `:229/:233` (+conflictDetected F1) |
-| WS | `/terminal` · `/model-events` | core | exists `:281/:283` (+resize F0) |
+| Method | Endpoint | Feature | Status |
+|--------|----------|---------|--------|
+| GET | `/health` | health check | exists |
+| GET | `/api/model/tree` | core | exists |
+| GET/PUT | `/api/model/file` | core | exists |
+| POST/DELETE | `/api/model/file` | F2 CRUD | done |
+| POST | `/api/model/node` | F2 create section/subsection/unit | done |
+| POST | `/api/model/move` · `/api/model/reorder` | F2 | done |
+| GET | `/api/model/graph` | F3 wikilink graph (cached) | done |
+| GET | `/api/model/search` | F2 full-text search | done |
+| GET | `/api/model/section-compose` | M6.5 section stitch | done |
+| GET | `/api/agent/providers` | F4 | done |
+| POST | `/api/agent/preview` | F4 dispatch preview | done |
+| GET | `/api/agent/context` · POST `/api/agent/fan-out` | F4 polish | done |
+| POST | `/api/export/batch` | F6 batch export | done |
+| GET | `/api/paper/templates` | F5 | done |
+| POST | `/api/paper` · GET `/api/papers` | F5 | done |
+| POST | `/api/export` · GET `/api/export/download` | F6 | done |
+| POST | `/api/overleaf/push` · `/api/overleaf/import` | M9/M11 | done |
+| GET/POST/PATCH/DELETE | `/api/comments` · GET `/api/comments/summary` | M11 | done |
+| GET/POST/DELETE | `/api/presence/*` | M11 edit locks | done |
+| GET/POST | `/api/git-sync/status` · `/run` | core | exists |
+| WS | `/terminal` · `/model-events` | core + F0 resize | exists |
 
 ## 5. Sequencing and Estimates
 
-| Milestone | Features | Est. | Unblocks |
-|-----------|----------|------|----------|
-| M1 — Stabilize | F0, F1 | 1 day | usable terminal + sync |
-| M2 — Authoring base | F2 | 2 days | scaffolding, editing CRUD |
-| M3 — Navigation | F3 | 2–3 days | graph, cross-paper nav |
-| M4 — AI loop | F4 (+ minimal F5 frontmatter) | 2–3 days | the core value prop |
-| M5 — Paper model | F5 full | 1–2 days | dashboard, context rules |
-| M6 — Output | F6 (export), Overleaf v1.1 | 2–3 days | collaborator handoff |
+| Milestone | Features | Est. | Status |
+|-----------|----------|------|--------|
+| M1 — Stabilize | F0, F1 | 1 day | done |
+| M2 — Authoring base | F2 | 2 days | done (search/comments deferred) |
+| M3 — Navigation | F3 | 2–3 days | done |
+| M4 — AI loop | F4 | 2–3 days | done (v1.1 polish open) |
+| M5 — Paper model | F5 full | 1–2 days | done |
+| M6 — Output | F6 export v1 | 2 days | **done** |
+| M6.5 — Section compose | SectionWorkspace, section-compose API, graph hierarchy, heading fix | 1–2 days | **done** |
+| M7 — Hardening | Path safety, scaffold, per-session prompts, unified modelFs helpers | 2–3 days | **done** |
+| M8 — Authoring UX | Resizable split, workspace persistence, inline CRUD, dispatch textarea, CORS | 3–4 days | **done** |
+| M9 — Export + Overleaf | Duplicate headings, cite warnings, CSL/bib, Overleaf push | 3–5 days | **done** |
+| M10 — Nav polish | Search API, graph zoom/pan/cache, subsection reorder | 2–3 days | **done** |
+| M11 — Collab | Comments, Overleaf round-trip, presence | — | **done** |
+| M-docs | Architecture rewrite, PRD API sync | — | **done** |
 
-Total ≈ 10–14 working days for M1–M6. M1–M4 is the demoable core (≈ 7–9 days).
+Total ≈ 18–24 working days for M1–M11.
 
 ## 6. Dependencies to Install
 - Frontend: `d3-force d3-selection d3-zoom` (F3).
@@ -334,11 +368,12 @@ Total ≈ 10–14 working days for M1–M6. M1–M4 is the demoable core (≈ 7�
 - **fd-3 control channel portability** (F0): macOS/Linux only; fine for target. Fallback: encode resize as an escape on stdin parsed by the bridge.
 - **Wikilink resolution ambiguity** (F3): basename collisions across papers. Mitigate: prefer exact path, then nearest-by-directory; mark ambiguous as `missing` and log.
 - **Provider variance** (F4): Codex/Aider don't write files like Claude Code. Mitigate: `writesFiles` flag + shell redirect for stdout providers.
-- **Pandoc fidelity** (F6): complex LaTeX won't round-trip. Mitigate: `final/` Markdown is source; keep a `raw-latex/` `\input` escape hatch (see [[technical-decisions]] TD-1).
+- **Pandoc fidelity** (F6): complex LaTeX won't round-trip. Mitigate: unit `draft.md` Markdown is source; keep a `raw-latex/` `\input` escape hatch (see [[technical-decisions]] TD-1).
 - **Layout density** (F3/F4): four zones risk crowding. Mitigate: collapsible graph/dispatch panels; reuse existing grid.
 
 ## 8. Out of Scope (deferred, with trigger)
 - PageIndex RAG — revisit when model exceeds ~50 files ([[tool-assessment]]).
 - Quartz static export for remote reviewers — on-demand `npx quartz build` only, not in dev loop.
-- Auth / presence / inline comments — [[phase-5-collaboration]]; add when team > ~5 or exposed beyond localhost.
+- Full auth / multi-tenant — revisit before exposing beyond localhost.
+- Overleaf API thread import — v1 uses `\todo` parse from `main.tex`; API scrape deferred.
 - Server-side agent job manager with cancel/history — v1.1 upgrade to F4.

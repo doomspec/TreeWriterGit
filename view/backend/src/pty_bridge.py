@@ -1,4 +1,5 @@
 import fcntl
+import json
 import os
 import select
 import signal
@@ -6,9 +7,19 @@ import struct
 import sys
 import termios
 
+CONTROL_FD = 3
+
 
 def set_winsize(fd: int, rows: int = 24, cols: int = 80) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+
+def fd_open(fd: int) -> bool:
+    try:
+        os.fstat(fd)
+        return True
+    except OSError:
+        return False
 
 
 def main() -> int:
@@ -31,6 +42,8 @@ def main() -> int:
         os.dup2(slave_fd, 2)
         os.close(master_fd)
         os.close(slave_fd)
+        if fd_open(CONTROL_FD):
+            os.close(CONTROL_FD)
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
@@ -41,9 +54,35 @@ def main() -> int:
     os.close(slave_fd)
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
 
+    control_enabled = fd_open(CONTROL_FD)
+    control_buf = b""
+    read_fds: list = [sys.stdin.buffer, master_fd]
+    if control_enabled:
+        read_fds.append(CONTROL_FD)
+
     try:
         while True:
-            readable, _, _ = select.select([sys.stdin.buffer, master_fd], [], [])
+            readable, _, _ = select.select(read_fds, [], [])
+
+            if control_enabled and CONTROL_FD in readable:
+                try:
+                    chunk = os.read(CONTROL_FD, 4096)
+                except OSError:
+                    chunk = b""
+                if chunk:
+                    control_buf += chunk
+                    while b"\n" in control_buf:
+                        line, control_buf = control_buf.split(b"\n", 1)
+                        try:
+                            msg = json.loads(line)
+                            if msg.get("t") == "resize":
+                                set_winsize(master_fd, int(msg["rows"]), int(msg["cols"]))
+                                try:
+                                    os.kill(child_pid, signal.SIGWINCH)
+                                except ProcessLookupError:
+                                    pass
+                        except (ValueError, KeyError, OSError):
+                            pass
 
             if sys.stdin.buffer in readable:
                 data = os.read(sys.stdin.fileno(), 4096)

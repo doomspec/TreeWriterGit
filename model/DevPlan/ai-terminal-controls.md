@@ -6,9 +6,13 @@ composed_at_commit: null
 
 # AI Terminal Controls
 
+> **Status (2026-06-16):** v1 shipped — context checklist, ⌘⇧R/P shortcuts, section fan-out, per-session prompts. Open: server-side job manager (F4 v1.1).
+
+> **Path note:** this doc predates the recursive unit model and native graph. Provider abstraction, the dispatch panel, and prompt construction are current; but the dispatch target is a **unit** (its `INDEX.md` idea → its `draft.md` text), not `outlines/`/`drafts/-vN` paths, and navigation state comes from the **native graph panel**, not Quartz. [[phase-2-paper-model]] + [[PRD]] F4 are authoritative for paths.
+
 ## Design Goal
 
-The terminal already exists (xterm.js + PTY). What's missing: **UI controls that construct and fire structured commands** so authors don't need to write prompts manually. Context (which section, which paper, what action) comes from the current Quartz navigation state.
+The terminal already exists (xterm.js + PTY). What's missing: **UI controls that construct and fire structured commands** so authors don't need to write prompts manually. Context (which unit, what action) comes from the current graph/editor selection.
 
 Any AI with a CLI gets a dispatch button. The system doesn't lock to Claude Code.
 

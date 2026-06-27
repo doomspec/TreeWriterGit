@@ -5,6 +5,26 @@
   "packageManager": "pnpm@10.12.4",
   "scripts": {
     "dev": "pnpm --parallel --recursive dev",
-    "build": "pnpm --recursive build"
+    "build": "pnpm --recursive build",
+    "lint": "pnpm --filter treewriter-view-backend lint && pnpm --filter treewriter-view-frontend lint",
+    "typecheck": "pnpm --filter treewriter-view-backend typecheck && pnpm --filter treewriter-view-frontend typecheck",
+    "test": "pnpm --filter treewriter-view-backend test && pnpm --filter treewriter-view-frontend test",
+    "ci:all": "pnpm lint && pnpm test && pnpm build",
+    "ci:backend:lint": "pnpm --filter treewriter-view-backend lint",
+    "ci:backend:test": "pnpm --filter treewriter-view-backend test",
+    "ci:backend:build": "pnpm --filter treewriter-view-backend build",
+    "ci:frontend:lint": "pnpm --filter treewriter-view-frontend lint",
+    "ci:frontend:test": "pnpm --filter treewriter-view-frontend test",
+    "ci:frontend:e2e": "pnpm --filter treewriter-view-frontend test:e2e",
+    "ci:frontend:build": "pnpm --filter treewriter-view-frontend build"
+  },
+  "pnpm": {
+    "overrides": {
+      "js-yaml": "^4.2.0",
+      "tsx>esbuild": "^0.28.1"
+    },
+    "patchedDependencies": {
+      "gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch"
+    }
   }
 }

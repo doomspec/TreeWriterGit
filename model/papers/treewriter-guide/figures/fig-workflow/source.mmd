@@ -1,0 +1,12 @@
+flowchart LR
+  subgraph sources["Your workspace"]
+    UI["TreeWriter UI"]
+    Git["Git repo\nmodel/papers/…"]
+  end
+  subgraph output["Collaboration"]
+    Export["Export bundle\n.tex + figures"]
+    OL["Overleaf Git push"]
+  end
+  UI <-->|read/write| Git
+  Git --> Export
+  Export --> OL

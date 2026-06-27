@@ -1,0 +1,1 @@
+Cell culture remains a foundational but labor-intensive component of experimental biology, requiring repetitive manipulations, stringent environmental control, and sustained operator attention over timescales that often extend beyond standard working hours.

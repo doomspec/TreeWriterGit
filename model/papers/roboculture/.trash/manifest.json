@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "id": "50bce700-8bea-4322-a17a-d354d469029d",
+      "trashPath": "papers/roboculture/.trash/results/4",
+      "originalPath": "papers/roboculture/results/4",
+      "originalParent": "papers/roboculture/results",
+      "label": "4",
+      "deletedAt": "2026-06-17T23:15:05.993Z"
+    },
+    {
+      "id": "b9ecfb63-946c-4ac1-a718-850b70921923",
+      "trashPath": "papers/roboculture/.trash/results/1",
+      "originalPath": "papers/roboculture/results/1",
+      "originalParent": "papers/roboculture/results",
+      "label": "1",
+      "deletedAt": "2026-06-17T23:15:03.689Z"
+    },
+    {
+      "id": "5eee4423-4f1c-41ea-81ee-a989d22a436a",
+      "trashPath": "papers/roboculture/.trash/figures/fig1",
+      "originalPath": "papers/roboculture/figures/fig1",
+      "originalParent": "papers/roboculture/figures",
+      "label": "Fig1",
+      "deletedAt": "2026-06-17T21:34:45.487Z"
+    }
+  ]
+}

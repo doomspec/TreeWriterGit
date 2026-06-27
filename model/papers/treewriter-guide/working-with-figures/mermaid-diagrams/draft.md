@@ -1,0 +1,1 @@
+Keep editable **Mermaid source** (`source.mmd`) in the figure folder, render to PNG for LaTeX export as `figure_source`, and embed with `::figure[…]` as usual. The demo figure in this guide (`figures/fig-workflow`) is a Mermaid source example.

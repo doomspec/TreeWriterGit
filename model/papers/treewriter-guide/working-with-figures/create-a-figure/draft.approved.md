@@ -1,0 +1,1 @@
+In **Papers**, select your paper → **Assets → Figures** → **+**. Enter a slug (`fig1`). Write outline and caption draft, upload PNG/SVG/PDF or add a `.mmd` file, then **Approve** the caption when ready for export.

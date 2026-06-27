@@ -1,12 +1,14 @@
 ---
 title: Phase 3 — LaTeX and Overleaf Integration
-summary: Export model/final/ to LaTeX via pandoc, sync to Overleaf, and import Overleaf comments back into model/notes/.
+summary: Export unit draft.md to LaTeX/PDF via pandoc (F6 v1 done); Overleaf Git Bridge push and comment import remain v1.1.
 composed_at_commit: null
 ---
 
 # Phase 3 — LaTeX and Overleaf Integration
 
-**Effort:** 3–4 days  
+> **Authority:** [[PRD]] F6 supersedes the export sections below. Export reads **unit `draft.md`** files in `section_order` / `child_order` (not a separate `final/` directory). **F6 v1** (`POST /api/export`, `GET /api/export/download`) is implemented. **Overleaf push + comment import** remain v1.1.
+
+**Effort:** 3–4 days (export v1 ~1 day done; Overleaf v1.1 remaining)  
 **Dependencies:** Phase 1 (file CRUD), Phase 2 (paper model + section_order metadata)  
 **Prerequisite:** `brew install pandoc` on the server machine
 

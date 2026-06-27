@@ -29,3 +29,27 @@ The 120-second interval balances two competing concerns: propagating changes qui
 ## Relationship to the Repository-as-Model Principle
 
 Continuous synchronization is what makes the repository viable as a live, shared data model rather than a series of snapshots. Because changes are propagated automatically and conflicts are resolved without human intervention under normal conditions, participants can treat their local workspace as a continuously updated view of the shared state rather than an isolated branch that occasionally needs to be reconciled.
+
+## Sync scope (current implementation)
+
+Automated sync only commits configured **commit paths** (default: `model/`). Paths listed under **exclude paths** (default: `view/`) are never committed; they are temporarily stashed during rebase and restored after push so local source edits do not block sync.
+
+Configure in `.treewriter.json`:
+
+```json
+{
+  "gitSync": {
+    "commitPaths": ["model"],
+    "excludePaths": ["view"]
+  }
+}
+```
+
+Or with environment variables (override the file):
+
+* `GIT_SYNC_COMMIT_PATHS=model,exports` — comma-separated folders to commit
+* `GIT_SYNC_EXCLUDE_PATHS=view,scripts` — never committed; stashed only for rebase
+* `GIT_SYNC_ENABLED=false` — disable the loop
+* `GIT_SYNC_INTERVAL_MS=120000` — interval in milliseconds (default 120s)
+
+Other repo paths outside commit and exclude lists are autostashed during rebase and restored after a successful push.

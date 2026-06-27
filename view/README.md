@@ -29,16 +29,56 @@ pnpm dev
 
 By default, the frontend runs on port `5173` and connects to the backend websocket at `ws://localhost:4000/terminal`.
 
-## Model Editing
+## Backend API (summary)
 
-The backend exposes the model tree and file contents:
+### Model
 
 * `GET /api/model/tree`
-* `GET /api/model/file?path=INDEX.md`
+* `GET /api/model/file?path=` — lazy-creates missing `outline.md` / `draft.md` when appropriate
 * `PUT /api/model/file`
-* `WS /model-events`
+* `POST /api/model/file`
+* `POST /api/model/node`
+* `DELETE /api/model/file?path=&recursive=`
+* `POST /api/model/move`
+* `POST /api/model/reorder`
+* `GET /api/model/graph?root=`
+* `GET /api/model/section-compose?path=` — stitched section outline + draft for `SectionWorkspace`
+* `GET /api/model/search?q=&root=` — full-text search with path, line, excerpt
+* `GET /api/comments?path=` · `POST /api/comments` · `PATCH/DELETE /api/comments/:id` — sidecar comments on `.md` files (optional `assigned_to`)
+* `GET /api/comments/summary?paperSlug=` — unresolved + assigned comment counts
+* `GET /api/comments/assigned?paperSlug=&assigneeId=&assigneeType=` — assigned comments for inbox/filter views
+* `GET /api/presence?path=` · `POST/DELETE /api/presence/claim` · `POST /api/presence/heartbeat` — edit locks (in-memory)
+* `POST /api/overleaf/push` — export `.tex` + copy to `overleaf_repo_path`, git commit/push
+* `POST /api/overleaf/import` — parse `\\todo` from Overleaf `main.tex` into `notes/feedback/`
 
-The frontend uses these endpoints to display `model/`, edit Markdown files, save changes back to disk, and refresh when files change outside the browser.
+### Papers & export
+
+* `GET /api/paper/templates`
+* `GET /api/papers` · `GET /api/papers?slug=`
+* `POST /api/paper`
+* `GET /api/agent/context?unitPath=&action=` — context file checklist for dispatch
+* `POST /api/agent/fan-out` — batch draft commands for all units in a section
+* `POST /api/export/batch` — export `.tex` + `.pdf` in one request
+* `POST /api/export` `{ paperSlug, format, includeDrafts? }` — default `includeDrafts: false` (approved only)
+* `GET /api/export/download?file=`
+
+### AI dispatch & sessions
+
+* `GET /api/agent/providers`
+* `POST /api/agent/preview`
+* `GET /api/sessions?unitPath=`
+* `POST /api/sessions` · `PATCH /api/sessions`
+
+### Git sync & health
+
+* `GET /health`
+* `GET /api/git-sync/status`
+* `POST /api/git-sync/run`
+
+### WebSockets
+
+* `WS /terminal` — xterm PTY (resize via fd-3 control channel)
+* `WS /model-events` — file change notifications
 
 ## Git Sync
 
@@ -46,7 +86,36 @@ Git sync is enabled by default in the backend. Every 120 seconds it:
 
 1. Fetches `origin`.
 2. Commits pending `model/` changes with the message `Automated sync`.
-3. Rebases onto `origin/main`.
-4. Pushes `HEAD` to `origin/main`.
+3. Rebases onto the current branch's upstream.
+4. Pushes.
 
 Use `GIT_SYNC_ENABLED=false` to disable it or `GIT_SYNC_INTERVAL_MS=30000` to change the interval. The frontend header shows sync status and includes a manual sync button.
+
+## Export prerequisites
+
+LaTeX export requires [pandoc](https://pandoc.org/) (`brew install pandoc`). PDF export also needs a LaTeX engine — prefer [Tectonic](https://tectonic-typesetting.github.io/) (`brew install tectonic`, ~100MB) over full MacTeX. If no engine is installed, **Export PDF** automatically downloads `.tex` instead.
+
+Per-journal export styling lives in `model/templates/{journal}.md` under an `export:` frontmatter block (document class, geometry, CSL, pandoc variables). Drop venue `.csl` files into `model/templates/` to match.
+
+Exports are written to `.treewriter-exports/` at the repo root (gitignored).
+
+## CI and local checks
+
+From `view/`:
+
+```sh
+pnpm ci:backend:lint    # tsc --noEmit (backend)
+pnpm ci:backend:test
+pnpm ci:backend:build
+pnpm ci:frontend:lint   # tsc --noEmit (frontend)
+pnpm ci:frontend:test
+pnpm ci:frontend:build
+```
+
+Or run everything:
+
+```sh
+pnpm lint && pnpm test && pnpm build
+```
+
+Shared API contracts live in `shared/apiTypes.ts` (`@treewriter/shared`). See [COLLABORATION.md](./COLLABORATION.md) for model conventions and multi-author Git workflow.

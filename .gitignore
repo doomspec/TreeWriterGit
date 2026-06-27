@@ -5,3 +5,13 @@ dist/
 view/frontend/vite.config.d.ts
 view/frontend/vite.config.js
 .DS_Store
+.treewriter-exports/
+.treewriter-prompt.txt
+.treewriter-prompts/
+.treewriter/
+model/.treewriter-prompts/
+.overleaf/
+**/temp-notes.md
+
+# Python bytecode
+__pycache__/

@@ -5,7 +5,16 @@
   "packageManager": "pnpm@10.12.4",
   "scripts": {
     "dev": "pnpm --dir view dev",
-    "build": "pnpm --dir view build"
+    "build": "pnpm --dir view build",
+    "lint": "pnpm --dir view lint",
+    "typecheck": "pnpm --dir view typecheck",
+    "test": "pnpm --dir view test",
+    "tw-context": "node scripts/tw-context.mjs",
+    "import-references": "tsx scripts/import-references.mjs",
+    "import-docx": "tsx scripts/import-docx.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
   }
 }
 
