@@ -21,6 +21,7 @@
     "gray-matter": "^4.0.3",
     "jszip": "^3.10.1",
     "markdown-docx": "^1.6.0",
+    "marked": "^18.0.5",
     "ws": "^8.18.0"
   },
   "devDependencies": {

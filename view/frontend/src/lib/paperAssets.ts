@@ -27,10 +27,14 @@ export type EquationMetadata = {
 export type ReferenceMetadata = {
   path: string;
   title: string;
-  citeKey: string | null;
+  citeKey: string;
   authors: string | null;
   year: string | null;
   journal: string | null;
+  doi?: string | null;
+  type?: string;
+  verifiedStatus?: "verified" | "stale" | "unverified";
+  integrity?: string | null;
 };
 
 export type PaperAssetsBundle = {
@@ -96,6 +100,23 @@ export type BibtexImportResult = {
   errors: string[];
 };
 
+export type BibLibraryEntry = {
+  type: string;
+  citeKey: string;
+  fields: Record<string, string>;
+  verifiedStatus: "verified" | "stale" | "unverified";
+  integrity: string | null;
+};
+
+export type CrossrefCandidate = {
+  doi: string;
+  title: string;
+  authors: string;
+  year: string | null;
+  journal: string | null;
+  similarity: number;
+};
+
 export async function importReferencesFromBibtex(
   paperPath: string,
   bibtex: string,
@@ -104,4 +125,60 @@ export async function importReferencesFromBibtex(
     method: "POST",
     body: JSON.stringify({ paper: paperPath, bibtex }),
   });
+}
+
+export async function fetchBibLibrary(): Promise<BibLibraryEntry[]> {
+  const data = await request<{ entries: BibLibraryEntry[] }>("/api/model/bib");
+  return data.entries;
+}
+
+export async function saveBibEntry(
+  citeKey: string,
+  body: { nextCiteKey?: string; type?: string; fields: Record<string, string> },
+): Promise<BibLibraryEntry> {
+  const data = await request<{ entry: BibLibraryEntry }>("/api/model/bib/entry", {
+    method: "PUT",
+    body: JSON.stringify({ citeKey, ...body }),
+  });
+  return data.entry;
+}
+
+export async function verifyBibEntry(citeKey: string): Promise<BibLibraryEntry> {
+  const data = await request<{ entry: BibLibraryEntry }>("/api/model/bib/verify", {
+    method: "POST",
+    body: JSON.stringify({ citeKey }),
+  });
+  return data.entry;
+}
+
+export async function searchCrossrefForBibEntry(
+  title: string,
+): Promise<CrossrefCandidate[]> {
+  const data = await request<{ candidates: CrossrefCandidate[] }>("/api/model/bib/crossref/search", {
+    method: "POST",
+    body: JSON.stringify({ title, rows: 5 }),
+  });
+  return data.candidates;
+}
+
+export async function updateBibEntryFromCrossref(
+  citeKey: string,
+  doi: string,
+): Promise<BibLibraryEntry> {
+  const data = await request<{ entry: BibLibraryEntry }>("/api/model/bib/crossref/update", {
+    method: "POST",
+    body: JSON.stringify({ citeKey, doi }),
+  });
+  return data.entry;
+}
+
+export async function previewBibEntryFromCrossref(
+  citeKey: string,
+  doi: string,
+): Promise<BibLibraryEntry> {
+  const data = await request<{ entry: BibLibraryEntry }>("/api/model/bib/crossref/preview", {
+    method: "POST",
+    body: JSON.stringify({ citeKey, doi }),
+  });
+  return data.entry;
 }
