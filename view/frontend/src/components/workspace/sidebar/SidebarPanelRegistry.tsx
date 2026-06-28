@@ -10,6 +10,7 @@ import type { SidebarPanel } from "@/lib/workspacePreferences";
 import type { GraphScope } from "@/lib/graphLocal";
 import type { ModelNode } from "@/lib/modelTreeTypes";
 import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
+import type { SearchHit } from "@/modelApi";
 
 const GraphPanel = lazy(() =>
   import("@/components/graph/GraphPanel").then((m) => ({ default: m.GraphPanel })),
@@ -30,8 +31,8 @@ export type SidebarPanelRegistryProps = {
   onSearchChange: (query: string) => void;
   onNavigate: (path: string) => void;
   onOpenFile: (path: string) => void;
-  onSearchSelect: (path: string) => void;
-  onLoadSubtree: (path: string) => void;
+  onSearchSelect: (hit: SearchHit) => void;
+  onLoadSubtree: (folderPath: string, depth?: number) => Promise<boolean>;
   onGraphScopeChange: (scope: GraphScope) => void;
   onPaperCreated: (path: string) => void;
   onModelChanged: () => void;
@@ -79,7 +80,7 @@ export function SidebarPanelRegistry({
             embedded
             active
             fetchRoot={graphFetchRoot ?? ""}
-            focusPath={graphFocusPath}
+            focusPath={graphFocusPath ?? ""}
             graphScope={graphScope}
             refreshVersion={refreshVersion}
             onGraphScopeChange={onGraphScopeChange}

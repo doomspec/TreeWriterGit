@@ -33,7 +33,10 @@ export type WorkspacePreferencesSnapshot = {
 /** Debounced persistence for workspace layout and navigation preferences. */
 export function useWorkspacePreferencesPersistence(snapshot: WorkspacePreferencesSnapshot): void {
   useEffect(() => {
-    scheduleSaveWorkspacePreferences(snapshot);
+    scheduleSaveWorkspacePreferences({
+      ...snapshot,
+      graphRoot: snapshot.graphRoot ?? "",
+    });
   }, [
     snapshot.activeFile,
     snapshot.agentPanelOpen,
