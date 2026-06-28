@@ -1,32 +1,43 @@
-import { Bot, ChevronDown, ChevronUp, User } from "lucide-react";
+import { Bot, ChevronDown, ChevronUp, PanelRight, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { formatGitHubHandle, type DraftPendingSource } from "@/lib/draftApproval";
+import { formatPendingAuthorLabel, type DraftPendingSource } from "@/lib/draftApproval";
 import type { PendingChangeNavigation } from "@/lib/usePendingChangeNavigation";
 
 export function DraftApprovalBar({
   pendingSource,
   editedBy,
   aiAssisted = false,
+  aiProvider = null,
   onApprove,
   onDiscard,
   approving = false,
   approveLabel = "Approve draft",
   changeNavigation = null,
+  reviewRailOpen = false,
+  onToggleReviewRail,
 }: {
   pendingSource: DraftPendingSource | null;
   editedBy?: string | null;
   aiAssisted?: boolean;
+  aiProvider?: string | null;
   onApprove: () => void;
   onDiscard: () => void;
   approving?: boolean;
   approveLabel?: string;
   changeNavigation?: PendingChangeNavigation | null;
+  reviewRailOpen?: boolean;
+  onToggleReviewRail?: () => void;
 }) {
-  const source = pendingSource ?? "human";
+  const source = pendingSource ?? (aiAssisted ? "ai" : "human");
   const Icon = source === "ai" || aiAssisted ? Bot : User;
-  const handleLabel = formatGitHubHandle(editedBy);
-  const editorPart = handleLabel ? `${handleLabel} edited` : "Not yet approved";
+  const authorLabel = formatPendingAuthorLabel({
+    pendingSource: source,
+    editedBy,
+    aiAssisted,
+    aiProvider,
+  });
+  const editorPart = `${authorLabel} edited`;
   const aiPart = source === "ai" || aiAssisted ? " · AI assisted" : "";
   const message = `${editorPart}${aiPart} — saved for collaborators; approve to mark ready for export.`;
   const shortMessage = `${editorPart}${aiPart} — approve to export`;
@@ -75,6 +86,20 @@ export function DraftApprovalBar({
               <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
+        ) : null}
+        {onToggleReviewRail ? (
+          <Button
+            type="button"
+            variant={reviewRailOpen ? "default" : "ghost"}
+            size="sm"
+            className="h-7 w-7 px-0"
+            title={reviewRailOpen ? "Hide review panel" : "Show review panel"}
+            aria-label={reviewRailOpen ? "Hide review panel" : "Show review panel"}
+            aria-pressed={reviewRailOpen}
+            onClick={onToggleReviewRail}
+          >
+            <PanelRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
         ) : null}
         <Button
           type="button"

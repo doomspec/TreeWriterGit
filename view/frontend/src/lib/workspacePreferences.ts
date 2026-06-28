@@ -1,7 +1,7 @@
 export type WorkspaceNavTab = "explorer" | "papers";
 
 /** Left rail panel: explorer/papers reuse WorkspaceNav; graph/outline/export/import are dedicated panels. */
-export type SidebarPanel = "explorer" | "papers" | "graph" | "outline" | "export" | "import";
+export type SidebarPanel = "explorer" | "papers" | "graph" | "outline" | "export" | "import" | "review";
 
 export type DualPaneActive = "outline" | "draft" | "notes";
 
@@ -72,6 +72,8 @@ export type WorkspacePreferences = {
   /** When false, the panel is shown on hover only; the icon rail stays visible. */
   sidebarPinned: boolean;
   bottomPanelHeight: number;
+  /** When false, the per-file review rail is hidden in editors. */
+  reviewRailOpen: boolean;
   /** Last opened paper root (`papers/{slug}`), used for the home link. */
   lastPaperPath: string | null;
   /** Per editor-container pane layout (paper / section / unit paths). */
@@ -113,6 +115,7 @@ const DEFAULTS: WorkspacePreferences = {
   sidebarPanel: "papers",
   sidebarPanelOpen: true,
   sidebarPinned: true,
+  reviewRailOpen: true,
   bottomPanelHeight: BOTTOM_PANEL_HEIGHT_DEFAULT,
   lastPaperPath: null,
   editorPanePrefsByScope: {},
@@ -168,7 +171,8 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
       panel !== "graph" &&
       panel !== "outline" &&
       panel !== "export" &&
-      panel !== "import"
+      panel !== "import" &&
+      panel !== "review"
     ) {
       delete (parsed as { sidebarPanel?: string }).sidebarPanel;
     }
@@ -177,6 +181,9 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     }
     if (typeof (parsed as { sidebarPinned?: boolean }).sidebarPinned !== "boolean") {
       delete (parsed as { sidebarPinned?: boolean }).sidebarPinned;
+    }
+    if (typeof (parsed as { reviewRailOpen?: boolean }).reviewRailOpen !== "boolean") {
+      delete (parsed as { reviewRailOpen?: boolean }).reviewRailOpen;
     }
     if (!(parsed as { sidebarPanel?: string }).sidebarPanel && parsed.sidebarTab) {
       (parsed as { sidebarPanel?: SidebarPanel }).sidebarPanel = parsed.sidebarTab;

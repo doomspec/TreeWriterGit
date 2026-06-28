@@ -13,12 +13,15 @@ import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { UnapprovedIndicator } from "@/components/nav/UnapprovedIndicator";
 import { cn } from "@/lib/utils";
-import { useDraftPendingPaths, replaceServerDraftPendingPaths } from "@/lib/draftPendingStore";
+import { useDraftPendingPaths, replaceServerPendingReviews } from "@/lib/draftPendingStore";
+import { usePaperPendingReviews } from "@/lib/usePaperPendingReviews";
 import { sectionNeedsHighlight, unapprovedSectionRowClass, unapprovedSectionTitle } from "@/lib/unapprovedHighlight";
 import { loadIndexChildOrder } from "@/lib/indexChildOrder";
 import { navigateAfterArchive, useArchiveNodeDialog } from "@/lib/useArchiveNodeDialog";
 import {
+  convertUnitToSubsection,
   createNode,
+  duplicateNode,
   fetchPaperDetail,
   moveNode,
   reorderChildren,
@@ -83,7 +86,7 @@ export function PapersPanel({
   const [detail, setDetail] = useState<PaperDetail | null>(null);
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
   const [childOrderOverrides, setChildOrderOverrides] = useState<Record<string, string[]>>({});
-  const { commentSummary, paperChildOrders } = useWorkspaceNavigationContext();
+  const { commentSummary, paperChildOrders, setSidebarPanel } = useWorkspaceNavigationContext();
   const childOrders = useMemo(
     () => ({ ...paperChildOrders, ...childOrderOverrides }),
     [childOrderOverrides, paperChildOrders],
@@ -97,6 +100,11 @@ export function PapersPanel({
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
+  const { totalCount: pendingReviewCount } = usePaperPendingReviews(
+    selectedSlug,
+    refreshVersion ?? 0,
+    onError,
+  );
 
   useEffect(() => {
     const previousPath = previousPathRef.current;
@@ -148,7 +156,8 @@ export function PapersPanel({
   );
 
   const showSectionList =
-    Boolean(paperPath) && (currentPath !== paperPath || !collapsedPaths.has(paperPath));
+    Boolean(paperPath) &&
+    (currentPath === paperPath || (paperPath !== null && !collapsedPaths.has(paperPath)));
 
   const requestCreate = useCallback((parentPath: string, kind: NodeKind) => {
     setCreatePrompt({ parentPath, kind });
@@ -197,16 +206,19 @@ export function PapersPanel({
         try {
           const data = await fetchPaperDetail(selectedSlug);
           setDetail(data.paper);
-          replaceServerDraftPendingPaths(data.paper.pendingApprovalPaths ?? []);
+          replaceServerPendingReviews(data.paper.pendingReviews ?? []);
+          if (data.paper.sectionOrder.length > 0) {
+            setSectionOrder((prev) => (prev.length > 0 ? prev : data.paper.sectionOrder));
+          }
         } catch {
           setDetail(null);
-          replaceServerDraftPendingPaths([]);
+          replaceServerPendingReviews([]);
         }
       } else {
         setDetail(null);
         setSectionOrder([]);
         setChildOrderOverrides({});
-        replaceServerDraftPendingPaths([]);
+        replaceServerPendingReviews([]);
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -265,17 +277,39 @@ export function PapersPanel({
     ? sectionNeedsHighlight(paperPath, containerCounts[paperPath] ?? detail?.counts)
     : { highlight: false, pending: false, unapproved: false };
 
+  const effectiveSectionOrder = useMemo(
+    () => (sectionOrder.length > 0 ? sectionOrder : (detail?.sectionOrder ?? [])),
+    [detail?.sectionOrder, sectionOrder],
+  );
+
   const sections = useMemo((): SectionRow[] => {
     if (!paperPath) return [];
-    const fromTree = sectionsForPaper(tree, paperPath, sectionOrder);
-    if (!detail?.sections.length) return fromTree;
-    const byPath = new Map(detail.sections.map((s) => [s.path, s]));
-    return fromTree.map((s) => ({
-      ...s,
-      title: byPath.get(s.path)?.title ?? s.title,
-      counts: byPath.get(s.path)?.counts,
+    const fromTree = sectionsForPaper(tree, paperPath, effectiveSectionOrder);
+    const byPath = new Map((detail?.sections ?? []).map((s) => [s.path, s]));
+
+    if (fromTree.length > 0) {
+      return fromTree.map((s) => ({
+        ...s,
+        title: byPath.get(s.path)?.title ?? s.title,
+        counts: byPath.get(s.path)?.counts,
+      }));
+    }
+
+    if (detail?.sections.length) {
+      return detail.sections.map((s) => ({
+        name: s.path.split("/").pop() ?? s.path,
+        path: s.path,
+        title: s.title,
+        counts: s.counts,
+      }));
+    }
+
+    return effectiveSectionOrder.map((name) => ({
+      name,
+      path: `${paperPath}/${name}`,
+      title: byPath.get(`${paperPath}/${name}`)?.title ?? name,
     }));
-  }, [detail, paperPath, sectionOrder, tree]);
+  }, [detail, effectiveSectionOrder, paperPath, tree]);
 
   const handleSectionReorder = async (order: string[]) => {
     if (!paperPath) return;
@@ -304,6 +338,38 @@ export function PapersPanel({
       setReordering(false);
     }
   };
+
+  const handleConvertToSubsection = useCallback(
+    async (unitPath: string) => {
+      setReordering(true);
+      try {
+        await convertUnitToSubsection(unitPath);
+        handleModelChanged();
+        onNavigate(unitPath);
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setReordering(false);
+      }
+    },
+    [handleModelChanged, onError, onNavigate],
+  );
+
+  const handleDuplicate = useCallback(
+    async (nodePath: string) => {
+      setReordering(true);
+      try {
+        const result = await duplicateNode(nodePath);
+        handleModelChanged();
+        onNavigate(result.path);
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setReordering(false);
+      }
+    },
+    [handleModelChanged, onError, onNavigate],
+  );
 
   return (
     <div className={cn("space-y-3", embedded ? "p-3 pt-0" : "border-b border-border px-4 py-3")}>
@@ -334,6 +400,17 @@ export function PapersPanel({
           onError={onError}
           commentSummary={commentSummary}
         />
+      ) : null}
+
+      {pendingReviewCount > 0 ? (
+        <button
+          type="button"
+          className="w-full rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-left text-xs text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+          onClick={() => setSidebarPanel("review")}
+        >
+          {pendingReviewCount} pending review{pendingReviewCount === 1 ? "" : "s"} — open Review
+          panel
+        </button>
       ) : null}
 
       {selectedSlug && paperPath ? (
@@ -415,6 +492,8 @@ export function PapersPanel({
                 onDelete={requestArchive}
                 onRename={requestRename}
                 onCreate={requestCreate}
+                onConvertToSubsection={(path) => void handleConvertToSubsection(path)}
+                onDuplicate={(path) => void handleDuplicate(path)}
               />
             ) : null}
             {sections.length > 0 ? (

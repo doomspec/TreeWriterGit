@@ -12,6 +12,7 @@ import type {
   SectionRollup,
   UnitStatusCounts,
   DocxImportResult,
+  DocxImportPreview,
 } from "@treewriter/shared";
 
 export { ApiError, getApiBaseUrl, request };
@@ -27,6 +28,7 @@ export type {
   SectionRollup,
   UnitStatusCounts,
   DocxImportResult,
+  DocxImportPreview,
 };
 
 export {
@@ -38,7 +40,7 @@ export {
   pushToOverleaf,
 } from "./exportApi";
 
-export { importDocxIntoPaper } from "./importApi";
+export { importDocxIntoPaper, previewDocxImport } from "./importApi";
 
 export {
   claimPresence,
@@ -53,6 +55,23 @@ export function createNode(parent: string, name: string, kind: NodeKind) {
   return request<{ ok: true; path: string; kind: NodeKind }>("/api/model/node", {
     method: "POST",
     body: JSON.stringify({ parent, name, kind })
+  });
+}
+
+export function convertUnitToSubsection(unitPath: string) {
+  return request<{ ok: true; path: string; childPaths: string[] }>(
+    "/api/model/node/convert-subsection",
+    {
+      method: "POST",
+      body: JSON.stringify({ path: unitPath }),
+    },
+  );
+}
+
+export function duplicateNode(path: string) {
+  return request<{ ok: true; path: string; paths: string[] }>("/api/model/node/duplicate", {
+    method: "POST",
+    body: JSON.stringify({ path }),
   });
 }
 
@@ -103,6 +122,13 @@ export function restoreTrashedItem(paperPath: string, itemId: string) {
 export function purgeTrashedItem(paperPath: string, itemId: string) {
   return request<{ ok: true; item: TrashedItem }>(
     `/api/model/trash?paper=${encodeURIComponent(paperPath)}&itemId=${encodeURIComponent(itemId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function purgeAllTrashedItems(paperPath: string) {
+  return request<{ ok: true; purgedCount: number }>(
+    `/api/model/trash/all?paper=${encodeURIComponent(paperPath)}`,
     { method: "DELETE" },
   );
 }

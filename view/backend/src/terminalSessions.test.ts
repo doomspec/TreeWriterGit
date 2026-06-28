@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createTerminalSessionManager, parseTerminalConnectParams } from "./terminalSessions.js";
 
@@ -7,6 +7,7 @@ describe("parseTerminalConnectParams", () => {
     expect(parseTerminalConnectParams("/terminal?session=abc&new=1")).toEqual({
       sessionId: "abc",
       forceNew: true,
+      replayScrollback: true,
     });
   });
 
@@ -14,6 +15,15 @@ describe("parseTerminalConnectParams", () => {
     expect(parseTerminalConnectParams("/terminal")).toEqual({
       sessionId: null,
       forceNew: false,
+      replayScrollback: true,
+    });
+  });
+
+  it("skips full scrollback replay when scrollback=0", () => {
+    expect(parseTerminalConnectParams("/terminal?session=abc&scrollback=0")).toEqual({
+      sessionId: "abc",
+      forceNew: false,
+      replayScrollback: false,
     });
   });
 });
@@ -35,6 +45,37 @@ describe("createTerminalSessionManager", () => {
     const reattached = manager.resolveSession("persist-test", false);
     expect(reattached).toBe(session);
     expect(reattached.scrollback).toContain("hello");
+  });
+
+  it("sends only disconnect gap when scrollback replay is skipped", async () => {
+    const manager = createTerminalSessionManager({
+      command: "cat",
+      args: [],
+      cwd: process.cwd(),
+    });
+
+    const session = manager.resolveSession("resume-test", false);
+    manager.handleInput(session, "before");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const firstSocket = {
+      readyState: 1,
+      send: vi.fn(),
+    } as unknown as import("ws").WebSocket;
+    manager.attach(firstSocket, session);
+    expect(firstSocket.send).toHaveBeenCalledWith("before");
+
+    manager.detach(session);
+    manager.handleInput(session, "after");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const secondSocket = {
+      readyState: 1,
+      send: vi.fn(),
+    } as unknown as import("ws").WebSocket;
+    manager.attach(secondSocket, session, { replayScrollback: false });
+    expect(secondSocket.send).toHaveBeenCalledWith("after");
+    expect(secondSocket.send).not.toHaveBeenCalledWith("beforeafter");
   });
 
   it("starts a new session when forceNew is set", async () => {

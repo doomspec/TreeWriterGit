@@ -9,12 +9,14 @@ export function useMarkdownAnnotations({
   refreshVersion,
   pathVersion,
   setSelectedLine,
+  preloadedComments,
 }: {
   commentsOpen: boolean;
   filePath: string;
   refreshVersion: number;
   pathVersion: number;
   setSelectedLine: (line: number) => void;
+  preloadedComments?: CommentRecord[];
 }) {
   const [annotationIndex, setAnnotationIndex] = useState(0);
   const [annotationItems, setAnnotationItems] = useState<CommentRecord[]>([]);
@@ -26,19 +28,28 @@ export function useMarkdownAnnotations({
       return;
     }
     let cancelled = false;
+    const applyComments = (comments: CommentRecord[]) => {
+      const sorted = sortCommentsByLine(comments);
+      setAnnotationItems(sorted);
+      setAnnotationIndex(0);
+      if (sorted.length > 0) setSelectedLine(sorted[0].line);
+    };
+    if (preloadedComments) {
+      applyComments(preloadedComments);
+      return () => {
+        cancelled = true;
+      };
+    }
     void fetchComments(filePath)
       .then(({ comments }) => {
         if (cancelled) return;
-        const sorted = sortCommentsByLine(comments);
-        setAnnotationItems(sorted);
-        setAnnotationIndex(0);
-        if (sorted.length > 0) setSelectedLine(sorted[0].line);
+        applyComments(comments);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [commentsOpen, filePath, pathVersion, refreshVersion, setSelectedLine]);
+  }, [commentsOpen, filePath, pathVersion, preloadedComments, refreshVersion, setSelectedLine]);
 
   const handleAnnotationIndexChange = useCallback(
     (index: number) => {

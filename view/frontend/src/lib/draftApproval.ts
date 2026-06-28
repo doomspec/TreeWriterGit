@@ -126,6 +126,41 @@ export function formatPendingAuthorLabel(options: {
   return formatGitHubHandle(options.editedBy) ?? "Editor";
 }
 
+/** Resolve approval attribution for display — never substitute the viewer's handle for external edits. */
+export function resolvePendingApprovalDisplay(options: {
+  editMeta: Pick<DraftEditMeta, "editedBy" | "aiAssisted" | "aiProvider">;
+  pendingSource: DraftPendingSource | null;
+  githubHandle: string | null;
+  isDirty: boolean;
+}): {
+  editedBy: string | null;
+  pendingSource: DraftPendingSource | null;
+  aiAssisted: boolean;
+  aiProvider: string | null;
+} {
+  const { editMeta, pendingSource, githubHandle, isDirty } = options;
+  const aiAssisted = pendingSource === "ai" || Boolean(editMeta.aiAssisted);
+
+  let effectivePendingSource = pendingSource;
+  if (aiAssisted) {
+    effectivePendingSource = "ai";
+  } else if (effectivePendingSource === null && isDirty) {
+    effectivePendingSource = "human";
+  }
+
+  let editedBy = editMeta.editedBy;
+  if (effectivePendingSource === "human" && isDirty) {
+    editedBy = githubHandle || editMeta.editedBy;
+  }
+
+  return {
+    editedBy,
+    pendingSource: effectivePendingSource,
+    aiAssisted,
+    aiProvider: editMeta.aiProvider,
+  };
+}
+
 function normalizeGitHubHandle(raw: string): string {
   return raw.trim().replace(/^@+/, "");
 }

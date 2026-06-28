@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createNode } from "./modelFs.js";
-import { archiveNode, listTrashedItems, purgeTrashedItem, restoreTrashedItem } from "./trash.js";
+import { archiveNode, listTrashedItems, purgeAllTrashedItems, purgeTrashedItem, restoreTrashedItem } from "./trash.js";
 
 describe("trash", () => {
   let root = "";
@@ -40,6 +40,17 @@ describe("trash", () => {
   it("permanently purges a trashed item", async () => {
     const item = await archiveNode(root, "papers/demo/results/finding");
     await purgeTrashedItem(root, "papers/demo", item.id);
+    expect(await listTrashedItems(root, "papers/demo")).toHaveLength(0);
+  });
+
+  it("permanently purges all trashed items", async () => {
+    await archiveNode(root, "papers/demo/results/finding");
+    await createNode(root, "papers/demo/results", "other", "unit");
+    await archiveNode(root, "papers/demo/results/other");
+    expect(await listTrashedItems(root, "papers/demo")).toHaveLength(2);
+
+    const result = await purgeAllTrashedItems(root, "papers/demo");
+    expect(result.purgedCount).toBe(2);
     expect(await listTrashedItems(root, "papers/demo")).toHaveLength(0);
   });
 

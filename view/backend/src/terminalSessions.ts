@@ -20,6 +20,8 @@ export type TerminalSession = {
   term: ChildProcessWithoutNullStreams;
   controlFd: NodeJS.WritableStream | null;
   scrollback: string;
+  /** Scrollback bytes already shown in the connected client's xterm buffer. */
+  deliveredScrollbackLength: number;
   socket: WebSocket | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
 };
@@ -80,6 +82,7 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
     appendScrollback(session, data);
     if (session.socket?.readyState === WS_OPEN) {
       session.socket.send(data);
+      session.deliveredScrollbackLength = session.scrollback.length;
     }
   }
 
@@ -102,6 +105,7 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
       term,
       controlFd: term.stdio[3] as NodeJS.WritableStream | null,
       scrollback: "",
+      deliveredScrollbackLength: 0,
       socket: null,
       idleTimer: null,
     };
@@ -164,17 +168,32 @@ export function createTerminalSessionManager(config: TerminalSessionConfig) {
     return spawnSession(randomUUID());
   }
 
-  function attach(socket: WebSocket, session: TerminalSession) {
+  function attach(
+    socket: WebSocket,
+    session: TerminalSession,
+    options: { replayScrollback?: boolean } = {},
+  ) {
     clearIdleTimer(session);
     session.socket = socket;
     socket.send(JSON.stringify({ type: "session", id: session.id }));
-    if (session.scrollback) {
-      socket.send(session.scrollback);
+
+    const replayScrollback = options.replayScrollback !== false;
+    if (replayScrollback) {
+      if (session.scrollback) {
+        socket.send(session.scrollback);
+      }
+    } else {
+      const gap = session.scrollback.slice(session.deliveredScrollbackLength);
+      if (gap) {
+        socket.send(gap);
+      }
     }
+    session.deliveredScrollbackLength = session.scrollback.length;
   }
 
   function detach(session: TerminalSession) {
     session.socket = null;
+    session.deliveredScrollbackLength = session.scrollback.length;
     scheduleIdleDestroy(session);
   }
 
@@ -213,10 +232,12 @@ export type TerminalSessionManager = ReturnType<typeof createTerminalSessionMana
 export function parseTerminalConnectParams(url: string): {
   sessionId: string | null;
   forceNew: boolean;
+  replayScrollback: boolean;
 } {
   const parsed = new URL(url, "http://localhost");
   return {
     sessionId: parsed.searchParams.get("session"),
     forceNew: parsed.searchParams.get("new") === "1",
+    replayScrollback: parsed.searchParams.get("scrollback") !== "0",
   };
 }

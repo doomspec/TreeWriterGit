@@ -360,6 +360,11 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
     const detail = await getPaperDetail(modelRoot, "pending");
     expect(detail.pendingApprovalPaths).toContain("papers/pending/introduction/unit-a/draft.md");
     expect(detail.pendingApprovalPaths).toContain("papers/pending/introduction/unit-a/outline.md");
+    expect(detail.pendingReviews.some((item) => item.path === "papers/pending/introduction/unit-a/draft.md")).toBe(true);
+    expect(detail.pendingReviews.some((item) => item.path === "papers/pending/introduction/unit-a/outline.md")).toBe(true);
+    expect(detail.pendingReviews.map((item) => item.path).sort()).toEqual(
+      detail.pendingApprovalPaths.sort(),
+    );
   });
 
   it("throws 404 for an unknown paper slug", async () => {

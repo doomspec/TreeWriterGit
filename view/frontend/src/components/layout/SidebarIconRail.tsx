@@ -6,6 +6,7 @@ import {
   FileUp,
   FolderTree,
   GitBranch,
+  GitCompare,
   ListTree,
   Monitor,
   Moon,
@@ -55,6 +56,7 @@ const RAIL_ITEMS: {
   { id: "papers", label: "Papers", icon: FileStack },
   { id: "graph", label: "Graph", icon: Network },
   { id: "outline", label: "Document outline", icon: ListTree },
+  { id: "review", label: "Review changes", icon: GitCompare },
   { id: "import", label: "Import from Word", icon: FileUp },
   { id: "export", label: "Export & Overleaf", icon: Download },
 ];
@@ -81,6 +83,7 @@ export function SidebarIconRail({
   onCycleTheme,
   onPointerEnter,
   onPointerLeave,
+  pendingReviewCount = 0,
   className,
 }: {
   activePanel: SidebarPanel;
@@ -104,6 +107,7 @@ export function SidebarIconRail({
   onCycleTheme: () => void;
   onPointerEnter?: () => void;
   onPointerLeave?: () => void;
+  pendingReviewCount?: number;
   className?: string;
 }) {
   const gitTitle =
@@ -144,15 +148,16 @@ export function SidebarIconRail({
         {RAIL_ITEMS.map(({ id, label, icon: Icon }) => {
         if (id === "graph" && !graphAvailable) return null;
         const active = appView === "workspace" && activePanel === id && panelOpen;
+        const showBadge = id === "review" && pendingReviewCount > 0;
         return (
           <Button
             key={id}
             type="button"
             variant={active ? "default" : "ghost"}
             size="icon"
-            className="h-8 w-8"
-            title={label}
-            aria-label={label}
+            className="relative h-8 w-8"
+            title={showBadge ? `${label} (${pendingReviewCount})` : label}
+            aria-label={showBadge ? `${label} (${pendingReviewCount})` : label}
             aria-pressed={active}
             onClick={() => {
               onSetAppView("workspace");
@@ -160,6 +165,11 @@ export function SidebarIconRail({
             }}
           >
             <Icon className="h-4 w-4" aria-hidden="true" />
+            {showBadge ? (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[9px] font-semibold text-amber-950">
+                {pendingReviewCount > 9 ? "9+" : pendingReviewCount}
+              </span>
+            ) : null}
           </Button>
         );
       })}

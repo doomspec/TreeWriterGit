@@ -31,6 +31,8 @@ export {
   readOutlineEditMeta,
 } from "./meta.js";
 
+export { handleExternalManuscriptWrite, refreshPendingManuscriptMeta } from "./externalWrite.js";
+
 export {
   approveDraftTarget,
   approvePendingChildrenTarget,
@@ -38,3 +40,6 @@ export {
   discardDraftTarget,
   findPendingAiProviderUnder,
 } from "./workflow.js";
+
+export { summarizeManuscriptChanges } from "./changeSummary.js";
+export { collectPendingReviewItems } from "./pendingReviews.js";

@@ -4,8 +4,14 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
 
 import { ModelFsError, createNode, deleteNode, resolveModelPath, isUnitDir, orderedChildren, readIndexData, resolveChildPath, resolveManuscriptSectionsRoot, PAPER_ASSET_DIRS } from "./modelFs.js";
-import { collectPendingApprovalPaths } from "./draftApproval.js";
-import { parseJournalExportStyle, type JournalExportStyle } from "./journalExportStyle.js";
+import { collectPendingReviewItems } from "./draftApproval.js";
+
+import {
+  loadJournalTemplate,
+  listJournalTemplateDetails,
+  listJournalTemplates,
+  type JournalTemplate,
+} from "./papers/templates.js";
 
 import type {
   PaperDetail,
@@ -16,13 +22,8 @@ import type {
 
 export type { PaperDetail, PaperSummary, SectionRollup, UnitStatusCounts };
 export type UnitStatus = "outline" | "drafted" | "approved";
-
-export interface JournalTemplate {
-  journal: string;
-  targetWords: number;
-  sectionOrder: string[];
-  export?: JournalExportStyle;
-}
+export type { JournalTemplate };
+export { loadJournalTemplate, listJournalTemplateDetails, listJournalTemplates };
 
 export interface UpdatePaperInput {
   slug: string;
@@ -92,10 +93,6 @@ export function normalizeSectionOrder(names: string[]): string[] {
     seen.add(section);
   }
   return sections;
-}
-
-function journalFileKey(journal: string): string {
-  return journal.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function bumpCounts(counts: UnitStatusCounts, status: UnitStatus): void {
@@ -219,64 +216,6 @@ async function topLevelSections(modelRoot: string, paperRel: string): Promise<{ 
   }));
 }
 
-export async function loadJournalTemplate(
-  modelRoot: string,
-  journal: string,
-): Promise<JournalTemplate> {
-  const templatesDir = path.join(modelRoot, "templates");
-  const candidates = [
-    path.join(templatesDir, `${journalFileKey(journal)}.md`),
-    path.join(templatesDir, "plos-one.md"),
-  ];
-
-  for (const filePath of candidates) {
-    if (!existsSync(filePath)) continue;
-    const parsed = matter(await readFile(filePath, "utf8"));
-    const sectionOrder = Array.isArray(parsed.data.section_order)
-      ? (parsed.data.section_order as string[])
-      : [];
-    if (sectionOrder.length === 0) continue;
-    return {
-      journal: String(parsed.data.journal ?? journal),
-      targetWords: Number(parsed.data.target_words ?? 5000),
-      sectionOrder,
-      export: parseJournalExportStyle(parsed.data.export),
-    };
-  }
-
-  throw new ModelFsError(`No journal template found for ${JSON.stringify(journal)}`, 404);
-}
-
-async function readJournalTemplateFile(filePath: string, fallbackJournal: string): Promise<JournalTemplate | null> {
-  const parsed = matter(await readFile(filePath, "utf8"));
-  const sectionOrder = Array.isArray(parsed.data.section_order)
-    ? (parsed.data.section_order as string[])
-    : [];
-  if (sectionOrder.length === 0) return null;
-  return {
-    journal: String(parsed.data.journal ?? fallbackJournal),
-    targetWords: Number(parsed.data.target_words ?? 5000),
-    sectionOrder,
-    export: parseJournalExportStyle(parsed.data.export),
-  };
-}
-
-export async function listJournalTemplateDetails(modelRoot: string): Promise<JournalTemplate[]> {
-  const templatesDir = path.join(modelRoot, "templates");
-  if (!existsSync(templatesDir)) return [];
-  const files = await readdir(templatesDir);
-  const templates: JournalTemplate[] = [];
-  for (const file of files.filter((f) => f.endsWith(".md"))) {
-    const fallbackJournal = file.replace(/\.md$/, "");
-    const template = await readJournalTemplateFile(path.join(templatesDir, file), fallbackJournal);
-    if (template) templates.push(template);
-  }
-  return templates.sort((a, b) => a.journal.localeCompare(b.journal));
-}
-
-export async function listJournalTemplates(modelRoot: string): Promise<string[]> {
-  return (await listJournalTemplateDetails(modelRoot)).map((template) => template.journal);
-}
 
 export async function scaffoldPaper(
   modelRoot: string,
@@ -508,7 +447,8 @@ export async function getPaperDetail(modelRoot: string, slug: string): Promise<P
   }
 
   const containerCounts = await collectContainerCounts(modelRoot, paperRel);
-  const pendingApprovalPaths = await collectPendingApprovalPaths(modelRoot, paperRel);
+  const pendingReviews = await collectPendingReviewItems(modelRoot, paperRel);
+  const pendingApprovalPaths = pendingReviews.map((item) => item.path);
 
   return {
     ...summary,
@@ -520,6 +460,7 @@ export async function getPaperDetail(modelRoot: string, slug: string): Promise<P
     sections,
     containerCounts,
     pendingApprovalPaths,
+    pendingReviews,
   };
 }
 

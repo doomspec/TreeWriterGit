@@ -6,17 +6,11 @@ const SettingsPage = lazy(() =>
 const InfoPage = lazy(() =>
   import("@/components/help/InfoPage").then((m) => ({ default: m.InfoPage })),
 );
-const GraphPanel = lazy(() =>
-  import("@/components/graph/GraphPanel").then((m) => ({ default: m.GraphPanel })),
-);
 import { AppChromeHeader } from "@/components/layout/AppChromeHeader";
 import { BottomPanel, type DispatchPaneTab } from "@/components/layout/BottomPanel";
 import { WorkspaceSidebarShell } from "@/components/layout/WorkspaceSidebarShell";
-import { WorkspaceNav } from "@/components/nav/WorkspaceNav";
-import { DocumentOutlinePanel } from "@/components/nav/DocumentOutlinePanel";
-import { PaperExportPanel } from "@/components/paper/PaperExportPanel";
-import { DocxImportPanel } from "@/components/paper/DocxImportPanel";
 import { WorkspaceRouter } from "@/components/workspace/WorkspaceRouter";
+import { SidebarPanelRegistry } from "@/components/workspace/sidebar/SidebarPanelRegistry";
 import { ErrorToast } from "@/components/layout/ErrorToast";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { DocumentOutlineProvider } from "@/lib/documentOutline";
@@ -36,6 +30,8 @@ import { useWorkspaceLayout } from "@/lib/workspace/WorkspaceLayoutContext";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import { cn } from "@/lib/utils";
 import { DEFAULT_GUIDE_PAPER_SLUG } from "@/lib/defaultGuidePaper";
+import { usePaperPendingReviews } from "@/lib/usePaperPendingReviews";
+import { approveDraftAtPath } from "@/lib/draftApproval";
 import {
   applyEditorPanePreset,
   focusEditorPane,
@@ -90,6 +86,27 @@ function AppShell({
   const ws = useWorkspace();
   const layout = useWorkspaceLayout();
   const nav = useWorkspaceNavigationContext();
+  const { totalCount: pendingReviewCount, items: pendingReviewItems, reload: reloadPendingReviews } =
+    usePaperPendingReviews(nav.paperSlug, nav.refreshVersion, ws.setError);
+
+  const pendingAiReviewCount = useMemo(
+    () => pendingReviewItems.filter((item) => item.aiAssisted).length,
+    [pendingReviewItems],
+  );
+
+  const handleApproveAllAiChanges = useCallback(async () => {
+    const aiItems = pendingReviewItems.filter((item) => item.aiAssisted);
+    if (aiItems.length === 0) return;
+    try {
+      for (const item of aiItems) {
+        await approveDraftAtPath(item.path);
+      }
+      nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined);
+      await reloadPendingReviews();
+    } catch (err) {
+      ws.setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [nav, pendingReviewItems, reloadPendingReviews, ws.setError]);
 
   useEffect(() => {
     errorRef.current = ws.setError;
@@ -301,6 +318,7 @@ function AppShell({
             showSectionViewBack={nav.showSectionViewBack || nav.showPaperViewBack}
             dualPaneEditorActive={nav.dualPaneEditorActive}
             notesPaneAvailable={nav.notesPaneAvailable}
+            pendingAiReviewCount={pendingAiReviewCount}
             onSetAppView={ws.setAppView}
             onSetSidebarTab={nav.handleSidebarTabChange}
             onSetSidebarPanel={nav.setSidebarPanel}
@@ -318,6 +336,7 @@ function AppShell({
             onCycleTheme={cyclePreference}
             onFocusEditorPane={handleFocusEditorPane}
             onApplyEditorPanePreset={handleApplyEditorPanePreset}
+            onApproveAllAiChanges={() => void handleApproveAllAiChanges()}
           />
 
           {ws.appView === "settings" ? (
@@ -395,69 +414,36 @@ function AppShell({
                     onGitClick={handleGitBadgeClick}
                     onSetAppView={ws.setAppView}
                     onCycleTheme={cyclePreference}
+                    pendingReviewCount={pendingReviewCount}
                     panelContent={
-                      nav.sidebarPanel === "outline" ? (
-                        <DocumentOutlinePanel className="h-full" />
-                      ) : nav.sidebarPanel === "graph" ? (
-                        <div className="graph-tab-host flex h-full min-h-[200px] flex-col overflow-hidden">
-                          <Suspense fallback={<LoadingSkeleton className="p-3" lines={4} />}>
-                            <GraphPanel
-                              embedded
-                              active
-                              fetchRoot={nav.graphFetchRoot ?? ""}
-                              focusPath={nav.graphFocusPath}
-                              graphScope={nav.graphScope}
-                              refreshVersion={nav.refreshVersion}
-                              onGraphScopeChange={nav.setGraphScope}
-                              onSelectNode={(id) => {
-                                if (id.startsWith("missing:")) return;
-                                nav.navigateTo(id);
-                              }}
-                            />
-                          </Suspense>
-                        </div>
-                      ) : nav.sidebarPanel === "export" ? (
-                        <PaperExportPanel
-                          className="h-full"
-                          paperSlug={nav.exportPaperSlug}
-                          onError={ws.setError}
-                          onComplete={() =>
-                            nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)
-                          }
-                        />
-                      ) : nav.sidebarPanel === "import" ? (
-                        <DocxImportPanel
-                          className="h-full"
-                          paperSlug={nav.exportPaperSlug}
-                          onError={ws.setError}
-                          onComplete={() =>
-                            nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)
-                          }
-                        />
-                      ) : (
-                        <WorkspaceNav
-                          tree={nav.tree}
-                          currentPath={nav.browsePath}
-                          activeFile={nav.activeFile}
-                          activeTab={nav.sidebarPanel === "papers" ? "papers" : "explorer"}
-                          searchQuery={nav.searchQuery}
-                          refreshVersion={nav.refreshVersion}
-                          onSearchChange={nav.setSearchQuery}
-                          onNavigate={nav.navigateTo}
-                          onOpenFile={nav.openFile}
-                          onSearchSelect={nav.handleSearchSelect}
-                          onLoadSubtree={nav.loadTreePath}
-                          onPaperCreated={(path) => {
-                            nav.reloadModel({ path: path.split("/").slice(0, 2).join("/") || path });
-                            nav.navigateTo(path);
-                            nav.handleSidebarTabChange("papers");
-                          }}
-                          onModelChanged={() =>
-                            nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)
-                          }
-                          onError={ws.setError}
-                        />
-                      )
+                      <SidebarPanelRegistry
+                        panel={nav.sidebarPanel}
+                        tree={nav.tree}
+                        browsePath={nav.browsePath}
+                        activeFile={nav.activeFile}
+                        searchQuery={nav.searchQuery}
+                        refreshVersion={nav.refreshVersion}
+                        graphFetchRoot={nav.graphFetchRoot}
+                        graphFocusPath={nav.graphFocusPath}
+                        graphScope={nav.graphScope}
+                        exportPaperSlug={nav.exportPaperSlug}
+                        paperPath={nav.paperPath}
+                        onSearchChange={nav.setSearchQuery}
+                        onNavigate={nav.navigateTo}
+                        onOpenFile={nav.openFile}
+                        onSearchSelect={nav.handleSearchSelect}
+                        onLoadSubtree={nav.loadTreePath}
+                        onGraphScopeChange={nav.setGraphScope}
+                        onPaperCreated={(path) => {
+                          nav.reloadModel({ path: path.split("/").slice(0, 2).join("/") || path });
+                          nav.navigateTo(path);
+                        }}
+                        onModelChanged={() =>
+                          nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)
+                        }
+                        onError={ws.setError}
+                        onSidebarTabChange={nav.handleSidebarTabChange}
+                      />
                     }
                   />
                   <div className="workspace-main__main flex min-h-0 min-w-0 flex-col">

@@ -6,13 +6,11 @@ import {
   EditorCommentsOverlay,
   EditorShell,
 } from "@/components/editor/EditorShell";
+import { EditorPaneHeader } from "@/components/editor/chrome/EditorPaneHeader";
 import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
+import { DraftApprovalRail } from "@/components/editor/DraftApprovalRail";
 import { MultiParagraphApprovalDialog } from "@/components/editor/MultiParagraphApprovalDialog";
 import { PendingApprovalChip } from "@/components/editor/PendingApprovalChip";
-import { EditorFocusToggle } from "@/components/editor/EditorFocusToggle";
-import { EditorPaneModeToggle } from "@/components/editor/EditorPaneModeToggle";
-import { EditorPaneOverflowMenu } from "@/components/editor/EditorPaneOverflowMenu";
-import { EditorUndoRedoButtons } from "@/components/editor/EditorUndoRedoButtons";
 import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
 import { MarkdownToolbar } from "@/components/editor/MarkdownToolbar";
 import { InlineSelectionToolbar } from "@/components/editor/InlineSelectionToolbar";
@@ -25,7 +23,7 @@ import { useSyncDocumentOutline } from "@/lib/documentOutline";
 import { headingIdFromLine } from "@/lib/markdownOutline";
 import { useRenderedOrTextareaFormat } from "@/lib/useRenderedOrTextareaFormat";
 import { handleFormatShortcut } from "@/lib/editor/formatShortcut";
-import { draftSaveMeta, draftStatusLabel, loadDraftApprovalState, approveDraftAtPath, type DraftEditMeta } from "@/lib/draftApproval";
+import { draftSaveMeta, draftStatusLabel, loadDraftApprovalState, approveDraftAtPath, resolvePendingApprovalDisplay, type DraftEditMeta } from "@/lib/draftApproval";
 import { effectiveDiffBaseline } from "@/lib/draftDiff";
 import { handleEditorUndoRedoShortcuts } from "@/lib/editorUndoShortcuts";
 import { markdownWordCount } from "@/lib/editorStats";
@@ -45,12 +43,17 @@ import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { paperPathFromModelPath } from "@/lib/assetInsert";
 import { useEditorCrossRef } from "@/lib/hooks/useEditorCrossRef";
 import { useEditorComments } from "@/lib/hooks/useEditorComments";
+import {
+  editorCommentLines,
+  fileLineToEditorLine,
+  unresolvedCommentFileLines,
+} from "@/lib/commentLineHighlight";
 import { useDocumentEditor } from "@/lib/hooks/useDocumentEditor";
 import { useAssetAutocomplete } from "@/lib/useAssetAutocomplete";
-import { TextZoomControl } from "@/components/editor/TextZoomControl";
 import { editorTextZoomStyle } from "@/lib/editorTextZoom";
 import { useEditorTextZoom } from "@/lib/useEditorTextZoom";
 import { useReadingFocus } from "@/lib/readingFocus";
+import { useReviewRailOpen } from "@/lib/useReviewRailOpen";
 import { useEditorDraftPendingPaths } from "@/lib/draftPendingStore";
 import { sessionKeyForComposedDraft, loadEditorSession, type EditorPaneMode } from "@/lib/editorSessionState";
 import { useEditorPresence } from "@/lib/hooks/useEditorPresence";
@@ -116,6 +119,7 @@ export function ComposedDraftEditor({
   showReadingFocusBar?: boolean;
 }) {
   const readingFocus = useReadingFocus();
+  const [reviewRailOpen, toggleReviewRail] = useReviewRailOpen();
   const nav = useWorkspaceNavigationContext();
   const effectiveLinkContext = linkContextPath || containerPath;
   const activeOutlineNavPath = useMemo(() => {
@@ -285,10 +289,18 @@ export function ComposedDraftEditor({
   isDirtyRef.current = isDirty;
   const lineCount = useMemo(() => Math.max(24, content.split("\n").length + 2), [content]);
   const draftFilePath = `${containerPath}/draft.md`;
-  const { unresolvedComments, setUnresolvedComments } = useEditorComments(
+  const fullDraftMarkdown = useMemo(() => buildDraftMarkdown(title, content), [title, content]);
+  const { unresolvedComments, comments, setUnresolvedComments, setComments } = useEditorComments(
     draftFilePath,
     refreshVersion,
   );
+  const draftCommentLines = useMemo(
+    () => editorCommentLines(unresolvedCommentFileLines(comments), fullDraftMarkdown, content),
+    [comments, content, fullDraftMarkdown],
+  );
+  const activeDraftCommentLine = commentsOpen
+    ? fileLineToEditorLine(selectedLine, fullDraftMarkdown, content)
+    : null;
   const { otherEditor } = useEditorPresence(draftFilePath, authorName);
   const diffBaseline = useMemo(
     () => effectiveDiffBaseline(approvedBaseline, loadedContent),
@@ -422,18 +434,45 @@ export function ComposedDraftEditor({
     [containerPath, content, nav, onError, onSynced, structureInsert],
   );
 
+  const approvalDisplay = resolvePendingApprovalDisplay({
+    editMeta,
+    pendingSource,
+    githubHandle,
+    isDirty,
+  });
+
   const approvalBar = sessionApprovalActive ? (
     <DraftApprovalBar
-      pendingSource={pendingSource}
-      editedBy={githubHandle || editMeta.editedBy}
-      aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
+      pendingSource={approvalDisplay.pendingSource}
+      editedBy={approvalDisplay.editedBy}
+      aiAssisted={approvalDisplay.aiAssisted}
+      aiProvider={approvalDisplay.aiProvider}
       onApprove={() => void runApprove()}
       onDiscard={() => void handleDiscard()}
       approving={saveState === "saving"}
       approveLabel="Approve & sync"
       changeNavigation={pendingChangeNavigation}
+      reviewRailOpen={reviewRailOpen}
+      onToggleReviewRail={toggleReviewRail}
     />
   ) : null;
+
+  const approvalRail =
+    sessionApprovalActive && reviewRailOpen ? (
+      <DraftApprovalRail
+        pendingSource={approvalDisplay.pendingSource}
+        editedBy={approvalDisplay.editedBy}
+        aiAssisted={approvalDisplay.aiAssisted}
+        aiProvider={approvalDisplay.aiProvider}
+        onApprove={() => void runApprove()}
+        onDiscard={() => void handleDiscard()}
+        approving={saveState === "saving"}
+        approveLabel="Approve & sync"
+        approvedBaseline={diffBaseline}
+        loadedContent={loadedContent}
+        current={content}
+      />
+    ) : null;
 
   useEffect(() => {
     if (!isPendingApproval) return;
@@ -663,14 +702,6 @@ export function ComposedDraftEditor({
     defaultLabel: "approved",
   });
 
-  const paneModeToggle = (
-    <EditorPaneModeToggle
-      paneMode={paneMode}
-      onPaneModeChange={setPaneMode}
-      ariaLabel={`${paneLabel} editing mode`}
-      reviewMode={showInlinePendingHighlights && paneMode === "rendered"}
-    />
-  );
 
   const paneEditBar = (
     <ReadingFocusEditBar
@@ -695,36 +726,25 @@ export function ComposedDraftEditor({
         />
       }
       trailing={
-        readingFocus.active ? (
-          <>
-            {paneModeToggle}
-            {headerExtra}
-          </>
-        ) : (
-          <>
-            {paneModeToggle}
-            <EditorPaneOverflowMenu statusText={!sessionApprovalActive ? saveLabel : undefined}>
-              <div className="px-1 py-1">
-                <EditorUndoRedoButtons
-                  canUndo={canUndo}
-                  canRedo={canRedo}
-                  onUndo={undo}
-                  onRedo={redo}
-                />
-              </div>
-              <div className="px-1 py-1">
-                <EditorFocusToggle />
-              </div>
-              <div className="px-1 py-1 font-mono text-[10px] text-muted-foreground">
-                {editorStats.words} words · {editorStats.characters} chars
-              </div>
-              <div className="px-1 py-1">
-                <TextZoomControl zoom={zoom} onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={resetZoom} />
-              </div>
-              {headerExtra ? <div className="px-1 py-1">{headerExtra}</div> : null}
-            </EditorPaneOverflowMenu>
-          </>
-        )
+        <EditorPaneHeader
+          paneLabel={paneLabel}
+          paneMode={paneMode}
+          onPaneModeChange={setPaneMode}
+          reviewMode={showInlinePendingHighlights && paneMode === "rendered"}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={undo}
+          onRedo={redo}
+          wordCount={editorStats.words}
+          charCount={editorStats.characters}
+          zoom={zoom}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onZoomReset={resetZoom}
+          statusText={!sessionApprovalActive ? saveLabel : undefined}
+          headerExtra={headerExtra}
+          readingFocusActive={readingFocus.active}
+        />
       }
     />
   );
@@ -748,6 +768,7 @@ export function ComposedDraftEditor({
           onClose={() => setCommentsOpen(false)}
           onError={onError}
           onUnresolvedChange={setUnresolvedComments}
+          onCommentsChange={setComments}
           onNavigateToLine={setSelectedLine}
         />
       }
@@ -816,10 +837,10 @@ export function ComposedDraftEditor({
                   pendingApproval={
                     showInlinePendingHighlights
                       ? {
-                          pendingSource: pendingSource ?? "human",
-                          editedBy: githubHandle || editMeta.editedBy,
-                          aiAssisted: pendingSource === "ai" || editMeta.aiAssisted,
-                          aiProvider: editMeta.aiProvider,
+                          pendingSource: approvalDisplay.pendingSource ?? "human",
+                          editedBy: approvalDisplay.editedBy,
+                          aiAssisted: approvalDisplay.aiAssisted,
+                          aiProvider: approvalDisplay.aiProvider,
                           loadedContent,
                           onApprove: () => void runApprove(),
                           onDiscard: () => void handleDiscard(),
@@ -845,6 +866,8 @@ export function ComposedDraftEditor({
                 onKeyDown={onBlockKeyDown}
                 onTextareaSync={(textarea) => void assetAutocomplete.sync(textarea)}
                 composedDraftActions={composedDraftActions}
+                commentLines={draftCommentLines}
+                activeCommentLine={activeDraftCommentLine}
               />
               </ReadingFocusDocumentLayout>
             ) : (
@@ -856,10 +879,10 @@ export function ComposedDraftEditor({
                 <PendingApprovalChip
                   inline
                   className="mb-2"
-                  pendingSource={pendingSource ?? "human"}
-                  editedBy={githubHandle || editMeta.editedBy}
-                  aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
-                  aiProvider={editMeta.aiProvider}
+                  pendingSource={approvalDisplay.pendingSource ?? "human"}
+                  editedBy={approvalDisplay.editedBy}
+                  aiAssisted={approvalDisplay.aiAssisted}
+                  aiProvider={approvalDisplay.aiProvider}
                   approvedBaseline={approvedBaseline}
                   loadedContent={loadedContent}
                   current={content}
@@ -877,6 +900,8 @@ export function ComposedDraftEditor({
               value={content}
               baseline={diffBaseline}
               highlight={showInlinePendingHighlights}
+              commentLines={draftCommentLines}
+              activeCommentLine={activeDraftCommentLine}
               rows={lineCount}
               spellCheck={false}
               aria-label={`Edit composed ${paneLabel.toLowerCase()} (raw)`}
@@ -921,18 +946,21 @@ export function ComposedDraftEditor({
             }}
           />
           {readingFocus.active && showReadingFocusBar ? (
-            <ReadingFocusFloatingBar
-              className="reading-focus-floating-bar"
-              wordCount={editorStats.words}
-              charCount={editorStats.characters}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              onUndo={undo}
-              onRedo={redo}
-              onExit={readingFocus.exit}
-            />
+            <div className="reading-focus-floating-bar-host">
+              <ReadingFocusFloatingBar
+                className="reading-focus-floating-bar"
+                wordCount={editorStats.words}
+                charCount={editorStats.characters}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                onUndo={undo}
+                onRedo={redo}
+                onExit={readingFocus.exit}
+              />
+            </div>
           ) : null}
         </div>
+        {approvalRail}
       </div>
     </EditorShell>
       <NamePromptDialog

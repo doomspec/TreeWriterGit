@@ -20,6 +20,8 @@ import {
   resolveModelPath,
   type NodeKind,
 } from "../../modelFs.js";
+import { convertUnitToSubsection } from "../../nodeConvert.js";
+import { duplicateNode, listDuplicateFilePaths } from "../../nodeDuplicate.js";
 import { asyncHandler } from "../asyncHandler.js";
 import type { ServerDeps } from "../types.js";
 
@@ -172,6 +174,35 @@ export function registerModelCrudRoutes(app: Express, deps: ServerDeps): void {
       const created = await createNode(deps.modelRoot, parent, name, kind);
       deps.broadcastModelEvent({ type: "model-changed", path: created });
       response.status(201).json({ ok: true, path: created, kind });
+    }),
+  );
+
+  app.post(
+    "/api/model/node/convert-subsection",
+    asyncHandler(async (request, response) => {
+      const relativePath = String(request.body?.path ?? "");
+      const result = await convertUnitToSubsection(deps.modelRoot, relativePath);
+      deps.broadcastModelEvent({ type: "model-changed", path: result.path });
+      for (const childPath of result.childPaths) {
+        deps.broadcastModelEvent({ type: "model-changed", path: childPath });
+      }
+      response.json({ ok: true, ...result });
+    }),
+  );
+
+  app.post(
+    "/api/model/node/duplicate",
+    asyncHandler(async (request, response) => {
+      const relativePath = String(request.body?.path ?? "");
+      const result = await duplicateNode(deps.modelRoot, relativePath);
+      const changed = new Set<string>([
+        result.path,
+        ...(await listDuplicateFilePaths(deps.modelRoot, result.path)),
+      ]);
+      for (const changedPath of changed) {
+        deps.broadcastModelEvent({ type: "model-changed", path: changedPath });
+      }
+      response.json({ ok: true, ...result });
     }),
   );
 

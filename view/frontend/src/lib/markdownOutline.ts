@@ -136,6 +136,13 @@ export function extractMarkdownHeadings(markdown: string): MarkdownHeading[] {
   return headings;
 }
 
+/** True when the outline has links or real section headings (not empty Summary/Outline stubs). */
+export function hasNavigableOutlineEntries(headings: MarkdownHeading[]): boolean {
+  return headings.some(
+    (heading) => heading.href || (heading.level >= 2 && !OUTLINE_META_HEADING.test(heading.text)),
+  );
+}
+
 /** Keep title, outline list links, and composed-draft section headings for the sidebar outline. */
 export function filterDocumentOutlineHeadings(headings: MarkdownHeading[]): MarkdownHeading[] {
   const hasOutlineLinks = headings.some((heading) => heading.href);

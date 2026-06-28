@@ -21,6 +21,7 @@ export type AppCommandsContext = {
   showSectionViewBack: boolean;
   dualPaneEditorActive: boolean;
   notesPaneAvailable: boolean;
+  pendingAiReviewCount: number;
   onSetAppView: (view: AppView) => void;
   onSetSidebarTab: (tab: WorkspaceNavTab) => void;
   onSetSidebarPanel: (panel: SidebarPanel) => void;
@@ -36,6 +37,7 @@ export type AppCommandsContext = {
   onCycleTheme: () => void;
   onFocusEditorPane: (pane: EditorPaneId) => void;
   onApplyEditorPanePreset: (preset: EditorPanePresetId) => void;
+  onApproveAllAiChanges: () => void;
 };
 
 export function AppCommands(context: AppCommandsContext) {
@@ -107,6 +109,22 @@ export function AppCommands(context: AppCommandsContext) {
         aliases: ["export", "overleaf", "latex", "pdf", "download"],
         when: () => ctx().appView === "workspace",
         run: () => ctx().onSetSidebarPanel("export"),
+      },
+      {
+        id: "sidebar.review",
+        label: "Open review panel",
+        category: "Navigation",
+        aliases: ["review", "pending changes", "track changes", "approve"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("review"),
+      },
+      {
+        id: "review.approveAllAi",
+        label: "Approve all AI changes",
+        category: "Review",
+        aliases: ["accept ai", "approve agent changes", "approve bot"],
+        when: () => ctx().appView === "workspace" && ctx().pendingAiReviewCount > 0,
+        run: () => ctx().onApproveAllAiChanges(),
       },
       {
         id: "sidebar.import",

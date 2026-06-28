@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FilePlus, FolderPlus, Pencil, Plus, Trash2 } from "lucide-react";
+import { FilePlus, FolderPlus, Copy, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -140,6 +140,8 @@ export function TreeRowActions({
   deleteLabel,
   onRename,
   renameLabel,
+  onDuplicate,
+  duplicateLabel,
   createOptions,
   onCreate,
   disabled,
@@ -149,6 +151,8 @@ export function TreeRowActions({
   deleteLabel?: string;
   onRename?: () => void;
   renameLabel?: string;
+  onDuplicate?: () => void;
+  duplicateLabel?: string;
   createOptions?: TreeRowCreateOption[];
   onCreate?: (kind: NodeKind) => void;
   disabled?: boolean;
@@ -156,7 +160,7 @@ export function TreeRowActions({
 }) {
   const showCreate = createOptions && createOptions.length > 0 && onCreate;
 
-  if (!showCreate && !onRename && !onDelete) return null;
+  if (!showCreate && !onRename && !onDelete && !onDuplicate) return null;
 
   return (
     <div
@@ -183,6 +187,23 @@ export function TreeRowActions({
           }}
         >
           <Pencil className="h-3 w-3" aria-hidden="true" />
+        </Button>
+      ) : null}
+      {onDuplicate ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={duplicateLabel ?? "Duplicate"}
+          title="Duplicate"
+          disabled={disabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDuplicate();
+          }}
+        >
+          <Copy className="h-3 w-3" aria-hidden="true" />
         </Button>
       ) : null}
       {onDelete ? (

@@ -14,8 +14,7 @@ import type { FigureMetadata } from "@/lib/figures";
 import { computeScopedRefFigurePlacementsByBlockIndex, resolveFigureByRefKey } from "@/lib/figureLabelIndex";
 import { hasTextHighlightMacros, stripTextHighlightMacrosForDiff } from "@/lib/textHighlight";
 import { resolveMarkdownSelectionRange } from "@/lib/markdownVisibleSelection";
-import { EquationCard } from "@/components/editor/EquationCard";
-import { FigureCard } from "@/components/editor/FigureCard";
+import { EquationCard, FigureCard } from "@/components/editor/blocks";
 import {
   listDeferredFigurePaths,
   listInlineFigureEmbedPaths,
@@ -32,6 +31,7 @@ import {
 } from "@/lib/markdownBlocks";
 import { buildBlockHeadingIdMap } from "@/lib/markdownOutline";
 import { applyOutlineNavLinkHighlight } from "@/lib/outlineNavHighlight";
+import { blockLineRanges, blockTouchesCommentLine } from "@/lib/commentLineHighlight";
 import { isLinkedHeadingLine } from "@/lib/composedDraftStructure";
 import { continueListOnEnter, isSelectionInListItem } from "@/lib/listAutocomplete";
 import {
@@ -208,6 +208,22 @@ export type BlockMarkdownEditorHandle = {
   insertSnippet: (snippet: string) => boolean;
 };
 
+function blockCommentHighlightClass(
+  blockId: string,
+  ranges: Map<string, { start: number; end: number }>,
+  commentLines?: Set<number>,
+  activeCommentLine?: number | null,
+): string | undefined {
+  const tone = blockTouchesCommentLine(
+    ranges.get(blockId),
+    commentLines ?? new Set(),
+    activeCommentLine ?? null,
+  );
+  if (tone === "active") return "block-markdown-editor__block--comment-active";
+  if (tone === "comment") return "block-markdown-editor__block--comment";
+  return undefined;
+}
+
 /** Block editor — always-on WYSIWYG contenteditable blocks (no raw-markdown toggle). */
 export const BlockMarkdownEditor = forwardRef<
   BlockMarkdownEditorHandle,
@@ -249,6 +265,8 @@ export const BlockMarkdownEditor = forwardRef<
       onAddUnitAfter: (blockId: string, blockIndex: number) => void;
       onAddSubsectionAfter: (blockId: string, blockIndex: number) => void;
     } | null;
+    commentLines?: Set<number>;
+    activeCommentLine?: number | null;
   }
 >(function BlockMarkdownEditor(
   {
@@ -273,6 +291,8 @@ export const BlockMarkdownEditor = forwardRef<
     activeOutlineNavPath = null,
     pendingApproval = null,
     composedDraftActions = null,
+    commentLines,
+    activeCommentLine = null,
   },
   ref,
 ) {
@@ -401,6 +421,8 @@ export const BlockMarkdownEditor = forwardRef<
     const effectiveBaseline = effectivePendingHighlightBaseline(approvedBaseline, loadedContent);
     return alignBaselineBlocksToCurrent(effectiveBaseline, blocks);
   }, [approvedBaseline, blocks, loadedContent, reviewMode]);
+
+  const blockCommentRanges = useMemo(() => blockLineRanges(blocks), [blocks]);
 
   const blockHtmlById = useMemo(() => {
     const map = new Map<string, string>();
@@ -638,14 +660,29 @@ export const BlockMarkdownEditor = forwardRef<
     (blockId: string, element: HTMLElement) => {
       rememberInsertPoint(blockId, element);
       if (editedDuringFocusRef.current) {
-        updateBlockFromElement(blockId, element, true);
+        const markdown = readMarkdownFromBlockElement(element);
+        hydratedMarkdownRef.current.set(blockId, markdown);
+        const next = blocksRef.current.map((block) =>
+          block.id === blockId ? { ...block, markdown } : block,
+        );
+        if (!joinMarkdownBlocks(next).trim()) {
+          setBlocks([]);
+          lastEmittedRef.current = "";
+          flushToParent("", true);
+        } else {
+          updateBlockFromElement(blockId, element, true);
+        }
+      } else if (!joinMarkdownBlocks(blocksRef.current).trim()) {
+        setBlocks([]);
+        lastEmittedRef.current = "";
+        flushToParent("", true);
       }
       editedDuringFocusRef.current = false;
       focusedBlockIdRef.current = null;
       setFocusedBlockId(null);
       onBlur?.(element as unknown as React.FocusEvent<HTMLTextAreaElement>);
     },
-    [onBlur, rememberInsertPoint, updateBlockFromElement],
+    [flushToParent, onBlur, rememberInsertPoint, updateBlockFromElement],
   );
 
   const handleBlockKeyDown = useCallback(
@@ -784,6 +821,8 @@ export const BlockMarkdownEditor = forwardRef<
   );
 
   const showPlaceholder = !value.trim() && blocks.length === 0;
+  const isEmptyDocument =
+    !value.trim() && (blocks.length === 0 || blocks.every((block) => !block.markdown.trim()));
 
   const startEmptyBlock = useCallback(() => {
     const newBlock: MarkdownBlock = { id: `blk-${Date.now()}`, markdown: "" };
@@ -814,7 +853,14 @@ export const BlockMarkdownEditor = forwardRef<
     ) : null;
 
   return (
-    <div className={cn("block-markdown-editor relative w-full", reviewMode && "block-markdown-editor--review", className)}>
+    <div
+      className={cn(
+        "block-markdown-editor relative w-full",
+        reviewMode && "block-markdown-editor--review",
+        isEmptyDocument && "block-markdown-editor--empty-doc",
+        className,
+      )}
+    >
       <textarea
         ref={mirrorRef}
         value={value}
@@ -865,6 +911,12 @@ export const BlockMarkdownEditor = forwardRef<
       >
         {blocks.map((block, blockIndex) => {
           const embed = parseEmbedBlock(block.markdown);
+          const commentHighlightClass = blockCommentHighlightClass(
+            block.id,
+            blockCommentRanges,
+            commentLines,
+            activeCommentLine,
+          );
           if (embed) {
             return (
               <div
@@ -874,6 +926,7 @@ export const BlockMarkdownEditor = forwardRef<
                 className={cn(
                   "block-markdown-editor__block block-markdown-editor__embed my-3",
                   reviewMode && changedBlockIds.has(block.id) && "block-markdown-editor__block--review",
+                  commentHighlightClass,
                 )}
               >
                 {renderApprovalChip(block.id)}
@@ -918,6 +971,7 @@ export const BlockMarkdownEditor = forwardRef<
               focusedBlockId === block.id && "block-markdown-editor__block--focused",
               afterBlockFigurePaths.length > 0 && "block-markdown-editor__block--inline-figures",
               reviewMode && changedBlockIds.has(block.id) && "block-markdown-editor__block--review",
+              commentHighlightClass,
             )}
           >
             {renderApprovalChip(block.id)}

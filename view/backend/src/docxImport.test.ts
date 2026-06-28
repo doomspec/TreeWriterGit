@@ -76,11 +76,94 @@ We ran experiments.
       modelRoot,
       "demo",
       "## New Section\n\nImported paragraph.\n",
+      { replaceTarget: false },
     );
 
     const paperIndex = matter(
       await readFile(path.join(modelRoot, "papers/demo/INDEX.md"), "utf8"),
     );
     expect(paperIndex.data.section_order).toEqual(["existing", "new-section"]);
+  });
+
+  it("imports into an existing section as subsections", async () => {
+    await createNode(modelRoot, "papers/demo", "body", "section");
+    await writeFile(
+      path.join(modelRoot, "papers/demo/INDEX.md"),
+      matter.stringify("", {
+        kind: "paper",
+        title: "Demo",
+        section_order: ["body"],
+      }),
+      "utf8",
+    );
+
+    const result = await importMarkdownIntoPaper(
+      modelRoot,
+      "demo",
+      `**1. Introduction**
+
+First paragraph.
+
+**2. Methods**
+
+We ran experiments.
+`,
+      { targetSection: "body", replaceTarget: true },
+    );
+
+    expect(result.sectionsCreated).toBe(2);
+    expect(result.unitsCreated).toBe(2);
+
+    const introDraft = await readFile(
+      path.join(modelRoot, "papers/demo/body/1-introduction/first-paragraph/draft.md"),
+      "utf8",
+    );
+    expect(introDraft).toContain("First paragraph");
+
+    const bodyIndex = matter(
+      await readFile(path.join(modelRoot, "papers/demo/body/INDEX.md"), "utf8"),
+    );
+    expect(bodyIndex.data.child_order).toEqual(["1-introduction", "2-methods"]);
+  });
+
+  it("imports from a user-edited preview plan", async () => {
+    const result = await importMarkdownIntoPaper(
+      modelRoot,
+      "demo",
+      "## Ignored by plan\n\nParagraph.\n",
+      {
+        replaceTarget: true,
+        importPlan: [
+          {
+            title: "Custom Section",
+            slug: "custom-section",
+            kind: "section",
+            children: [
+              {
+                title: "First unit",
+                slug: "first-unit",
+                kind: "unit",
+                body: "Planned paragraph one.",
+              },
+              {
+                title: "Second unit",
+                slug: "second-unit",
+                kind: "unit",
+                body: "Planned paragraph two.",
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    expect(result.sectionsCreated).toBe(1);
+    expect(result.unitsCreated).toBe(2);
+
+    const draft = await readFile(
+      path.join(modelRoot, "papers/demo/custom-section/first-unit/draft.md"),
+      "utf8",
+    );
+    expect(draft).toContain("Planned paragraph one.");
   });
 });

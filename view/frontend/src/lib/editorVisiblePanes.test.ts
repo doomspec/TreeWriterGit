@@ -145,15 +145,24 @@ describe("migrateLegacyPanePrefs", () => {
 });
 
 describe("shouldSyncDocumentOutlineForPanes", () => {
-  it("syncs when outline is sole pane or focused in a split", () => {
+  it("syncs draft when draft pane is visible, otherwise outline", () => {
     expect(
       shouldSyncDocumentOutlineForPanes({ outline: true, draft: false, notes: false }, "outline"),
     ).toBe(true);
     expect(
-      shouldSyncDocumentOutlineForPanes({ outline: true, draft: true, notes: false }, "outline"),
-    ).toBe(true);
+      shouldSyncDocumentOutlineForPanes({ outline: true, draft: false, notes: false }, "draft"),
+    ).toBe(false);
     expect(
       shouldSyncDocumentOutlineForPanes({ outline: true, draft: true, notes: false }, "draft"),
+    ).toBe(true);
+    expect(
+      shouldSyncDocumentOutlineForPanes({ outline: true, draft: true, notes: false }, "outline"),
+    ).toBe(false);
+    expect(
+      shouldSyncDocumentOutlineForPanes({ outline: false, draft: true, notes: true }, "draft"),
+    ).toBe(true);
+    expect(
+      shouldSyncDocumentOutlineForPanes({ outline: false, draft: true, notes: true }, "notes"),
     ).toBe(false);
   });
 });

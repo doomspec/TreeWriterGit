@@ -23,6 +23,25 @@ export type SectionRollup = {
   counts: UnitStatusCounts;
 };
 
+export type PendingReviewChangeSummary = {
+  addedLines: number;
+  removedLines: number;
+  changedWords: number;
+};
+
+export type PendingReviewItem = {
+  path: string;
+  kind: "draft" | "outline";
+  unitPath: string;
+  unitTitle: string;
+  sectionPath: string | null;
+  editedBy: string | null;
+  editedAt: string | null;
+  aiAssisted: boolean;
+  aiProvider: string | null;
+  changeSummary: PendingReviewChangeSummary;
+};
+
 export type PaperDetail = PaperSummary & {
   authors: string[];
   targetWords: number;
@@ -32,6 +51,7 @@ export type PaperDetail = PaperSummary & {
   sections: SectionRollup[];
   containerCounts: Record<string, UnitStatusCounts>;
   pendingApprovalPaths: string[];
+  pendingReviews: PendingReviewItem[];
 };
 
 export type DraftEditMeta = {
@@ -86,6 +106,36 @@ export type DocxImportResult = {
   paths: string[];
   paperTitle?: string;
   notice?: string;
+};
+
+export type DocxImportPreviewNode = {
+  title: string;
+  slug: string;
+  kind: "section" | "subsection" | "unit";
+  /** Unit draft text shown in the import preview editor. */
+  body?: string;
+  children?: DocxImportPreviewNode[];
+};
+
+export type DocxImportTargetOption = {
+  /** Empty string selects the paper root. */
+  slug: string;
+  path: string;
+  title: string;
+  existingNodeCount: number;
+};
+
+export type DocxImportPreview = {
+  importTargetPath: string;
+  importTargetSlug: string;
+  importTargetTitle: string;
+  replaceExisting: boolean;
+  importedPaperTitle?: string;
+  existing: DocxImportPreviewNode[];
+  imported: DocxImportPreviewNode[];
+  sectionsCreated: number;
+  unitsCreated: number;
+  availableTargets: DocxImportTargetOption[];
 };
 
 export type CommentAssigneeType = "human" | "ai";

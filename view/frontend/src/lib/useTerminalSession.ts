@@ -4,7 +4,6 @@ import { Terminal } from "@xterm/xterm";
 
 import {
   buildTerminalWebSocketUrl,
-  clearTerminalSessionId,
   loadTerminalSessionId,
   parseTerminalSessionMessage,
   saveTerminalSessionId,
@@ -43,6 +42,8 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
   });
   const manualCloseRef = useRef(false);
   const reconnectAttemptRef = useRef(0);
+  const resumeBufferRef = useRef(false);
+  const connectRef = useRef<(() => void) | null>(null);
 
   const [connectionState, setConnectionState] = useState<TerminalConnectionState>(
     enabled ? "connecting" : "idle",
@@ -118,6 +119,7 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
       }
       const delay = Math.min(MAX_RECONNECT_MS, BASE_RECONNECT_MS * 2 ** reconnectAttemptRef.current);
       reconnectAttemptRef.current += 1;
+      resumeBufferRef.current = true;
       setConnectionState("reconnecting");
       reconnectTimer = window.setTimeout(connect, delay);
     };
@@ -130,11 +132,19 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
         socketRef.current = null;
       }
 
+      const resumeExistingBuffer = resumeBufferRef.current;
+      resumeBufferRef.current = false;
       const isFirstConnect = reconnectAttemptRef.current === 0;
       setConnectionState(isFirstConnect ? "connecting" : "reconnecting");
 
       const { sessionId, forceNew } = terminalConnectRef.current;
-      const nextSocket = new WebSocket(buildTerminalWebSocketUrl(terminalUrl, { sessionId, forceNew }));
+      const nextSocket = new WebSocket(
+        buildTerminalWebSocketUrl(terminalUrl, {
+          sessionId,
+          forceNew,
+          replayScrollback: !resumeExistingBuffer,
+        }),
+      );
       terminalConnectRef.current = { sessionId: loadTerminalSessionId(), forceNew: false };
       socket = nextSocket;
       socketRef.current = nextSocket;
@@ -193,7 +203,10 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
       connect();
     }, 0);
 
+    connectRef.current = connect;
+
     return () => {
+      connectRef.current = null;
       active = false;
       manualCloseRef.current = true;
       if (resizeRaf !== undefined) window.cancelAnimationFrame(resizeRaf);
@@ -271,14 +284,13 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
   );
 
   const reconnectTerminal = useCallback(() => {
-    const previousSessionId = loadTerminalSessionId();
-    clearTerminalSessionId();
-    terminalConnectRef.current = {
-      sessionId: previousSessionId,
-      forceNew: true,
-    };
+    resumeBufferRef.current = true;
     reconnectAttemptRef.current = 0;
-    setSessionKey((k) => k + 1);
+    terminalConnectRef.current = {
+      sessionId: loadTerminalSessionId(),
+      forceNew: false,
+    };
+    connectRef.current?.();
   }, []);
 
   return {

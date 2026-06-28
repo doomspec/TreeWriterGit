@@ -1,4 +1,4 @@
-import { replaceServerDraftPendingPaths } from "@/lib/draftPendingStore";
+import { replaceServerPendingReviews } from "@/lib/draftPendingStore";
 import { fetchPaperDetail } from "@/modelApi";
 
 export function paperSlugFromSectionPath(sectionPath: string): string | null {
@@ -12,8 +12,8 @@ export async function refreshPaperPendingPaths(sectionPath: string): Promise<voi
   if (!slug) return;
   try {
     const data = await fetchPaperDetail(slug);
-    replaceServerDraftPendingPaths(data.paper.pendingApprovalPaths ?? []);
+    replaceServerPendingReviews(data.paper.pendingReviews ?? []);
   } catch {
-    replaceServerDraftPendingPaths([]);
+    replaceServerPendingReviews([]);
   }
 }

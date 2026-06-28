@@ -35,6 +35,7 @@ export function WorkspaceSidebarShell({
   onSetAppView,
   onCycleTheme,
   panelContent,
+  pendingReviewCount = 0,
   className,
 }: {
   activePanel: SidebarPanel;
@@ -60,6 +61,7 @@ export function WorkspaceSidebarShell({
   onSetAppView: (view: AppView) => void;
   onCycleTheme: () => void;
   panelContent: React.ReactNode;
+  pendingReviewCount?: number;
   className?: string;
 }) {
   const [dragging, setDragging] = useState(false);
@@ -206,6 +208,7 @@ export function WorkspaceSidebarShell({
         onCycleTheme={onCycleTheme}
         onPointerEnter={handleRailPointerEnter}
         onPointerLeave={railHoverReveal || readingFocusRailAutoHide ? scheduleHide : undefined}
+        pendingReviewCount={pendingReviewCount}
       />
       {panelOpen ? (
         <>

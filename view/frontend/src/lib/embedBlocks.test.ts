@@ -71,4 +71,28 @@ describe("embedBlocks", () => {
       "papers/demo/figures/fig2",
     ]);
   });
+
+  it("ignores figure syntax inside fenced code blocks", () => {
+    const source = [
+      "Example:",
+      "",
+      "```",
+      "::figure[papers/my-study/figures/fig1]",
+      "```",
+      "",
+      "Live [[papers/vibecount/figures/fig1|Fig. 1]].",
+    ].join("\n");
+    expect(listDeferredFigurePaths(source)).toEqual(["papers/vibecount/figures/fig1"]);
+  });
+
+  it("ignores quick-reference style fenced examples", () => {
+    const source = [
+      "```text",
+      "  Figure:   ::figure[papers/slug/figures/name]",
+      "  Fig ref:  [[papers/slug/figures/name|Figure 1]]",
+      "```",
+    ].join("\n");
+    expect(listDeferredFigurePaths(source)).toEqual([]);
+    expect(listFigureWikilinkPaths(source)).toEqual([]);
+  });
 });

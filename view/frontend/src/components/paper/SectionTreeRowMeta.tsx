@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Copy, Pencil, Trash2, FolderTree } from "lucide-react";
 
 import {
   TREE_ROW_CREATE_ICONS,
@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { UNIT_STATUS_COUNTS_HINT } from "@/lib/unapprovedHighlight";
 import { computeFloatingMenuTop } from "@/lib/floatingMenuPosition";
-import { canAddManuscriptChildren, findNode, type ModelNode } from "@/lib/modelTree";
+import { canAddManuscriptChildren, findNode, isUnitFolder, type ModelNode } from "@/lib/modelTree";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import type { NodeKind } from "@/modelApi";
 import type { UnitStatusCounts } from "@/modelApi";
@@ -52,6 +52,8 @@ function SectionRowOverflowMenu({
   onCreate,
   onRename,
   onDelete,
+  onDuplicate,
+  onConvertToSubsection,
   showRename = true,
   showDelete = true,
 }: {
@@ -63,6 +65,8 @@ function SectionRowOverflowMenu({
   onCreate: (parentPath: string, kind: NodeKind) => void;
   onRename?: () => void;
   onDelete?: () => void;
+  onDuplicate?: () => void;
+  onConvertToSubsection?: () => void;
   showRename?: boolean;
   showDelete?: boolean;
 }) {
@@ -75,7 +79,9 @@ function SectionRowOverflowMenu({
   const createOptions = createMenuOptions(createParentPath, paperPath, tree);
   const hasRename = showRename && onRename;
   const hasDelete = showDelete && onDelete;
-  const hasActions = createOptions?.length || hasRename || hasDelete;
+  const hasDuplicate = Boolean(onDuplicate);
+  const hasConvert = Boolean(onConvertToSubsection);
+  const hasActions = createOptions?.length || hasRename || hasDelete || hasDuplicate || hasConvert;
 
   useEffect(() => {
     if (!open) return;
@@ -175,7 +181,41 @@ function SectionRowOverflowMenu({
                   {label}
                 </button>
               )) ?? null}
-              {createOptions?.length && (hasRename || hasDelete) ? (
+              {createOptions?.length &&
+              (hasRename || hasDelete || hasDuplicate || hasConvert) ? (
+                <div className="my-1 border-t border-border" aria-hidden="true" />
+              ) : null}
+              {hasDuplicate ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-accent"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpen(false);
+                    onDuplicate?.();
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  Duplicate
+                </button>
+              ) : null}
+              {hasConvert ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-accent"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpen(false);
+                    onConvertToSubsection?.();
+                  }}
+                >
+                  <FolderTree className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  Convert to subsection
+                </button>
+              ) : null}
+              {hasConvert && (hasRename || hasDelete) ? (
                 <div className="my-1 border-t border-border" aria-hidden="true" />
               ) : null}
               {hasRename ? (
@@ -227,6 +267,8 @@ export function SectionTreeRowMeta({
   onCreate,
   onRename,
   onDelete,
+  onDuplicate,
+  onConvertToSubsection,
   showRename = true,
   showDelete = true,
 }: {
@@ -240,12 +282,15 @@ export function SectionTreeRowMeta({
   onCreate: (parentPath: string, kind: NodeKind) => void;
   onRename?: () => void;
   onDelete?: () => void;
+  onDuplicate?: () => void;
+  onConvertToSubsection?: () => void;
   showRename?: boolean;
   showDelete?: boolean;
 }) {
   const { assignedCountsByFolder } = useWorkspaceNavigationContext();
   const assignedUnresolvedCount = assignedCountsByFolder.get(rowPath) ?? 0;
   const createOptions = createMenuOptions(createParentPath, paperPath, tree);
+  const canConvert = isUnitFolder(findNode(tree, rowPath)) && onConvertToSubsection;
 
   return (
     <>
@@ -268,7 +313,8 @@ export function SectionTreeRowMeta({
         ) : null}
         {(createOptions && createOptions.length > 0) ||
         (showRename && onRename) ||
-        (showDelete && onDelete) ? (
+        (showDelete && onDelete) ||
+        onDuplicate ? (
           <TreeRowActions
             createOptions={createOptions ?? undefined}
             onCreate={createOptions ? (kind) => onCreate(createParentPath, kind) : undefined}
@@ -276,6 +322,8 @@ export function SectionTreeRowMeta({
             renameLabel={`Rename ${title}`}
             onDelete={showDelete ? onDelete : undefined}
             deleteLabel={`Delete ${title}`}
+            onDuplicate={onDuplicate}
+            duplicateLabel={`Duplicate ${title}`}
             disabled={disabled}
           />
         ) : null}
@@ -290,6 +338,8 @@ export function SectionTreeRowMeta({
           onCreate={onCreate}
           onRename={onRename}
           onDelete={onDelete}
+          onDuplicate={onDuplicate}
+          onConvertToSubsection={canConvert ? () => onConvertToSubsection?.() : undefined}
           showRename={showRename}
           showDelete={showDelete}
         />

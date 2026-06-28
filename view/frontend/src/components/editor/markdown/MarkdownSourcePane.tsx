@@ -48,6 +48,8 @@ export function MarkdownSourcePane({
   updateSelectedLine,
   onTextareaKeyDown,
   editorPlaceholder: _editorPlaceholder = "Write here…",
+  commentLines,
+  activeCommentLine = null,
 }: {
   compact: boolean;
   readingFocusActive: boolean;
@@ -78,6 +80,8 @@ export function MarkdownSourcePane({
   updateSelectedLine: () => void;
   onTextareaKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   editorPlaceholder?: string;
+  commentLines?: Set<number>;
+  activeCommentLine?: number | null;
 }) {
   return (
     <div
@@ -124,6 +128,8 @@ export function MarkdownSourcePane({
         value={content}
         baseline={diffBaseline}
         highlight={showInlinePendingHighlights}
+        commentLines={commentLines}
+        activeCommentLine={activeCommentLine}
         spellCheck={false}
         aria-label={`Edit source ${filePath}`}
         onChange={(e) => {

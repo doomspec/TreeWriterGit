@@ -20,6 +20,10 @@ describe("resolvePendingSourceOnEdit", () => {
     expect(resolvePendingSourceOnEdit(null, true, true, true)).toBe("human");
     expect(resolvePendingSourceOnEdit("human", true, true, false)).toBe("human");
   });
+
+  it("infers ai from index metadata while pending", () => {
+    expect(resolvePendingSourceOnEdit(null, true, true, false, { aiAssisted: true })).toBe("ai");
+  });
 });
 
 describe("showSessionApprovalChrome", () => {

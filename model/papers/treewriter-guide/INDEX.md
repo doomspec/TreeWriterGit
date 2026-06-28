@@ -1,18 +1,18 @@
 ---
-kind: "paper"
-title: "TreeWriter Guide"
-slug: "treewriter-guide"
-journal: "TreeWriter"
-status: "Published"
+kind: paper
+title: TreeWriter Guide
+slug: treewriter-guide
+journal: TreeWriter
+status: Published
 authors:
-  - "TreeWriter"
+  - TreeWriter
 target_words: 8000
 section_order:
-  - "quick-start"
-  - "structure"
-  - "working-with-figures"
-  - "export-and-overleaf"
-  - "reference"
+  - quick-start
+  - structure
+  - working-with-figures
+  - export-and-overleaf
+  - reference
 ---
 # TreeWriter Guide
 

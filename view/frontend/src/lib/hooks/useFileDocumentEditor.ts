@@ -111,6 +111,7 @@ export function useFileDocumentEditor(options: UseFileDocumentEditorOptions) {
       onDiscardedExternal?.(restored);
     },
     requiresApproval,
+    editMeta,
   });
 
   const isDirtyRef = useRef(editor.isDirty);

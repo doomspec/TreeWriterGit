@@ -1,7 +1,7 @@
 import path from "node:path";
 import { readdir } from "node:fs/promises";
 
-import { ModelFsError, readIndexData, resolveModelPath, toRelative } from "./modelFs.js";
+import { ModelFsError, readIndexData, resolveModelPath, toRelative } from "./model/index.js";
 
 /** Directories omitted from navigation tree walks. */
 const SKIP_TREE_DIRS = new Set(["notes", ".sessions", ".trash"]);

@@ -19,6 +19,7 @@ import {
   draftStatusLabel,
   loadDraftApprovalState,
   loadModelFileContent,
+  resolvePendingApprovalDisplay,
 } from "@/lib/draftApproval";
 import { effectiveDiffBaseline } from "@/lib/draftDiff";
 import { cn } from "@/lib/utils";
@@ -157,6 +158,14 @@ export function TableBuilderEditor({
     onSaved: onModelChanged,
     onDiscarded: applyContent,
     onApproved: () => applyContent(currentContent),
+    editMeta,
+  });
+
+  const approvalDisplay = resolvePendingApprovalDisplay({
+    editMeta,
+    pendingSource,
+    githubHandle,
+    isDirty,
   });
 
   useEffect(() => {
@@ -470,10 +479,10 @@ export function TableBuilderEditor({
         {isPendingApproval ? (
           <PendingApprovalChip
             className="mb-4"
-            pendingSource={pendingSource ?? "human"}
-            editedBy={githubHandle || editMeta.editedBy}
-            aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
-            aiProvider={editMeta.aiProvider}
+            pendingSource={approvalDisplay.pendingSource ?? "human"}
+            editedBy={approvalDisplay.editedBy}
+            aiAssisted={approvalDisplay.aiAssisted}
+            aiProvider={approvalDisplay.aiProvider}
             approvedBaseline={approvedBaseline}
             loadedContent={loaded}
             current={currentContent}

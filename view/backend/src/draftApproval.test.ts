@@ -8,6 +8,7 @@ import {
   approveDraftTarget,
   approvePendingChildrenTarget,
   collectPendingApprovalPaths,
+  collectPendingReviewItems,
   isChildApprovalFilePath,
   discardDraftTarget,
   draftsMatchApproved,
@@ -198,27 +199,21 @@ describe("draftApproval", () => {
     expect(after).not.toContain(outlineRel);
   });
 
-  it("propagates draft approval to parent section when all child drafts are approved", async () => {
-    await createNode(modelRoot, "papers/demo", "results", "section");
-    await createNode(modelRoot, "papers/demo/results", "u1", "unit");
-    await createNode(modelRoot, "papers/demo/results", "u2", "unit");
-    const sectionDraftRel = "papers/demo/results/draft.md";
-    const u1DraftRel = "papers/demo/results/u1/draft.md";
-    const u2DraftRel = "papers/demo/results/u2/draft.md";
-    await writeFile(path.join(modelRoot, sectionDraftRel), "\\label{sec:results}\n", "utf8");
-    await writeFile(path.join(modelRoot, u1DraftRel), "First unit draft.\n", "utf8");
-    await writeFile(path.join(modelRoot, u2DraftRel), "Second unit draft.\n", "utf8");
+  it("collectPendingReviewItems includes author and AI metadata with change stats", async () => {
+    const draftRel = "papers/demo/unit-a/draft.md";
+    await writeFile(path.join(modelRoot, draftRel), "Pending draft line.\n", "utf8");
+    await markDraftAiAssisted(modelRoot, "papers/demo/unit-a", null, "Claude Code");
 
-    await approveDraftTarget(modelRoot, u1DraftRel, "reviewer");
-    expect(await draftsMatchApproved(modelRoot, "papers/demo/results/u1")).toBe(true);
-    expect(await draftsMatchApproved(modelRoot, "papers/demo/results")).toBe(false);
-
-    await approveDraftTarget(modelRoot, u2DraftRel, "reviewer");
-    expect(await draftsMatchApproved(modelRoot, "papers/demo/results/u2")).toBe(true);
-    expect(await draftsMatchApproved(modelRoot, "papers/demo/results")).toBe(true);
+    const items = await collectPendingReviewItems(modelRoot, "papers/demo");
+    const draftItem = items.find((item) => item.path === draftRel);
+    expect(draftItem).toBeDefined();
+    expect(draftItem?.kind).toBe("draft");
+    expect(draftItem?.aiAssisted).toBe(true);
+    expect(draftItem?.aiProvider).toBe("Claude Code");
+    expect(draftItem?.changeSummary.addedLines).toBeGreaterThan(0);
   });
 
-  it("propagates outline approval to parent section when all child outlines are approved", async () => {
+  it("propagates draft approval to parent section when all child drafts are approved", async () => {
     await createNode(modelRoot, "papers/demo", "results", "section");
     await createNode(modelRoot, "papers/demo/results", "u1", "unit");
     await createNode(modelRoot, "papers/demo/results", "u2", "unit");

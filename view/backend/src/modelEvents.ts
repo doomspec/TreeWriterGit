@@ -53,6 +53,11 @@ export function changeAffectsGraph(path: string | null): boolean {
 }
 
 function isDuplicateWatchEvent(path: string | null): boolean {
+  return wasRecentApiWrite(path);
+}
+
+/** Skip watch-side effects when the same path was just written via the API. */
+export function wasRecentApiWrite(path: string | null): boolean {
   if (!path || !lastApiBroadcast) return false;
   if (lastApiBroadcast.path !== path) return false;
   return Date.now() - lastApiBroadcast.at < WATCH_DEDUPE_MS;

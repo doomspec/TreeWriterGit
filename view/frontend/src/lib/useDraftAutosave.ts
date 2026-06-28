@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   approveDraftAtPath,
   discardDraftAtPath,
+  type DraftEditMeta,
   type DraftPendingSource,
 } from "@/lib/draftApproval";
 import { hasPendingApprovalDiff } from "@/lib/draftDiff";
@@ -19,10 +20,12 @@ export function resolvePendingSourceOnEdit(
   isPendingApproval: boolean,
   requiresApproval: boolean,
   isDirty: boolean,
+  meta?: Pick<DraftEditMeta, "aiAssisted">,
 ): DraftPendingSource | null {
   if (!requiresApproval || !isPendingApproval) return null;
   if (prev === "ai") return "ai";
   if (prev === "human") return "human";
+  if (meta?.aiAssisted) return "ai";
   if (isDirty) return "human";
   return null;
 }
@@ -51,6 +54,7 @@ export function useDraftAutosave({
   requiresApproval = true,
   debounceMs = 800,
   autosaveEnabled = true,
+  editMeta,
 }: {
   targetPath: string;
   content: string;
@@ -67,6 +71,7 @@ export function useDraftAutosave({
   requiresApproval?: boolean;
   debounceMs?: number;
   autosaveEnabled?: boolean;
+  editMeta?: Pick<DraftEditMeta, "aiAssisted">;
 }) {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [pendingSource, setPendingSource] = useState<DraftPendingSource | null>(null);
@@ -91,9 +96,9 @@ export function useDraftAutosave({
       return;
     }
     setPendingSource((prev) =>
-      resolvePendingSourceOnEdit(prev, isPendingApproval, requiresApproval, isDirty),
+      resolvePendingSourceOnEdit(prev, isPendingApproval, requiresApproval, isDirty, editMeta),
     );
-  }, [content, approvedBaseline, isDirty, isPendingApproval, requiresApproval]);
+  }, [content, approvedBaseline, editMeta?.aiAssisted, isDirty, isPendingApproval, requiresApproval]);
 
   const flushSave = useCallback(async () => {
     if (!isDirty) return;

@@ -2,7 +2,15 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import { isEquationDir, isFigureDir, isTableDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import {
+  isEquationDir,
+  isFigureDir,
+  isTableDir,
+  isUnitDir,
+  orderedChildren,
+  readIndexData,
+  resolveChildPath,
+} from "./model/index.js";
 import { resolveEquationMetadata } from "./equations.js";
 import { resolveFigureMetadata } from "./figures.js";
 import { resolveTableMetadata } from "./tables.js";

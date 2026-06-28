@@ -34,13 +34,13 @@ import { usePaperComments } from "@/lib/hooks/usePaperComments";
 import {
   loadWorkspacePreferences,
   mergeWorkspaceDefaults,
-  scheduleSaveWorkspacePreferences,
   clampAssetPreviewSplit,
   clampDualPaneNotesSplit,
   type DualPaneActive,
   type EditorVisiblePanes,
   type SidebarPanel,
 } from "@/lib/workspacePreferences";
+import { useWorkspacePreferencesPersistence } from "@/lib/workspace/useWorkspacePreferencesPersistence";
 import {
   clampEditorPanePrefsForNotesAvailability,
   DEFAULT_EDITOR_VISIBLE_PANES,
@@ -368,47 +368,26 @@ export function WorkspaceProvider({
     );
   }, [dualPaneActive, editorPanePrefsScopePath, editorVisiblePanes]);
 
-  useEffect(() => {
-    scheduleSaveWorkspacePreferences({
-      sidebarTab,
-      currentPath,
-      activeFile,
-      editorLayout,
-      agentPanelOpen,
-      searchQuery,
-      graphRoot: graphFocusPath,
-      graphScope,
-      dualPaneSplit,
-      dualPaneNotesSplitPercent,
-      assetPreviewSplit,
-      sidebarWidth,
-      sidebarPanel,
-      sidebarPanelOpen,
-      sidebarPinned,
-      bottomPanelHeight,
-      lastPaperPath,
-      editorPanePrefsByScope,
-    });
-  }, [
-    activeFile,
-    agentPanelOpen,
-    assetPreviewSplit,
-    bottomPanelHeight,
+  useWorkspacePreferencesPersistence({
+    sidebarTab,
     currentPath,
+    activeFile,
+    editorLayout,
+    agentPanelOpen,
+    searchQuery,
+    graphRoot: graphFocusPath,
+    graphScope,
     dualPaneSplit,
     dualPaneNotesSplitPercent,
-    editorLayout,
-    graphFocusPath,
-    graphScope,
-    editorPanePrefsByScope,
-    lastPaperPath,
-    searchQuery,
-    sidebarTab,
+    assetPreviewSplit,
+    sidebarWidth,
     sidebarPanel,
     sidebarPanelOpen,
     sidebarPinned,
-    sidebarWidth,
-  ]);
+    bottomPanelHeight,
+    lastPaperPath,
+    editorPanePrefsByScope,
+  });
 
   const showSectionViewBack = Boolean(activeFile && isPaperSection && !isUnit && !isPaperRoot);
   const showPaperViewBack = Boolean(activeFile && isPaperRoot);

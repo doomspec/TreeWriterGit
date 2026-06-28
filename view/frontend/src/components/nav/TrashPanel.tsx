@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ui/NamePromptDialog";
 import { cn } from "@/lib/utils";
 import {
   fetchTrashedItems,
+  purgeAllTrashedItems,
   purgeTrashedItem,
   restoreTrashedItem,
   type TrashedItem,
@@ -40,7 +41,9 @@ export function TrashPanel({
   const [items, setItems] = useState<TrashedItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [purgeTarget, setPurgeTarget] = useState<TrashedItem | null>(null);
+  const [purgeAllOpen, setPurgeAllOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [purgingAll, setPurgingAll] = useState(false);
 
   const loadItems = useCallback(async () => {
     if (!paperPath) {
@@ -94,6 +97,21 @@ export function TrashPanel({
     }
   };
 
+  const handlePurgeAllConfirm = async () => {
+    if (!paperPath) return;
+    setPurgeAllOpen(false);
+    setPurgingAll(true);
+    try {
+      await purgeAllTrashedItems(paperPath);
+      onModelChanged();
+      await loadItems();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPurgingAll(false);
+    }
+  };
+
   if (!paperPath) {
     return (
       <p className="px-3 py-4 text-[11px] text-muted-foreground">
@@ -116,7 +134,23 @@ export function TrashPanel({
 
   return (
     <>
-      <ul className="space-y-0.5 px-2 pb-2">
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+        <p className="text-[10px] text-muted-foreground">
+          {items.length} item{items.length === 1 ? "" : "s"}
+        </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 gap-1 px-1.5 text-[9px] text-destructive hover:text-destructive"
+          disabled={purgingAll || busyId !== null}
+          onClick={() => setPurgeAllOpen(true)}
+        >
+          <Trash2 className="h-3 w-3" aria-hidden="true" />
+          Remove all
+        </Button>
+      </div>
+      <ul className="space-y-0.5 px-2 pb-2 pt-1">
         {items.map((item) => (
           <li
             key={item.id}
@@ -133,7 +167,7 @@ export function TrashPanel({
                 variant="outline"
                 size="sm"
                 className="h-6 gap-1 px-1.5 text-[9px]"
-                disabled={busyId === item.id}
+                disabled={busyId === item.id || purgingAll}
                 onClick={() => void handleRestore(item)}
               >
                 <RotateCcw className="h-3 w-3" aria-hidden="true" />
@@ -146,7 +180,7 @@ export function TrashPanel({
                 className={cn(
                   "h-6 gap-1 px-1.5 text-[9px] text-destructive hover:text-destructive",
                 )}
-                disabled={busyId === item.id}
+                disabled={busyId === item.id || purgingAll}
                 onClick={() => setPurgeTarget(item)}
               >
                 <Trash2 className="h-3 w-3" aria-hidden="true" />
@@ -156,6 +190,16 @@ export function TrashPanel({
           </li>
         ))}
       </ul>
+
+      <ConfirmDialog
+        open={purgeAllOpen}
+        title="Remove all permanently?"
+        message={`Delete all ${items.length} removed item${items.length === 1 ? "" : "s"} permanently? This cannot be undone.`}
+        confirmLabel="Remove all"
+        destructive
+        onConfirm={() => void handlePurgeAllConfirm()}
+        onCancel={() => setPurgeAllOpen(false)}
+      />
 
       <ConfirmDialog
         open={purgeTarget !== null}

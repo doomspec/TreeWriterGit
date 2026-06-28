@@ -33,13 +33,17 @@ composed_at_commit: null
 │  TreeWriter  (localhost — no Quartz server in dev loop)               │
 │                                                                         │
 │  Frontend :5173                    Backend :4000                        │
-│  ├── Sidebar (explorer / papers / graph)   ├── REST API (model CRUD)    │
-│  ├── FolderBrowse + SectionWorkspace       ├── Git sync loop            │
-│  ├── Unit dual-pane (outline + draft)      ├── Terminal PTY (xterm.js)  │
-│  ├── GraphPanel (d3-force + d3-zoom)       ├── AI dispatch + sessions   │
-│  ├── SearchResults (F2)                    ├── Export (pandoc)         │
-│  ├── CommentsPanel + presence banner       ├── Comments / presence API  │
-│  └── DispatchPanel + terminal              └── Overleaf push / import   │
+│  ├── WorkspaceRouter + AppShell          ├── model/ (paths, ordering)   │
+│  ├── SidebarPanelRegistry + outline        ├── import/ (docx pipeline)    │
+│  ├── ManuscriptWorkspaceLayout             ├── export/ (assembly, embeds) │
+│  ├── Markdown + ComposedDraft editors      ├── papers/templates           │
+│  ├── GraphPanel (d3-force + d3-zoom)       ├── app/ (routes, websockets)  │
+│  ├── SearchResults (F2)                    ├── Git sync loop              │
+│  ├── CommentsPanel + presence banner       ├── Terminal PTY (xterm.js)  │
+│  └── DispatchPanel + terminal              ├── AI dispatch + sessions     │
+│                                            ├── Export (pandoc)             │
+│                                            ├── Comments / presence API    │
+│                                            └── Overleaf push / import     │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │  pandoc → main.tex (+ references.bib)
                                 ▼
@@ -108,6 +112,29 @@ model/
 ```
 
 Container nodes order children via `child_order`; unit nodes hold **three files** (`INDEX.md`, `outline.md`, `draft.md`) with a `status` flag (`outline → drafted → approved`) that replaces the old flat `drafts/` / `final/` layout.
+
+## Backend module layout (`view/backend/src/`)
+
+| Module | Role |
+|--------|------|
+| `model/` | Path safety, ordering, kinds, manuscript walk, CRUD, materialization |
+| `modelFs.ts` | Backward-compatible facade re-exporting `model/` |
+| `import/` | DOCX convert, parse, plan validation, apply pipeline |
+| `export/` | Assembly, pandoc, bibliography, embeds (`export/embeds/`) |
+| `papers/templates.ts` | Journal template loading (shared with scaffold) |
+| `app/registerRoutes.ts` | HTTP route registration |
+| `app/registerWebSockets.ts` | `/terminal` and `/model-events` upgrade handler |
+| `agentDispatch/` | AI provider config, prompt builder, job execution |
+
+## Frontend module layout (`view/frontend/src/`)
+
+| Module | Role |
+|--------|------|
+| `lib/model/` | Tree helpers, outline levels, section grouping |
+| `components/editor/workspace/` | Shared dual-pane manuscript layout |
+| `components/editor/chrome/` | Shared pane header controls |
+| `components/editor/blocks/` | Embed block registry (figures, equations) |
+| `components/workspace/sidebar/` | Sidebar panel registry |
 
 ## Key Architectural Decisions
 

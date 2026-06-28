@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { replaceServerDraftPendingPaths } from "@/lib/draftPendingStore";
+import { replaceServerPendingReviews } from "@/lib/draftPendingStore";
 import { fetchPaperDetail, type PaperDetail } from "@/modelApi";
 
 export function usePaperDetail(slug: string | null, refreshVersion = 0, onError?: (message: string) => void) {
@@ -16,10 +16,10 @@ export function usePaperDetail(slug: string | null, refreshVersion = 0, onError?
     try {
       const data = await fetchPaperDetail(slug);
       setDetail(data.paper);
-      replaceServerDraftPendingPaths(data.paper.pendingApprovalPaths ?? []);
+      replaceServerPendingReviews(data.paper.pendingReviews ?? []);
     } catch (err) {
       setDetail(null);
-      replaceServerDraftPendingPaths([]);
+      replaceServerPendingReviews([]);
       onError?.(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);

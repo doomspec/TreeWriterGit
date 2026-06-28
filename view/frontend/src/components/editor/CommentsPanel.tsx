@@ -38,6 +38,7 @@ export function CommentsPanel({
   onError,
   onClose,
   onUnresolvedChange,
+  onCommentsChange,
   onNavigateToLine,
 }: {
   filePath: string;
@@ -48,6 +49,7 @@ export function CommentsPanel({
   onError?: (message: string) => void;
   onClose?: () => void;
   onUnresolvedChange?: (count: number) => void;
+  onCommentsChange?: (comments: CommentRecord[]) => void;
   onNavigateToLine?: (line: number) => void;
 }) {
   const [comments, setComments] = useState<CommentRecord[]>([]);
@@ -103,6 +105,10 @@ export function CommentsPanel({
   useEffect(() => {
     onUnresolvedChange?.(unresolved);
   }, [onUnresolvedChange, unresolved]);
+
+  useEffect(() => {
+    onCommentsChange?.(comments);
+  }, [comments, onCommentsChange]);
 
   const saveAuthorName = () => {
     const next = nameDraft.trim() || "Anonymous";

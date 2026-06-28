@@ -6,7 +6,7 @@ import { MarkdownViewer } from "@/components/editor/MarkdownViewer";
 import { RenderedMarkdownField } from "@/components/editor/RenderedMarkdownField";
 import { ReadingFocusDocumentLayout } from "@/components/editor/ReadingFocusDocumentLayout";
 import { ReadingFocusTitleLink } from "@/components/editor/ReadingFocusTitleLink";
-import type { DraftEditMeta } from "@/lib/draftApproval";
+import type { DraftPendingSource } from "@/lib/draftApproval";
 import type { FigureMetadata } from "@/lib/figures";
 import type { MarkdownFormatAction } from "@/lib/markdownFormat";
 import type { NavigateTarget } from "@/lib/modelTree";
@@ -56,9 +56,7 @@ export function MarkdownPreviewPane({
   loadedPreviewBody,
   showInlinePendingHighlights,
   figureLabelIndex,
-  pendingSource,
-  githubHandle,
-  editMeta,
+  approvalDisplay,
   handleApproveDraft,
   handleDiscardDraft,
   saveState,
@@ -74,6 +72,8 @@ export function MarkdownPreviewPane({
   onPreviewKeyDown,
   debouncedPreviewBody,
   editorPlaceholder = "Write here…",
+  commentLines,
+  activeCommentLine = null,
 }: {
   compact: boolean;
   readingFocusActive: boolean;
@@ -102,9 +102,12 @@ export function MarkdownPreviewPane({
   loadedPreviewBody: string;
   showInlinePendingHighlights: boolean;
   figureLabelIndex: Map<string, FigureMetadata>;
-  pendingSource: "human" | "ai" | null;
-  githubHandle: string | null;
-  editMeta: DraftEditMeta;
+  approvalDisplay: {
+    editedBy: string | null;
+    pendingSource: DraftPendingSource | null;
+    aiAssisted: boolean;
+    aiProvider: string | null;
+  };
   handleApproveDraft: () => void | Promise<void>;
   handleDiscardDraft: () => void | Promise<void>;
   saveState: string;
@@ -123,6 +126,8 @@ export function MarkdownPreviewPane({
   onPreviewKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
   debouncedPreviewBody: string;
   editorPlaceholder?: string;
+  commentLines?: Set<number>;
+  activeCommentLine?: number | null;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-reading editor-text-zoom-root" style={textZoomStyle}>
@@ -181,10 +186,10 @@ export function MarkdownPreviewPane({
               pendingApproval={
                 showInlinePendingHighlights
                   ? {
-                      pendingSource: pendingSource ?? "human",
-                      editedBy: githubHandle || editMeta.editedBy,
-                      aiAssisted: pendingSource === "ai" || editMeta.aiAssisted,
-                      aiProvider: editMeta.aiProvider,
+                      pendingSource: approvalDisplay.pendingSource ?? "human",
+                      editedBy: approvalDisplay.editedBy,
+                      aiAssisted: approvalDisplay.aiAssisted,
+                      aiProvider: approvalDisplay.aiProvider,
                       loadedContent: loadedPreviewBody,
                       onApprove: () => void handleApproveDraft(),
                       onDiscard: () => void handleDiscardDraft(),
@@ -207,6 +212,8 @@ export function MarkdownPreviewPane({
               onTextareaSync={(textarea) => void assetAutocomplete.sync(textarea)}
               onBlur={(event) => assetAutocomplete.handleEditorBlur(event.currentTarget)}
               onKeyDown={onPreviewKeyDown}
+              commentLines={commentLines}
+              activeCommentLine={activeCommentLine}
             />
           </ReadingFocusDocumentLayout>
         ) : (

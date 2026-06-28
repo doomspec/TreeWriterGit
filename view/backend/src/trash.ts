@@ -235,3 +235,20 @@ export async function purgeTrashedItem(
   await writeManifest(modelRoot, normalized, manifest);
   return item;
 }
+
+/** Permanently delete every item in the paper trash. */
+export async function purgeAllTrashedItems(
+  modelRoot: string,
+  paperRel: string,
+): Promise<{ purgedCount: number }> {
+  const normalized = paperRel.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!paperRootFromPath(normalized) || normalized !== paperRootFromPath(normalized)) {
+    throw new ModelFsError("Invalid paper path", 400);
+  }
+  const manifest = await readManifest(modelRoot, normalized);
+  const ids = manifest.items.map((entry) => entry.id);
+  for (const id of ids) {
+    await purgeTrashedItem(modelRoot, normalized, id);
+  }
+  return { purgedCount: ids.length };
+}

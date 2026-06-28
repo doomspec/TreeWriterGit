@@ -41,6 +41,8 @@ export function RenderedMarkdownField({
   figureLabelIndex,
   pendingApproval = null,
   compact: _compact = false,
+  commentLines,
+  activeCommentLine = null,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -65,6 +67,8 @@ export function RenderedMarkdownField({
   figureLabelIndex?: Map<string, FigureMetadata>;
   pendingApproval?: PendingApprovalProps | null;
   compact?: boolean;
+  commentLines?: Set<number>;
+  activeCommentLine?: number | null;
 }) {
   return (
     <div className={cn("rendered-markdown-field w-full", className)}>
@@ -89,6 +93,8 @@ export function RenderedMarkdownField({
         refreshVersion={refreshVersion}
         activeOutlineNavPath={activeOutlineNavPath}
         inputRef={inputRef}
+        commentLines={commentLines}
+        activeCommentLine={activeCommentLine}
       />
     </div>
   );

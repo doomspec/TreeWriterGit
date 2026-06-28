@@ -4,16 +4,19 @@ import { shouldSyncDocumentOutline } from "@/components/editor/DualPaneControlle
 
 describe("DualPaneController", () => {
   describe("shouldSyncDocumentOutline", () => {
-    it("syncs when outline is visible and focused in a split", () => {
+    it("syncs draft when draft pane is visible, otherwise outline", () => {
       expect(
         shouldSyncDocumentOutline({ outline: true, draft: false, notes: false }, "outline"),
       ).toBe(true);
       expect(
-        shouldSyncDocumentOutline({ outline: true, draft: true, notes: false }, "outline"),
+        shouldSyncDocumentOutline({ outline: true, draft: true, notes: false }, "draft"),
       ).toBe(true);
       expect(
-        shouldSyncDocumentOutline({ outline: true, draft: true, notes: false }, "draft"),
+        shouldSyncDocumentOutline({ outline: true, draft: true, notes: false }, "outline"),
       ).toBe(false);
+      expect(
+        shouldSyncDocumentOutline({ outline: false, draft: true, notes: true }, "draft"),
+      ).toBe(true);
       expect(
         shouldSyncDocumentOutline({ outline: false, draft: true, notes: true }, "notes"),
       ).toBe(false);

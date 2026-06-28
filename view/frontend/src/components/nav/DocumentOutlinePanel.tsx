@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useDocumentOutline } from "@/lib/documentOutline";
 import type { MarkdownHeading } from "@/lib/markdownOutline";
+import { hasNavigableOutlineEntries } from "@/lib/markdownOutline";
+import { applyOutlineHeadingLevelsFromModel } from "@/lib/outlineHeadingLevels";
 import { findActiveOutlineHeadingId } from "@/lib/outlineActiveNav";
 import {
   orderedChildFolders,
@@ -56,22 +58,29 @@ export function DocumentOutlinePanel({ className }: { className?: string }) {
   const childOrder = childOrders[linkContextPath] ?? [];
 
   const markdownHeadings = outline?.headings ?? [];
-  const headings = useMemo(() => {
-    const hasOutlineLinks = markdownHeadings.some((heading) => heading.href);
-    const hasSectionHeadings = markdownHeadings.some((heading) => heading.level >= 2);
-    if (hasOutlineLinks || hasSectionHeadings || !linkContextPath) {
-      return markdownHeadings;
-    }
 
-    const title = markdownHeadings.find((heading) => heading.level === 1) ?? null;
-    const modelHeadings = buildModelOutlineHeadings(
-      nav.tree,
-      linkContextPath,
-      childOrder,
-      nav.paperPath,
-      title?.level ?? null,
-    );
-    return mergeOutlineHeadings(markdownHeadings, modelHeadings);
+  useEffect(() => {
+    if (!linkContextPath || !nav.treeLoaded) return;
+    void nav.loadTreePath(linkContextPath);
+  }, [linkContextPath, nav.loadTreePath, nav.refreshVersion, nav.treeLoaded]);
+
+  const headings = useMemo(() => {
+    let result = markdownHeadings;
+    if (linkContextPath && !hasNavigableOutlineEntries(markdownHeadings)) {
+      const title = markdownHeadings.find((heading) => heading.level === 1) ?? null;
+      const modelHeadings = buildModelOutlineHeadings(
+        nav.tree,
+        linkContextPath,
+        childOrder,
+        nav.paperPath,
+        title?.level ?? null,
+      );
+      result = mergeOutlineHeadings(markdownHeadings, modelHeadings);
+    }
+    if (linkContextPath && result.some((heading) => heading.href)) {
+      result = applyOutlineHeadingLevelsFromModel(result, nav.tree, linkContextPath);
+    }
+    return result;
   }, [childOrder, linkContextPath, markdownHeadings, nav.paperPath, nav.tree]);
 
   const focusPath = nav.activeFile ? parentPath(nav.activeFile) : nav.browsePath;

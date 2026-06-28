@@ -229,8 +229,8 @@ export function BottomPanel({
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                title="Reconnect terminal"
-                aria-label="Reconnect terminal"
+                title="Resume terminal connection (keeps session and screen)"
+                aria-label="Resume terminal connection"
                 onClick={onReconnect}
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />

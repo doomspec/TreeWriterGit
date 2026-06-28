@@ -6,6 +6,7 @@ import {
   EditorShell,
 } from "@/components/editor/EditorShell";
 import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
+import { DraftApprovalRail } from "@/components/editor/DraftApprovalRail";
 import { EditorPaneModeToggle } from "@/components/editor/EditorPaneModeToggle";
 import { ReadingFocusFloatingBar } from "@/components/editor/ReadingFocusFloatingBar";
 import { InlineSelectionToolbar } from "@/components/editor/InlineSelectionToolbar";
@@ -34,6 +35,11 @@ import {
 import { AnnotationBar } from "@/components/editor/AnnotationBar";
 import { useEditorCrossRef } from "@/lib/hooks/useEditorCrossRef";
 import { useEditorComments } from "@/lib/hooks/useEditorComments";
+import {
+  editorCommentLines,
+  fileLineToEditorLine,
+  unresolvedCommentFileLines,
+} from "@/lib/commentLineHighlight";
 import { useEditorDispatch } from "@/lib/hooks/useEditorDispatch";
 import { useFileDocumentEditor } from "@/lib/hooks/useFileDocumentEditor";
 import { authorNoteMacro, wrapInlineNote } from "@/lib/inlineNotes";
@@ -42,7 +48,7 @@ import { cn } from "@/lib/utils";
 import { getUserName } from "@/lib/userIdentity";
 import { parseFrontmatterStatus, isOutlinePath, isTempNotesPath, parentPath, type NavigateTarget } from "@/lib/modelTree";
 import { TEMP_NOTES_EDITOR_PLACEHOLDER } from "@/lib/tempNotes";
-import { draftStatusLabel } from "@/lib/draftApproval";
+import { draftStatusLabel, resolvePendingApprovalDisplay } from "@/lib/draftApproval";
 import { effectiveDiffBaseline } from "@/lib/draftDiff";
 import type { SaveState } from "@/lib/useDraftAutosave";
 import { TextZoomControl } from "@/components/editor/TextZoomControl";
@@ -55,6 +61,7 @@ import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { useAssetAutocomplete } from "@/lib/useAssetAutocomplete";
 import { sessionKeyForFile, loadEditorSession, type EditorPaneMode } from "@/lib/editorSessionState";
 import { useEditorPresence } from "@/lib/hooks/useEditorPresence";
+import { useReviewRailOpen } from "@/lib/useReviewRailOpen";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import type { EditorLayout } from "@/lib/editor/layout";
 
@@ -123,6 +130,7 @@ export function MarkdownEditor({
 }) {
   const readingFocus = useReadingFocus();
   const nav = useWorkspaceNavigationContext();
+  const [reviewRailOpen, toggleReviewRail] = useReviewRailOpen();
   const effectiveLinkContext = linkContextPath || parentPath(filePath);
   const activeOutlineNavPath = useMemo(() => {
     if (!isOutlinePath(filePath)) return null;
@@ -178,11 +186,10 @@ export function MarkdownEditor({
   });
   const [previewRawEdit, setPreviewRawEdit] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const { unresolvedComments, setUnresolvedComments } = useEditorComments(
+  const { unresolvedComments, comments, setUnresolvedComments, setComments } = useEditorComments(
     filePath,
     refreshVersion,
     pathVersion,
-    { fetchEnabled: !commentsOpen },
   );
   const [selectedLine, setSelectedLine] = useState(1);
   const { zoom, zoomIn, zoomOut, resetZoom } = useEditorTextZoom();
@@ -293,12 +300,29 @@ export function MarkdownEditor({
     onContentChange?.(content);
   }, [content, onContentChange]);
 
+  const unresolvedFileLines = useMemo(() => unresolvedCommentFileLines(comments), [comments]);
+  const sourceCommentLines = useMemo(
+    () => editorCommentLines(unresolvedFileLines, content, content),
+    [content, unresolvedFileLines],
+  );
+  const previewCommentLines = useMemo(
+    () => editorCommentLines(unresolvedFileLines, content, previewBody),
+    [content, previewBody, unresolvedFileLines],
+  );
+  const activeSourceCommentLine = commentsOpen
+    ? fileLineToEditorLine(selectedLine, content, content)
+    : null;
+  const activePreviewCommentLine = commentsOpen
+    ? fileLineToEditorLine(selectedLine, content, previewBody)
+    : null;
+
   const { annotationIndex, annotationItems, handleAnnotationIndexChange } = useMarkdownAnnotations({
     commentsOpen,
     filePath,
     refreshVersion,
     pathVersion,
     setSelectedLine,
+    preloadedComments: comments,
   });
 
   const effectiveLayout = compact ? (paneMode === "raw" ? "source" : "preview") : layout;
@@ -353,18 +377,45 @@ export function MarkdownEditor({
     showInlinePendingHighlights,
   ]);
 
+  const approvalDisplay = resolvePendingApprovalDisplay({
+    editMeta,
+    pendingSource,
+    githubHandle,
+    isDirty,
+  });
+
   const approvalBar = sessionApprovalActive ? (
     <DraftApprovalBar
-      pendingSource={pendingSource}
-      editedBy={githubHandle || editMeta.editedBy}
-      aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
+      pendingSource={approvalDisplay.pendingSource}
+      editedBy={approvalDisplay.editedBy}
+      aiAssisted={approvalDisplay.aiAssisted}
+      aiProvider={approvalDisplay.aiProvider}
       onApprove={() => void handleApproveDraft()}
       onDiscard={() => void handleDiscardDraft()}
       approving={saveState === "saving"}
       approveLabel={approvalLabel}
       changeNavigation={pendingChangeNavigation}
+      reviewRailOpen={reviewRailOpen}
+      onToggleReviewRail={toggleReviewRail}
     />
   ) : null;
+
+  const approvalRail =
+    sessionApprovalActive && reviewRailOpen ? (
+      <DraftApprovalRail
+        pendingSource={approvalDisplay.pendingSource}
+        editedBy={approvalDisplay.editedBy}
+        aiAssisted={approvalDisplay.aiAssisted}
+        aiProvider={approvalDisplay.aiProvider}
+        onApprove={() => void handleApproveDraft()}
+        onDiscard={() => void handleDiscardDraft()}
+        approving={saveState === "saving"}
+        approveLabel={approvalLabel}
+        approvedBaseline={diffBaseline}
+        loadedContent={loadedContent}
+        current={content}
+      />
+    ) : null;
 
   const persistEditorSession = useCallback(() => {
     persist(getActiveTextarea(), getScrollElement(), paneMode);
@@ -765,6 +816,8 @@ export function MarkdownEditor({
       updateSelectedLine={updateSelectedLine}
       onTextareaKeyDown={onTextareaKeyDown}
       editorPlaceholder={editorPlaceholder}
+      commentLines={sourceCommentLines}
+      activeCommentLine={activeSourceCommentLine}
     />
   );
 
@@ -797,9 +850,7 @@ export function MarkdownEditor({
       loadedPreviewBody={loadedPreviewBody}
       showInlinePendingHighlights={showInlinePendingHighlights}
       figureLabelIndex={figureLabelIndex}
-      pendingSource={pendingSource}
-      githubHandle={githubHandle}
-      editMeta={editMeta}
+      approvalDisplay={approvalDisplay}
       handleApproveDraft={handleApproveDraft}
       handleDiscardDraft={handleDiscardDraft}
       saveState={saveState}
@@ -815,6 +866,8 @@ export function MarkdownEditor({
       onPreviewKeyDown={onPreviewKeyDown}
       debouncedPreviewBody={debouncedPreviewBody}
       editorPlaceholder={editorPlaceholder}
+      commentLines={previewCommentLines}
+      activeCommentLine={activePreviewCommentLine}
     />
   );
 
@@ -859,6 +912,7 @@ export function MarkdownEditor({
           onClose={() => setCommentsOpen(false)}
           onError={onError}
           onUnresolvedChange={setUnresolvedComments}
+          onCommentsChange={setComments}
           onNavigateToLine={setSelectedLine}
         />
       }
@@ -877,7 +931,8 @@ export function MarkdownEditor({
         />
       }
     >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {otherEditor ? (
           <div className={cn("border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-xs text-amber-900 dark:text-amber-100", readingFocus.active && "editor-chrome-hidden")}>
             Being edited by {otherEditor}
@@ -899,7 +954,7 @@ export function MarkdownEditor({
             onClose={() => setCommentsOpen(false)}
           />
         ) : null}
-        <div ref={editorScopeRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div ref={editorScopeRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {editorPanes}
             <InlineSelectionToolbar
               scopeRef={editorScopeRef}
@@ -914,18 +969,22 @@ export function MarkdownEditor({
               }}
             />
             {readingFocus.active && showReadingFocusBar ? (
-              <ReadingFocusFloatingBar
-                className="reading-focus-floating-bar"
-                wordCount={editorStats.words}
-                charCount={editorStats.characters}
-                canUndo={canUndo}
-                canRedo={canRedo}
-                onUndo={undo}
-                onRedo={redo}
-                onExit={readingFocus.exit}
-              />
+              <div className="reading-focus-floating-bar-host">
+                <ReadingFocusFloatingBar
+                  className="reading-focus-floating-bar"
+                  wordCount={editorStats.words}
+                  charCount={editorStats.characters}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                  onUndo={undo}
+                  onRedo={redo}
+                  onExit={readingFocus.exit}
+                />
+              </div>
             ) : null}
         </div>
+        </div>
+        {approvalRail}
       </div>
     </EditorShell>
   );

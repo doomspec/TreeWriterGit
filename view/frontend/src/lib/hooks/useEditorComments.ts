@@ -1,33 +1,33 @@
 import { useContext, useEffect, useState } from "react";
 
 import { fetchComments } from "@/lib/api/commentsApi";
+import type { CommentRecord } from "@treewriter/shared";
 import { WorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 
 export function useEditorComments(
   filePath: string,
   refreshVersion: number,
   pathVersion = 0,
-  options?: { fetchEnabled?: boolean },
 ) {
   const nav = useContext(WorkspaceNavigationContext);
   const effectiveRefreshVersion = nav?.refreshVersion ?? refreshVersion;
-  const fetchEnabled = options?.fetchEnabled ?? true;
   const [unresolvedComments, setUnresolvedComments] = useState(0);
+  const [comments, setComments] = useState<CommentRecord[]>([]);
 
   useEffect(() => {
-    if (!fetchEnabled) return;
     let cancelled = false;
     fetchComments(filePath)
-      .then(({ comments }) => {
+      .then(({ comments: nextComments }) => {
         if (!cancelled) {
-          setUnresolvedComments(comments.filter((c) => !c.resolved).length);
+          setComments(nextComments);
+          setUnresolvedComments(nextComments.filter((c) => !c.resolved).length);
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [fetchEnabled, filePath, effectiveRefreshVersion, pathVersion]);
+  }, [filePath, effectiveRefreshVersion, pathVersion]);
 
-  return { unresolvedComments, setUnresolvedComments };
+  return { unresolvedComments, comments, setUnresolvedComments, setComments };
 }

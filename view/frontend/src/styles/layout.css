@@ -818,8 +818,8 @@
 
 .draft-approval-rail {
   display: flex;
-  width: min(11rem, 28vw);
-  min-width: 9rem;
+  width: min(14rem, 32vw);
+  min-width: 11rem;
   flex-direction: column;
   flex-shrink: 0;
   border-left: 1px solid hsl(var(--warning) / 0.35);
@@ -901,12 +901,18 @@
   gap: 0.25rem;
 }
 
-.reading-focus-floating-bar {
-  position: fixed;
-  bottom: 1.25rem;
-  left: 50%;
+.reading-focus-floating-bar-host {
+  pointer-events: none;
   z-index: 30;
-  transform: translateX(-50%);
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  margin-top: auto;
+  padding-bottom: 1.25rem;
+}
+
+.reading-focus-floating-bar {
+  pointer-events: auto;
 }
 
 .inline-selection-toolbar {
@@ -944,9 +950,32 @@
   container-name: reading-focus-pane;
 }
 
+.reading-focus-pane.markdown-preview-edit,
+.reading-focus-pane.markdown-pane {
+  display: flex;
+  flex-direction: column;
+}
+
 .reading-focus-mode .markdown-pane,
 .reading-focus-mode .block-markdown-editor {
-  padding-bottom: 5rem;
+  padding-bottom: 1.5rem;
+}
+
+.reading-focus-pane .reading-focus-document,
+.reading-focus-pane .reading-focus-document__prose-column,
+.reading-focus-pane .reading-focus-document__content-row,
+.reading-focus-pane .reading-focus-document__body,
+.reading-focus-pane .rendered-markdown-field,
+.reading-focus-pane .block-markdown-editor--empty-doc {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.reading-focus-pane .block-markdown-editor--empty-doc .block-markdown-editor__surface {
+  min-height: 8rem;
+  flex: 1;
 }
 
 /* Focus mode: always show editor text (no transparent highlight overlay). */

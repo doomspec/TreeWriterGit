@@ -18,7 +18,8 @@ import {
   orderedChildren,
   readIndexData,
   resolveChildPath,
-} from "../modelFs.js";
+  walkManuscriptLeaves,
+} from "../model/index.js";
 
 function titleCase(name: string): string {
   return name
@@ -112,36 +113,26 @@ export async function countUnitSources(
   let withDraft = 0;
   let withOutlineOnly = 0;
 
-  async function walk(dirRel: string): Promise<void> {
-    if (dirRel.includes("/notes/") || dirRel.endsWith("/notes")) return;
+  await walkManuscriptLeaves(modelRoot, paperRel, async (ctx) => {
+    if (ctx.kind !== "unit") return;
 
-    if (await isUnitDir(modelRoot, dirRel)) {
-      units += 1;
-      const data = await readIndexData(modelRoot, dirRel);
-      const status = String(data.status ?? "outline");
-      if (!shouldIncludeUnit(status, includeDrafts)) return;
+    units += 1;
+    const status = String(ctx.indexData.status ?? "outline");
+    if (!shouldIncludeUnit(status, includeDrafts)) return;
 
-      const draftAbs = path.join(modelRoot, dirRel, "draft.md");
-      const hasDraft = existsSync(draftAbs) && (await readFile(draftAbs, "utf8")).trim().length > 0;
-      if (hasDraft) {
-        withDraft += 1;
-        return;
-      }
-
-      const outlineAbs = path.join(modelRoot, dirRel, "outline.md");
-      const hasOutline =
-        includeDrafts && existsSync(outlineAbs) && (await readFile(outlineAbs, "utf8")).trim().length > 0;
-      if (hasOutline) withOutlineOnly += 1;
+    const draftAbs = path.join(modelRoot, ctx.relPath, "draft.md");
+    const hasDraft = existsSync(draftAbs) && (await readFile(draftAbs, "utf8")).trim().length > 0;
+    if (hasDraft) {
+      withDraft += 1;
       return;
     }
 
-    for (const child of await orderedChildren(modelRoot, dirRel)) {
-      const childRel = resolveChildPath(modelRoot, dirRel, child);
-      if (childRel) await walk(childRel);
-    }
-  }
+    const outlineAbs = path.join(modelRoot, ctx.relPath, "outline.md");
+    const hasOutline =
+      includeDrafts && existsSync(outlineAbs) && (await readFile(outlineAbs, "utf8")).trim().length > 0;
+    if (hasOutline) withOutlineOnly += 1;
+  });
 
-  await walk(paperRel);
   return { units, withDraft, withOutlineOnly };
 }
 
