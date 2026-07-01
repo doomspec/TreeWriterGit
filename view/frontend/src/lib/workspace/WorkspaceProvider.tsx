@@ -73,6 +73,16 @@ export type WorkspaceContextValue = {
   error: string | null;
   setError: (message: string | null) => void;
   onModelEventsRefresh: () => void;
+  /** IDE-style Explorer workspace toggle (project-root file editing). */
+  explorerMode: boolean;
+  setExplorerMode: (on: boolean | ((prev: boolean) => boolean)) => void;
+  explorerOpenTabs: string[];
+  explorerActiveTab: string | null;
+  /** Open a file in an Explorer tab (adds if missing) and make it active. */
+  openExplorerTab: (path: string) => void;
+  /** Close an Explorer tab; activates a neighbor if the closed tab was active. */
+  closeExplorerTab: (path: string) => void;
+  setExplorerActiveTab: (path: string | null) => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -94,7 +104,14 @@ export function WorkspaceProvider({
 
   const [currentPath, setCurrentPath] = useState(savedPrefs.currentPath);
   const [activeFile, setActiveFile] = useState<string | null>(savedPrefs.activeFile);
-  const [editorLayout, setEditorLayout] = useState<EditorLayout>(savedPrefs.editorLayout);
+  // Every live navigation path (openFile, unit browsing) force-resets editorLayout
+  // to "split" on arrival. Boot hydration restores the raw persisted value instead,
+  // so reloading with main.bib last-active could restore a stale non-split layout
+  // (e.g. "preview") and hide the source/verification pane until the next navigation.
+  // Apply the same forced-split rule here so a bib file never boots into that state.
+  const [editorLayout, setEditorLayout] = useState<EditorLayout>(
+    savedPrefs.activeFile?.toLowerCase().endsWith(".bib") ? "split" : savedPrefs.editorLayout,
+  );
   const [sidebarTab, setSidebarTab] = useState<WorkspaceNavTab>(
     savedPrefs.sidebarPanel === "explorer" ? "explorer" : savedPrefs.sidebarTab,
   );
@@ -104,6 +121,13 @@ export function WorkspaceProvider({
   const [searchQuery, setSearchQuery] = useState(savedPrefs.searchQuery);
   const [appView, setAppView] = useState<AppView>("workspace");
   const [error, setError] = useState<string | null>(null);
+  const [explorerMode, setExplorerMode] = useState<boolean>(savedPrefs.explorerMode ?? false);
+  const [explorerOpenTabs, setExplorerOpenTabs] = useState<string[]>(
+    savedPrefs.explorerOpenTabs ?? [],
+  );
+  const [explorerActiveTab, setExplorerActiveTab] = useState<string | null>(
+    savedPrefs.explorerActiveTab ?? null,
+  );
   const [agentPanelOpen, setAgentPanelOpen] = useState(savedPrefs.agentPanelOpen);
   const [dispatchIntent, setDispatchIntent] = useState<AgentDispatchIntent | null>(null);
   const [dualPaneSplit, setDualPaneSplit] = useState(savedPrefs.dualPaneSplit);
@@ -400,6 +424,9 @@ export function WorkspaceProvider({
     bottomPanelHeight,
     lastPaperPath,
     editorPanePrefsByScope,
+    explorerMode,
+    explorerOpenTabs,
+    explorerActiveTab,
   });
 
   const showSectionViewBack = Boolean(activeFile && isPaperSection && !isUnit && !isPaperRoot);
@@ -484,6 +511,25 @@ export function WorkspaceProvider({
     [browsePath, createPrompt, navigateTo, paperPath, reloadModel],
   );
 
+  const openExplorerTab = useCallback((path: string) => {
+    setExplorerOpenTabs((tabs) => (tabs.includes(path) ? tabs : [...tabs, path]));
+    setExplorerActiveTab(path);
+  }, []);
+
+  const closeExplorerTab = useCallback((path: string) => {
+    setExplorerOpenTabs((tabs) => {
+      const index = tabs.indexOf(path);
+      if (index === -1) return tabs;
+      const next = tabs.filter((tab) => tab !== path);
+      setExplorerActiveTab((active) => {
+        if (active !== path) return active;
+        // Activate the neighbor that slides into the closed slot.
+        return next[index] ?? next[index - 1] ?? null;
+      });
+      return next;
+    });
+  }, []);
+
   const value = useMemo<WorkspaceContextValue>(
     () => ({
       appView,
@@ -491,8 +537,24 @@ export function WorkspaceProvider({
       error,
       setError,
       onModelEventsRefresh: onModelEventsRefresh ?? (() => {}),
+      explorerMode,
+      setExplorerMode,
+      explorerOpenTabs,
+      explorerActiveTab,
+      openExplorerTab,
+      closeExplorerTab,
+      setExplorerActiveTab,
     }),
-    [appView, error, onModelEventsRefresh],
+    [
+      appView,
+      error,
+      onModelEventsRefresh,
+      explorerMode,
+      explorerOpenTabs,
+      explorerActiveTab,
+      openExplorerTab,
+      closeExplorerTab,
+    ],
   );
 
   const layoutValue = useMemo<WorkspaceLayoutContextValue>(

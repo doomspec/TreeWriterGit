@@ -16,7 +16,8 @@
     "ci:frontend:lint": "pnpm --filter treewriter-view-frontend lint",
     "ci:frontend:test": "pnpm --filter treewriter-view-frontend test",
     "ci:frontend:e2e": "pnpm --filter treewriter-view-frontend test:e2e",
-    "ci:frontend:build": "pnpm --filter treewriter-view-frontend build"
+    "ci:frontend:build": "pnpm --filter treewriter-view-frontend build",
+    "ci:backend:test:coverage": "pnpm --filter treewriter-view-backend test:coverage"
   },
   "pnpm": {
     "overrides": {

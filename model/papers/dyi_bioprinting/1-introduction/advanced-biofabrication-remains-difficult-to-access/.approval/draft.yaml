@@ -1,12 +1,12 @@
-content_hash: "sha256:3cd52361b04b0e2a136f9201c51db04fa14c5c54f21caa93cd6da548f390161d"
-git_commit: "08554e838fe558c0ef573adfb406a3d02b602a89"
-git_file_blob: "sha1:f86563a31e257718e98f6a40b26fadaede4d7cc2"
-approved_at: "2026-07-01T15:26:16.384Z"
+content_hash: "sha256:805b947e3ca450bc29b58d7dcdc88303a09b363feb8c86d2d76fa4a3171c1478"
+git_commit: "72998e0b1efacfe88b6fd3016ae92faf4e3a8d87"
+git_file_blob: "sha1:717eea591bf08742799fc641d5918fddecf379db"
+approved_at: "2026-07-01T19:07:25.666Z"
 approved_by: null
 approvers: 
   - "yakavetsiv"
 edited_by: null
-edited_at: "2026-07-01T16:31:04.244Z"
+edited_at: null
 ai_assisted: false
 ai_provider: null
-status: "drafted"
+status: "approved"

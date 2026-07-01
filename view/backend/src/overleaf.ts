@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
-import { ModelFsError, resolvePaperRel } from "./modelFs.js";
+import { ModelFsError, resolveModelPath } from "./modelFs.js";
 import { copyModularBundleToDir, exportModularPaper } from "./exportModular.js";
 import type { ExportValidationConfig } from "@treewriter/shared";
 
@@ -86,7 +86,8 @@ function cloneUrlWithToken(httpsCloneUrl: string, token?: string): string {
 }
 
 async function readPaperIndex(modelRoot: string, paperSlug: string) {
-  const paperRel = resolvePaperRel(modelRoot, paperSlug);
+  const paperRel = `papers/${paperSlug.trim()}`;
+  resolveModelPath(modelRoot, paperRel);
   const indexAbs = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(indexAbs)) {
     throw new ModelFsError(`Paper not found: ${paperSlug}`, 404);
@@ -116,6 +117,14 @@ async function ensureOverleafClone(
 ): Promise<"cloned" | "pulled" | "linked"> {
   const authUrl = cloneUrlWithToken(httpsCloneUrl, token);
   const gitDir = path.join(targetPath, ".git");
+  // Never let git block on an interactive credential prompt: without a token
+  // the remote returns 401 and git would otherwise wait on stdin forever
+  // (hangs the request / test). GIT_TERMINAL_PROMPT=0 makes it fail fast.
+  const nonInteractiveEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  // Bound the incremental pull: a network that stalls on connect (no route,
+  // dropped packets) would hang well past any prompt guard, so cap it and
+  // fall through to the "linked" path instead of hanging the request.
+  const PULL_TIMEOUT_MS = 8_000;
 
   if (existsSync(gitDir)) {
     try {
@@ -125,7 +134,10 @@ async function ensureOverleafClone(
       await execFileAsync("git", ["-C", targetPath, "remote", "add", "origin", authUrl]);
     }
     try {
-      await execFileAsync("git", ["-C", targetPath, "pull", "--ff-only"]);
+      await execFileAsync("git", ["-C", targetPath, "pull", "--ff-only"], {
+        env: nonInteractiveEnv,
+        timeout: PULL_TIMEOUT_MS,
+      });
       return "pulled";
     } catch {
       return "linked";
@@ -140,7 +152,7 @@ async function ensureOverleafClone(
   }
 
   await mkdir(path.dirname(targetPath), { recursive: true });
-  await execFileAsync("git", ["clone", authUrl, targetPath]);
+  await execFileAsync("git", ["clone", authUrl, targetPath], { env: nonInteractiveEnv });
   return "cloned";
 }
 

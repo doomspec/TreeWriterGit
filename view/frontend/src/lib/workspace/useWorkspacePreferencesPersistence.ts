@@ -28,6 +28,9 @@ export type WorkspacePreferencesSnapshot = {
   bottomPanelHeight: number;
   lastPaperPath: string | null;
   editorPanePrefsByScope: Record<string, EditorPaneScopePrefs>;
+  explorerMode: boolean;
+  explorerOpenTabs: string[];
+  explorerActiveTab: string | null;
 };
 
 /** Debounced persistence for workspace layout and navigation preferences. */
@@ -56,5 +59,8 @@ export function useWorkspacePreferencesPersistence(snapshot: WorkspacePreference
     snapshot.sidebarPanelOpen,
     snapshot.sidebarPinned,
     snapshot.sidebarWidth,
+    snapshot.explorerMode,
+    snapshot.explorerOpenTabs,
+    snapshot.explorerActiveTab,
   ]);
 }

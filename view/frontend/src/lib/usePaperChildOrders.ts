@@ -29,7 +29,10 @@ export function usePaperChildOrders(
 
   useEffect(() => {
     if (!paperPath || missingPaths.length === 0) {
-      setFetched({});
+      // Skip the update when already empty: setFetched({}) with a fresh object
+      // reference would still trigger a re-render every time this effect runs,
+      // which re-derives `fromTree`/`missingPaths` and can re-fire the effect.
+      setFetched((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
     let cancelled = false;

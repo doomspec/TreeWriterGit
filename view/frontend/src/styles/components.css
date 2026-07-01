@@ -190,8 +190,16 @@
   }
 
   .ui-pane-header {
-    @apply workspace-pane-header;
+    @apply workspace-pane-header justify-between;
     background-color: hsl(var(--reading-bg));
+  }
+
+  .ui-pane-header__label {
+    @apply ui-label min-w-0 shrink truncate;
+  }
+
+  .ui-pane-header__actions {
+    @apply flex shrink-0 items-center gap-1.5;
   }
 
   .sidebar-panel-header {

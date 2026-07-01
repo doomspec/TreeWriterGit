@@ -70,4 +70,29 @@ describe("pending diff plugin", () => {
     const insertedLen = inline.reduce((sum, d) => sum + (d.to - d.from), 0);
     expect(insertedLen).toBe("A brand new sentence. ".length);
   });
+
+  it("diffs a rewritten sentence at word boundaries, not mid-word (no char-level noise)", () => {
+    // A char-level LCS matches scattered single letters between the two
+    // strings and interleaves tiny insert/delete fragments — the garbled
+    // "modulacreates rnew" effect. Word-level keeps shared words equal and
+    // only decorates the words that actually changed.
+    const baseline = "creates new opportunities for autonomous bioengineering";
+    const current = "creates many new opportunities for automated bioengineering platforms";
+    const set = decorations(current, baseline);
+    const inline = set.find().filter((d) => d.to !== d.from);
+    // Unchanged words must not be covered by any inline (insert) decoration.
+    const docText = current;
+    for (const word of ["creates", "opportunities", "for", "bioengineering"]) {
+      const start = docText.indexOf(word) + 1; // +1 for the doc's opening offset
+      const end = start + word.length;
+      for (const d of inline) {
+        const overlaps = d.from < end && d.to > start;
+        expect(overlaps).toBe(false);
+      }
+    }
+    // The genuinely new/changed words ("many ", "automated", " platforms")
+    // are the only inserted content.
+    const insertedLen = inline.reduce((sum, d) => sum + (d.to - d.from), 0);
+    expect(insertedLen).toBe("many ".length + "automated".length + " platforms".length);
+  });
 });

@@ -42,12 +42,14 @@ export function BibFilePreview({
   onModelChanged,
   paperPath,
   hideEntryList = false,
+  headerActions,
 }: {
   filePath: string;
   onError: (message: string) => void;
   onModelChanged?: () => void;
   paperPath?: string | null;
   hideEntryList?: boolean;
+  headerActions?: React.ReactNode;
 }) {
   const nav = useWorkspaceNavigationContext();
   const windowWidth = useWindowWidth();
@@ -404,24 +406,25 @@ export function BibFilePreview({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-reading">
       <div className="ui-pane-header shrink-0">
-        <span className="ui-label truncate">BibTeX preview</span>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <span className="ui-pane-header__label">BibTeX preview</span>
+        <div className="ui-pane-header__actions">
           <span className="hidden font-mono text-ui-2xs text-muted-foreground sm:inline">{filePath}</span>
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-6 w-6"
             title="Reload BibTeX"
             aria-label="Reload BibTeX"
             disabled={summaryLoading || listLoading || entryLoading}
             onClick={() => void handleReload()}
           >
             <RefreshCw
-              className={cn("h-3.5 w-3.5", (summaryLoading || listLoading) && "animate-spin")}
+              className={cn("h-3 w-3", (summaryLoading || listLoading) && "animate-spin")}
               aria-hidden="true"
             />
           </Button>
+          {headerActions}
         </div>
       </div>
       {previewBody}

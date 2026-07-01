@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "import-docx": "tsx ../../scripts/import-docx.mjs",
-    "import-references": "tsx ../../scripts/import-references.mjs"
+    "import-references": "tsx ../../scripts/import-references.mjs",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@treewriter/shared": "workspace:*",
@@ -33,6 +34,7 @@
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.9"
   }
 }

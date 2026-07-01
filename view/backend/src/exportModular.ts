@@ -151,7 +151,9 @@ async function runPandocFragment(
     inputPath,
     "--from=markdown+raw_tex+pipe_tables",
     `--to=${format === "pdf" ? "pdf" : "latex"}`,
-    "--standalone=false",
+    // Fragment (non-standalone) output is pandoc's default, so simply omit the
+    // flag. Passing "--standalone=false" is rejected as an argument on pandoc
+    // builds that treat --standalone as a pure boolean.
     "--output",
     outPath,
   ];

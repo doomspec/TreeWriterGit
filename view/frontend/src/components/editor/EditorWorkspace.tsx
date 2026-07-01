@@ -47,6 +47,7 @@ function BibMainBibWorkspace({
   onNavigate,
   onModelChanged,
   paperPath,
+  layoutToggleButtons,
 }: {
   activeFile: string;
   refreshVersion: number;
@@ -54,6 +55,7 @@ function BibMainBibWorkspace({
   layout: EditorLayout;
   onLayoutChange: (layout: EditorLayout) => void;
   editorChrome: React.ReactNode;
+  layoutToggleButtons: React.ReactNode;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
   onError: (message: string) => void;
@@ -110,19 +112,23 @@ function BibMainBibWorkspace({
     />
   );
 
+  const splitWithSource = layout === "split" && !hideBibSourcePane;
+
   const sourcePane = showFullSource ? (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-border bg-muted/20">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <span className="text-xs font-medium text-muted-foreground">Full main.bib</span>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={handleBackToEntryView}
-        >
-          Back to entry view
-        </Button>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-muted/20">
+      <div className="ui-pane-header shrink-0">
+        <span className="ui-pane-header__label">Full main.bib</span>
+        <div className="ui-pane-header__actions">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={handleBackToEntryView}
+          >
+            Back to entry view
+          </Button>
+        </div>
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{fullSourceEditor}</div>
     </div>
@@ -142,16 +148,17 @@ function BibMainBibWorkspace({
       onModelChanged={onModelChanged}
       paperPath={paperPath}
       hideEntryList={hideEntryList}
+      headerActions={splitWithSource ? layoutToggleButtons : undefined}
     />
   );
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      {editorChrome}
+      {!splitWithSource ? editorChrome : null}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {layout === "source" ? (
           sourcePane
-        ) : layout === "split" && !hideBibSourcePane ? (
+        ) : splitWithSource ? (
           <ResizableDualPane
             splitPercent={dualPaneSplit}
             onSplitChange={onDualPaneSplitChange}
@@ -558,6 +565,25 @@ export function EditorWorkspace({
         { id: "preview", icon: Eye, label: "Preview" },
       ];
 
+  const layoutToggleButtons = (
+    <div className="inline-flex items-center gap-0.5 rounded-md border border-border p-0.5">
+      {layoutButtons.map(({ id, icon: Icon, label }) => (
+        <Button
+          key={id}
+          type="button"
+          variant={layout === id ? "default" : "ghost"}
+          size="icon"
+          className="h-6 w-6"
+          aria-label={label}
+          title={label}
+          onClick={() => onLayoutChange(id)}
+        >
+          <Icon className="h-3 w-3" aria-hidden="true" />
+        </Button>
+      ))}
+    </div>
+  );
+
   const editorChrome = (
     <div
       className={cn(
@@ -565,24 +591,34 @@ export function EditorWorkspace({
         readingFocus.active && "editor-chrome-hidden",
       )}
     >
-      <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-        {layoutButtons.map(({ id, icon: Icon, label }) => (
-          <Button
-            key={id}
-            type="button"
-            variant={layout === id ? "default" : "ghost"}
-            size="icon"
-            className="h-7 w-7"
-            aria-label={label}
-            title={label}
-            onClick={() => onLayoutChange(id)}
-          >
-            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
-        ))}
-      </div>
+      {layoutToggleButtons}
     </div>
   );
+
+  // A .bib activeFile wins over the leaf-unit branch. Opening a reference from
+  // inside a unit draft keeps currentPath (and therefore unitPath) on that unit,
+  // so without this the leaf-unit editor would keep rendering and the main.bib
+  // verification view would never appear.
+  if (isBibFile) {
+    return (
+      <BibMainBibWorkspace
+        activeFile={activeFile}
+        refreshVersion={refreshVersion}
+        getPathVersion={getPathVersion}
+        layout={layout}
+        onLayoutChange={onLayoutChange}
+        editorChrome={editorChrome}
+        layoutToggleButtons={layoutToggleButtons}
+        dualPaneSplit={dualPaneSplit}
+        onDualPaneSplitChange={onDualPaneSplitChange}
+        onError={onError}
+        linkContextPath={linkContextPath}
+        onNavigate={onNavigate}
+        onModelChanged={onModelChanged}
+        paperPath={paperPath}
+      />
+    );
+  }
 
   if (isLeafEditor && outlinePath && draftPath && unitPath) {
     return (
@@ -613,26 +649,6 @@ export function EditorWorkspace({
         onActivePaneChange={onActivePaneChange}
         notesSplitPercent={notesSplitPercent}
         onNotesSplitChange={onNotesSplitChange}
-      />
-    );
-  }
-
-  if (isBibFile) {
-    return (
-      <BibMainBibWorkspace
-        activeFile={activeFile}
-        refreshVersion={refreshVersion}
-        getPathVersion={getPathVersion}
-        layout={layout}
-        onLayoutChange={onLayoutChange}
-        editorChrome={editorChrome}
-        dualPaneSplit={dualPaneSplit}
-        onDualPaneSplitChange={onDualPaneSplitChange}
-        onError={onError}
-        linkContextPath={linkContextPath}
-        onNavigate={onNavigate}
-        onModelChanged={onModelChanged}
-        paperPath={paperPath}
       />
     );
   }

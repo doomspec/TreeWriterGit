@@ -103,6 +103,12 @@ export type WorkspacePreferences = {
   /** When true, main.bib split view loads the full raw file instead of entry-only source. */
   loadLargeBibSource: boolean;
   papersSidebar: PapersSidebarPanels;
+  /** When true, the app shows the IDE-style Explorer workspace instead of the authoring workspace. */
+  explorerMode: boolean;
+  /** Open file paths (project-root-relative) for Explorer mode tabs. */
+  explorerOpenTabs: string[];
+  /** Active Explorer tab path. */
+  explorerActiveTab: string | null;
 };
 
 export const BOTTOM_PANEL_HEIGHT_MIN = 160;
@@ -146,6 +152,9 @@ const DEFAULTS: WorkspacePreferences = {
   editorPanePrefsByScope: {},
   loadLargeBibSource: false,
   papersSidebar: DEFAULT_PAPERS_SIDEBAR,
+  explorerMode: false,
+  explorerOpenTabs: [],
+  explorerActiveTab: null,
 };
 
 export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
