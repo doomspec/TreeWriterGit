@@ -107,6 +107,27 @@ After BibTeX import, cite with `[@cite_key]` matching `notes/literature/` frontm
 
 ---
 
+## Zotero local (Settings → Extensions → enabled only)
+
+When the local Zotero extension is enabled and Zotero desktop is running:
+
+```bash
+node ../scripts/tw-zotero.mjs search "viability assay" --json
+node ../scripts/tw-zotero.mjs import --keys ABC123,DEF456 --json
+node ../scripts/tw-zotero.mjs snippet --keys smith2020,jones2021
+```
+
+| Command | Needs backend? |
+|---------|----------------|
+| `status` | Yes |
+| `search` | Yes — proxies to Zotero at localhost:23119 |
+| `import` | Yes — writes to `main.bib` |
+| `snippet` | No — prints `[@key]` markup locally |
+
+Workflow: search → import by `itemKey` → write `[@cite_key]` in target `draft.md` (or use `snippet` for the exact string).
+
+---
+
 ## Providers and skills
 
 - **Providers:** `.treewriter.json` → `aiProviders`, `defaultProvider` (Claude, Codex, Gemini, Aider, …).

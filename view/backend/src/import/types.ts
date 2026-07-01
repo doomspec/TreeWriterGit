@@ -6,7 +6,7 @@ export type DocxImportOptions = {
   /** Remove existing children of the import parent before importing (default: true). */
   replaceTarget?: boolean;
   /** User-edited structure from the import preview dialog (skips markdown structure parse). */
-  importPlan?: import("./plan.js").DocxImportPreviewNode[] | null;
+  importPlan?: DocxImportPreviewNode[] | null;
 };
 
 export type DocxImportResult = {

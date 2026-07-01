@@ -1,4 +1,4 @@
-import { Eye, FileCode2 } from "lucide-react";
+import { Eye, EyeOff, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { EditorPaneMode } from "@/lib/editorSessionState";
@@ -8,12 +8,20 @@ export function EditorPaneModeToggle({
   onPaneModeChange,
   ariaLabel,
   reviewMode = false,
+  pendingDiffAvailable = false,
+  cleanPreview = false,
+  onCleanPreviewChange,
 }: {
   paneMode: EditorPaneMode;
   onPaneModeChange: (mode: EditorPaneMode) => void;
   ariaLabel: string;
   /** Rendered pane is showing pending track-changes review (read-only). */
   reviewMode?: boolean;
+  /** There is a pending-approval diff that could be shown or hidden. */
+  pendingDiffAvailable?: boolean;
+  /** When true, the inline tracked-changes diff is suppressed (clean read). */
+  cleanPreview?: boolean;
+  onCleanPreviewChange?: (clean: boolean) => void;
 }) {
   return (
     <div
@@ -45,6 +53,28 @@ export function EditorPaneModeToggle({
       >
         <FileCode2 className="h-3 w-3" aria-hidden="true" />
       </Button>
+      {pendingDiffAvailable && onCleanPreviewChange ? (
+        <Button
+          type="button"
+          variant={cleanPreview ? "default" : "ghost"}
+          size="icon"
+          className="h-6 w-6"
+          aria-pressed={cleanPreview}
+          title={
+            cleanPreview
+              ? "Showing clean text — click to show tracked changes"
+              : "Show clean preview (hide tracked changes)"
+          }
+          aria-label={
+            cleanPreview
+              ? "Showing clean text — click to show tracked changes"
+              : "Show clean preview (hide tracked changes)"
+          }
+          onClick={() => onCleanPreviewChange(!cleanPreview)}
+        >
+          <EyeOff className="h-3 w-3" aria-hidden="true" />
+        </Button>
+      ) : null}
     </div>
   );
 }

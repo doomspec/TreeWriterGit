@@ -4,12 +4,16 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  deleteMainBibEntries,
+  getMainBibEntry,
+  getMainBibSummary,
   importMainBibtex,
   integrityHash,
   markMainBibEntryVerified,
   previewMainBibEntryFromCrossref,
   readMainBibEntries,
   searchCrossrefCandidates,
+  searchMainBibReferences,
   updateMainBibEntry,
   updateMainBibEntryFromCrossref,
 } from "./bibLibrary.js";
@@ -59,6 +63,62 @@ describe("main.bib library", () => {
     expect(edited.verifiedStatus).toBe("stale");
   });
 
+  it("merges partial field patches without dropping existing metadata", async () => {
+    await importMainBibtex(root, SAMPLE_BIB);
+    const edited = await updateMainBibEntry(root, "smith2024", {
+      fields: { title: "Retitled Paper" },
+    });
+    expect(edited.fields.title).toBe("Retitled Paper");
+    expect(edited.fields.author).toBe("Smith, Jane and Doe, John");
+    expect(edited.fields.year).toBe("2024");
+  });
+
+  it("deletes one or more entries from main.bib", async () => {
+    await importMainBibtex(
+      root,
+      `${SAMPLE_BIB}
+@article{jones2020,
+  title={Another Paper},
+  author={Jones, Pat},
+  year={2020}
+}`,
+    );
+    const result = await deleteMainBibEntries(root, ["smith2024", "missing-key"]);
+    expect(result.deleted).toEqual(["smith2024"]);
+    expect(result.missing).toEqual(["missing-key"]);
+
+    const remaining = await readMainBibEntries(root);
+    expect(remaining.map((entry) => entry.citeKey)).toEqual(["jones2020"]);
+  });
+
+  it("searches Crossref by DOI", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      expect(url).toContain("/works/10.1000%2Ffresh");
+      return new Response(
+        JSON.stringify({
+          message: {
+            DOI: "10.1000/fresh",
+            title: ["A Great Paper"],
+            author: [{ given: "Jane", family: "Smith" }],
+            issued: { "date-parts": [[2025]] },
+            "container-title": ["Science"],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const candidates = await searchCrossrefCandidates("https://doi.org/10.1000/fresh");
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      doi: "10.1000/fresh",
+      title: "A Great Paper",
+      similarity: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("searches Crossref candidates and updates an entry from returned BibTeX", async () => {
     await importMainBibtex(root, SAMPLE_BIB);
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -104,5 +164,40 @@ describe("main.bib library", () => {
 
     const [stored] = await readMainBibEntries(root);
     expect(stored.verifiedStatus).toBe("verified");
+  });
+
+  it("returns summary, search, and single-entry lookups", async () => {
+    await importMainBibtex(root, SAMPLE_BIB);
+    const summary = await getMainBibSummary(root);
+    expect(summary.total).toBe(1);
+    expect(summary.unverified).toBe(1);
+
+    const search = await searchMainBibReferences(root, { q: "great", limit: 10 });
+    expect(search.total).toBe(1);
+    expect(search.entries[0]?.citeKey).toBe("smith2024");
+
+    const cachedSearch = await searchMainBibReferences(root, { q: "great", limit: 10 });
+    expect(cachedSearch.entries[0]?.citeKey).toBe("smith2024");
+
+    const entry = await getMainBibEntry(root, "smith2024");
+    expect(entry.fields.title).toBe("A Great Paper");
+    expect(entry.sourceRange).toMatchObject({ start: expect.any(Number), end: expect.any(Number) });
+    const raw = await readFile(path.join(root, "main.bib"), "utf8");
+    expect(raw.slice(entry.sourceRange!.start, entry.sourceRange!.end)).toContain("@article{smith2024");
+
+    await expect(getMainBibEntry(root, "missing-key")).rejects.toThrow(/not found/i);
+  });
+
+  it("uses cached references for empty browse queries without re-filtering", async () => {
+    await importMainBibtex(
+      root,
+      `
+@article{alpha2024, title={Alpha}, year={2024}}
+@article{zeta2024, title={Zeta}, year={2024}}
+`,
+    );
+    const browse = await searchMainBibReferences(root, { limit: 10 });
+    expect(browse.total).toBe(2);
+    expect(browse.entries.map((entry) => entry.citeKey)).toEqual(["alpha2024", "zeta2024"]);
   });
 });

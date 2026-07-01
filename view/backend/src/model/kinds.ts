@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 
 import { readIndexData } from "./ordering.js";
+import { isManuscriptRoot } from "./manuscriptKind.js";
 
 const FIGURE_ASSET_PATTERN = /\.(png|jpe?g|svg|mmd|gif|webp)$/i;
 
@@ -16,7 +17,7 @@ export async function isTableDir(modelRoot: string, relPath: string): Promise<bo
     data.kind === "equation" ||
     data.kind === "section" ||
     data.kind === "subsection" ||
-    data.kind === "paper"
+    isManuscriptRoot(data)
   ) {
     return false;
   }
@@ -34,7 +35,7 @@ export async function isFigureDir(modelRoot: string, relPath: string): Promise<b
   const data = await readIndexData(modelRoot, relPath);
   if (data.kind === "table" || data.kind === "equation") return false;
   if (data.kind === "figure") return true;
-  if (data.kind === "unit" || data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
+  if (data.kind === "unit" || data.kind === "section" || data.kind === "subsection" || isManuscriptRoot(data)) {
     return false;
   }
 
@@ -58,7 +59,7 @@ export async function isUnitDir(modelRoot: string, relPath: string): Promise<boo
   const data = await readIndexData(modelRoot, relPath);
   if (data.kind === "figure" || data.kind === "table" || data.kind === "equation") return false;
   if (data.kind === "unit") return true;
-  if (data.kind === "section" || data.kind === "subsection" || data.kind === "paper") {
+  if (data.kind === "section" || data.kind === "subsection" || isManuscriptRoot(data)) {
     return false;
   }
   if (!existsSync(path.join(modelRoot, relPath, "draft.md"))) return false;

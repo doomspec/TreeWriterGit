@@ -526,6 +526,23 @@
   display: none;
 }
 
+/*
+ * The header's own action row (undo/redo, zoom, mode toggle) can now exceed
+ * a narrow split-view pane's width (the mode toggle grew a 3rd button for
+ * clean-preview). The parent (.workspace-pane-header) is flex-nowrap +
+ * overflow-hidden, so without this the overflow was hard-clipped instead of
+ * reachable. Scroll it like the toolbar above rather than cut it off.
+ */
+.ui-pane-header > div:last-child {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ui-pane-header > div:last-child::-webkit-scrollbar {
+  display: none;
+}
+
 /* App chrome — prevent badge/tab overlap on narrow viewports */
 .app-chrome-header__lead {
   flex: 1 1 auto;
@@ -927,9 +944,16 @@
     0 8px 24px hsl(var(--foreground) / 0.12),
     0 2px 6px hsl(var(--foreground) / 0.08);
   backdrop-filter: blur(10px);
+  opacity: 1;
+  transition: opacity 0.25s ease;
 }
 
 .inline-selection-toolbar--measuring {
+  pointer-events: none;
+}
+
+.inline-selection-toolbar--faded {
+  opacity: 0;
   pointer-events: none;
 }
 
@@ -1077,6 +1101,22 @@
 }
 
 .asset-insert-menu__item:hover {
+  background: hsl(var(--accent) / 0.45);
+}
+
+.asset-insert-menu__item-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.125rem;
+}
+
+.asset-insert-menu__secondary {
+  align-self: center;
+  border-radius: 0.25rem;
+  background: transparent;
+}
+
+.asset-insert-menu__secondary:hover {
   background: hsl(var(--accent) / 0.45);
 }
 

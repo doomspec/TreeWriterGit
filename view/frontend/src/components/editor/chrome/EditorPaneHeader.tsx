@@ -12,6 +12,11 @@ export type EditorPaneHeaderProps = {
   paneMode: EditorPaneMode;
   onPaneModeChange: (mode: EditorPaneMode) => void;
   reviewMode?: boolean;
+  /** There is a pending-approval diff that could be shown or hidden. */
+  pendingDiffAvailable?: boolean;
+  /** When true, the inline tracked-changes diff is suppressed (clean read). */
+  cleanPreview?: boolean;
+  onCleanPreviewChange?: (clean: boolean) => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -33,6 +38,9 @@ export function EditorPaneHeader({
   paneMode,
   onPaneModeChange,
   reviewMode,
+  pendingDiffAvailable,
+  cleanPreview,
+  onCleanPreviewChange,
   canUndo,
   canRedo,
   onUndo,
@@ -53,6 +61,9 @@ export function EditorPaneHeader({
       onPaneModeChange={onPaneModeChange}
       ariaLabel={`${paneLabel} editing mode`}
       reviewMode={reviewMode}
+      pendingDiffAvailable={pendingDiffAvailable}
+      cleanPreview={cleanPreview}
+      onCleanPreviewChange={onCleanPreviewChange}
     />
   );
 

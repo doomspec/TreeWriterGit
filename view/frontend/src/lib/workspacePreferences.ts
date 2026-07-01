@@ -1,7 +1,15 @@
 export type WorkspaceNavTab = "explorer" | "papers";
 
-/** Left rail panel: explorer/papers reuse WorkspaceNav; graph/outline/export/import are dedicated panels. */
-export type SidebarPanel = "explorer" | "papers" | "graph" | "outline" | "export" | "import" | "review";
+/** Left rail panel: explorer/papers reuse WorkspaceNav; dedicated panels for graph, outline, references, etc. */
+export type SidebarPanel =
+  | "explorer"
+  | "papers"
+  | "graph"
+  | "outline"
+  | "references"
+  | "export"
+  | "import"
+  | "review";
 
 export type DualPaneActive = "outline" | "draft" | "notes";
 
@@ -38,6 +46,18 @@ export type PapersSidebarPanels = {
   removedOpen: boolean;
 };
 
+export const BIB_PREVIEW_SPLIT_MIN = 20;
+export const BIB_PREVIEW_SPLIT_MAX = 45;
+export const BIB_PREVIEW_SPLIT_DEFAULT = 32;
+
+export function clampBibPreviewSplit(
+  percent: number,
+  min = BIB_PREVIEW_SPLIT_MIN,
+  max = BIB_PREVIEW_SPLIT_MAX,
+): number {
+  return Math.min(max, Math.max(min, Math.round(percent)));
+}
+
 export const ASSET_PREVIEW_SPLIT_MIN = 25;
 export const ASSET_PREVIEW_SPLIT_MAX = 80;
 export const ASSET_PREVIEW_SPLIT_DEFAULT = 58;
@@ -66,6 +86,8 @@ export type WorkspacePreferences = {
   dualPaneNotesSplitPercent: number;
   /** Top share (percent) when splitting editor from figure/equation preview. */
   assetPreviewSplit: number;
+  /** Left share (percent) for BibTeX entry list inside preview pane. */
+  bibPreviewSplit: number;
   sidebarWidth: number;
   sidebarPanel: SidebarPanel;
   sidebarPanelOpen: boolean;
@@ -78,6 +100,8 @@ export type WorkspacePreferences = {
   lastPaperPath: string | null;
   /** Per editor-container pane layout (paper / section / unit paths). */
   editorPanePrefsByScope: Record<string, EditorPaneScopePrefs>;
+  /** When true, main.bib split view loads the full raw file instead of entry-only source. */
+  loadLargeBibSource: boolean;
   papersSidebar: PapersSidebarPanels;
 };
 
@@ -93,7 +117,7 @@ const STORAGE_KEY = "treewriter.workspace.v1";
 
 const DEFAULT_PAPERS_SIDEBAR: PapersSidebarPanels = {
   sectionsOpen: true,
-  assetsOpen: false,
+  assetsOpen: true,
   removedOpen: false,
 };
 
@@ -111,6 +135,7 @@ const DEFAULTS: WorkspacePreferences = {
   dualPaneActive: "outline",
   dualPaneNotesSplitPercent: DUAL_PANE_NOTES_SPLIT_DEFAULT,
   assetPreviewSplit: ASSET_PREVIEW_SPLIT_DEFAULT,
+  bibPreviewSplit: BIB_PREVIEW_SPLIT_DEFAULT,
   sidebarWidth: 240,
   sidebarPanel: "papers",
   sidebarPanelOpen: true,
@@ -119,6 +144,7 @@ const DEFAULTS: WorkspacePreferences = {
   bottomPanelHeight: BOTTOM_PANEL_HEIGHT_DEFAULT,
   lastPaperPath: null,
   editorPanePrefsByScope: {},
+  loadLargeBibSource: false,
   papersSidebar: DEFAULT_PAPERS_SIDEBAR,
 };
 
@@ -172,7 +198,8 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
       panel !== "outline" &&
       panel !== "export" &&
       panel !== "import" &&
-      panel !== "review"
+      panel !== "review" &&
+      panel !== "references"
     ) {
       delete (parsed as { sidebarPanel?: string }).sidebarPanel;
     }
@@ -190,6 +217,14 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     }
     if (typeof parsed.bottomPanelHeight === "number") {
       parsed.bottomPanelHeight = clampBottomPanelHeight(parsed.bottomPanelHeight);
+    }
+    if (typeof (parsed as { bibPreviewSplit?: number }).bibPreviewSplit === "number") {
+      (parsed as { bibPreviewSplit?: number }).bibPreviewSplit = clampBibPreviewSplit(
+        (parsed as { bibPreviewSplit?: number }).bibPreviewSplit!,
+      );
+    }
+    if (typeof (parsed as { loadLargeBibSource?: boolean }).loadLargeBibSource !== "boolean") {
+      delete (parsed as { loadLargeBibSource?: boolean }).loadLargeBibSource;
     }
     if (parsed.papersSidebar && typeof parsed.papersSidebar === "object") {
       parsed.papersSidebar = {

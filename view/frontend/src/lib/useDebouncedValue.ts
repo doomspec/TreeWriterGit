@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
-/** Returns a debounced copy of `value` updated after `delayMs` of stability. */
-export function useDebouncedValue<T>(value: T, delayMs: number): T {
+export function useDebouncedValue<T>(value: T, delayMs = 200): T {
   const [debounced, setDebounced] = useState(value);
 
   useEffect(() => {

@@ -1,209 +1,39 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  CheckCircle2,
-  Plus,
-  RefreshCw,
-  Save,
-  Search,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-} from "lucide-react";
+import { Loader2, RefreshCw, Trash2 } from "lucide-react";
 
+import { AssetSearchField } from "@/components/editor/AssetSearchField";
+import { BibEntryEditor } from "@/components/editor/BibEntryEditor";
+import { BibEntryList, type BibListItem } from "@/components/editor/BibEntryList";
+import { BibVerificationCounts } from "@/components/editor/BibVerificationBadge";
+import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/NamePromptDialog";
+import type { BibVerificationFilter } from "@/lib/bibEntrySearch";
 import {
-  fetchBibLibrary,
-  previewBibEntryFromCrossref,
-  saveBibEntry,
-  searchCrossrefForBibEntry,
-  updateBibEntryFromCrossref,
-  verifyBibEntry,
-  type BibLibraryEntry,
-  type CrossrefCandidate,
-} from "@/lib/paperAssets";
-import { invalidateReferenceSearchCache } from "@/lib/referenceSearchCache";
+  ensureBibEntry,
+  invalidateBibLibrary,
+  searchBibReferences,
+} from "@/lib/bibLibraryStore";
+import { useBibLibrarySummary } from "@/lib/bibLibraryContext";
+import { deleteBibEntries, type BibLibraryEntry, type ReferenceMetadata } from "@/lib/paperAssets";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
+import { useWindowWidth } from "@/lib/useWindowWidth";
+import {
+  clampBibPreviewSplit,
+  loadWorkspacePreferences,
+  mergeWorkspaceDefaults,
+  scheduleSaveWorkspacePreferences,
+} from "@/lib/workspacePreferences";
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import { cn } from "@/lib/utils";
 
-type VerificationStatus = BibLibraryEntry["verifiedStatus"];
-type PendingReplacement = {
-  candidate: CrossrefCandidate;
-  oldEntry: BibLibraryEntry;
-  newEntry: BibLibraryEntry;
-};
-type CrossrefDialogMode = "candidates" | "compare";
-
-const COMMON_FIELDS = ["title", "author", "year", "journal", "booktitle", "doi", "url"] as const;
-
-function VerificationBadge({ status, large = false }: { status: VerificationStatus; large?: boolean }) {
-  const Icon =
-    status === "verified" ? ShieldCheck : status === "stale" ? ShieldAlert : ShieldQuestion;
-  const label = status === "verified" ? "Verified" : status === "stale" ? "Stale" : "Unverified";
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-sm border font-medium uppercase tracking-normal",
-        large ? "px-2 py-1 text-[11px]" : "px-1.5 py-0.5 text-[9px]",
-        status === "verified" &&
-          "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-        status === "stale" &&
-          "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-        status === "unverified" &&
-          "border-border bg-muted/40 text-muted-foreground",
-      )}
-      title={label}
-    >
-      <Icon className={large ? "h-3.5 w-3.5" : "h-3 w-3"} aria-hidden="true" />
-      {label}
-    </span>
-  );
-}
-
-function copyEntry(entry: BibLibraryEntry): BibLibraryEntry {
-  return { ...entry, fields: { ...entry.fields } };
-}
-
-function formatBibValue(value: string): string {
-  return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
-}
-
-function entryToBibtex(entry: BibLibraryEntry): string {
-  const fields = Object.entries(entry.fields).sort(([a], [b]) => a.localeCompare(b));
-  return [
-    `@${entry.type}{${entry.citeKey},`,
-    ...fields.map(([key, value]) => `  ${key} = {${formatBibValue(value)}},`),
-    "}",
-  ].join("\n");
-}
-
-function CrossrefDialog({
-  open,
-  mode,
-  candidates,
-  replacement,
-  loadingCandidates,
-  previewingDoi,
-  busy,
-  onSelectCandidate,
-  onBack,
-  onConfirm,
-  onCancel,
-}: {
-  open: boolean;
-  mode: CrossrefDialogMode;
-  candidates: CrossrefCandidate[];
-  replacement: PendingReplacement | null;
-  loadingCandidates: boolean;
-  previewingDoi: string | null;
-  busy: boolean;
-  onSelectCandidate: (candidate: CrossrefCandidate) => void;
-  onBack: () => void;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel, open]);
-
-  if (!open) return null;
-  const comparing = mode === "compare" && replacement;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/50 p-4 backdrop-blur-[2px]"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bib-crossref-title"
-        className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-lg border border-border bg-card shadow-lg"
-      >
-        <div className="border-b border-border px-4 py-3">
-          <h2 id="bib-crossref-title" className="text-sm font-semibold">
-            {comparing ? "Replace BibTeX item" : "Crossref matches"}
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {comparing
-              ? `@${replacement.oldEntry.citeKey} - ${replacement.candidate.doi}`
-              : "Select a candidate to preview the replacement."}
-          </p>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-4">
-          {comparing ? (
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <section className="min-h-0 rounded-md border border-border bg-background">
-                <div className="border-b border-border px-3 py-2">
-                  <span className="text-xs font-medium">Current item</span>
-                </div>
-                <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5">
-                  {entryToBibtex(replacement.oldEntry)}
-                </pre>
-              </section>
-              <section className="min-h-0 rounded-md border border-border bg-background">
-                <div className="border-b border-border px-3 py-2">
-                  <span className="text-xs font-medium">New item</span>
-                </div>
-                <pre className="max-h-[55vh] overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5">
-                  {entryToBibtex(replacement.newEntry)}
-                </pre>
-              </section>
-            </div>
-          ) : loadingCandidates ? (
-            <p className="text-sm text-muted-foreground">Searching Crossref...</p>
-          ) : candidates.length > 0 ? (
-            <div className="divide-y divide-border rounded-md border border-border bg-background">
-              {candidates.map((candidate) => (
-                <button
-                  type="button"
-                  key={`${candidate.doi}-${candidate.title}`}
-                  className="block w-full px-4 py-3 text-left hover:bg-accent/40 disabled:opacity-60"
-                  disabled={busy || previewingDoi !== null}
-                  onClick={() => onSelectCandidate(candidate)}
-                >
-                  <span className="block text-sm font-medium">{candidate.title}</span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {previewingDoi === candidate.doi
-                      ? "Loading replacement..."
-                      : `${candidate.doi} - ${candidate.year ?? "n.d."} - ${Math.round(candidate.similarity * 100)}%`}
-                  </span>
-                  {candidate.authors ? (
-                    <span className="mt-1 block truncate text-xs text-muted-foreground">
-                      {candidate.authors}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No Crossref matches found.</p>
-          )}
-        </div>
-        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-          <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-          {comparing ? (
-            <>
-              <Button type="button" variant="outline" className="h-8 px-3 text-xs" disabled={busy} onClick={onBack}>
-                Back
-              </Button>
-              <Button type="button" className="h-8 px-3 text-xs" disabled={busy} onClick={onConfirm}>
-                {busy ? "Replacing..." : "Replace item"}
-              </Button>
-            </>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
+function toListItem(entry: ReferenceMetadata): BibListItem {
+  return {
+    citeKey: entry.citeKey,
+    title: entry.title || entry.citeKey,
+    subtitle: entry.authors ?? entry.year ?? entry.type ?? null,
+    verifiedStatus: entry.verifiedStatus ?? "unverified",
+  };
 }
 
 export function BibFilePreview({
@@ -211,216 +41,372 @@ export function BibFilePreview({
   onError,
   onModelChanged,
   paperPath,
+  hideEntryList = false,
 }: {
   filePath: string;
   onError: (message: string) => void;
   onModelChanged?: () => void;
   paperPath?: string | null;
+  hideEntryList?: boolean;
 }) {
-  const [entries, setEntries] = useState<BibLibraryEntry[]>([]);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [draft, setDraft] = useState<BibLibraryEntry | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [crossrefSearching, setCrossrefSearching] = useState(false);
-  const [crossrefDialogOpen, setCrossrefDialogOpen] = useState(false);
-  const [crossrefDialogMode, setCrossrefDialogMode] = useState<CrossrefDialogMode>("candidates");
-  const [crossrefCandidates, setCrossrefCandidates] = useState<CrossrefCandidate[]>([]);
-  const [previewingDoi, setPreviewingDoi] = useState<string | null>(null);
-  const [pendingReplacement, setPendingReplacement] = useState<PendingReplacement | null>(null);
-  const [newFieldName, setNewFieldName] = useState("");
-  const [newFieldValue, setNewFieldValue] = useState("");
+  const nav = useWorkspaceNavigationContext();
+  const windowWidth = useWindowWidth();
+  const { summary, loading: summaryLoading, reload: reloadSummary } = useBibLibrarySummary();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<BibVerificationFilter>("all");
+  const [listItems, setListItems] = useState<ReferenceMetadata[]>([]);
+  const [listTotal, setListTotal] = useState(0);
+  const [listLoading, setListLoading] = useState(true);
+  const [selectedKey, setSelectedKey] = useState<string | null>(nav.selectedBibCiteKey);
+  const [selectedEntry, setSelectedEntry] = useState<BibLibraryEntry | null>(null);
+  const [entryLoading, setEntryLoading] = useState(false);
+  const [entryError, setEntryError] = useState<string | null>(null);
+  const [entryRetryTick, setEntryRetryTick] = useState(0);
+  const [previewSplit, setPreviewSplit] = useState(
+    () => mergeWorkspaceDefaults(loadWorkspacePreferences()).bibPreviewSplit,
+  );
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [checkedKeys, setCheckedKeys] = useState<Set<string>>(() => new Set());
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  const loadEntries = useCallback(
-    async (nextSelected?: string) => {
-      setLoading(true);
-      try {
-        const nextEntries = await fetchBibLibrary();
-        setEntries(nextEntries);
-        setSelectedKey((current) => {
-          if (nextSelected && nextEntries.some((entry) => entry.citeKey === nextSelected)) return nextSelected;
-          if (current && nextEntries.some((entry) => entry.citeKey === current)) return current;
-          return nextEntries[0]?.citeKey ?? null;
-        });
-      } catch (err) {
-        onError(err instanceof Error ? err.message : String(err));
-        setEntries([]);
-        setSelectedKey(null);
-      } finally {
-        setLoading(false);
+  const debouncedQuery = useDebouncedValue(searchQuery, 200);
+  const showInternalList = !hideEntryList && !(windowWidth < 1200 && nav.sidebarPanel === "references" && nav.sidebarPanelOpen);
+  const compactPreviewList = showInternalList && windowWidth < 1024;
+  const effectivePreviewSplit = compactPreviewList ? Math.min(previewSplit, 30) : previewSplit;
+
+  const loadList = useCallback(async () => {
+    if (hideEntryList) return;
+    setListLoading(true);
+    try {
+      const result = await searchBibReferences({
+        q: debouncedQuery,
+        offset: 0,
+        limit: 500,
+        status: statusFilter,
+      });
+      setListItems(result.entries);
+      setListTotal(result.total);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      setListItems([]);
+      setListTotal(0);
+    } finally {
+      setListLoading(false);
+    }
+  }, [debouncedQuery, hideEntryList, onError, statusFilter]);
+
+  useEffect(() => {
+    void loadList();
+  }, [loadList]);
+
+  useEffect(() => {
+    if (hideEntryList) {
+      setSelectedKey(nav.selectedBibCiteKey);
+      return;
+    }
+    if (nav.selectedBibCiteKey) {
+      setSelectedKey(nav.selectedBibCiteKey);
+    }
+  }, [hideEntryList, nav.selectedBibCiteKey]);
+
+  useEffect(() => {
+    if (hideEntryList) return;
+    if (!selectedKey && listItems.length > 0) {
+      const first = listItems[0]?.citeKey ?? null;
+      if (first) {
+        setSelectedKey(first);
+        nav.setSelectedBibCiteKey(first);
       }
+    }
+  }, [hideEntryList, listItems, nav, selectedKey]);
+
+  useEffect(() => {
+    if (!selectedKey) {
+      setSelectedEntry(null);
+      setEntryError(null);
+      return;
+    }
+    let cancelled = false;
+    setEntryLoading(true);
+    setEntryError(null);
+
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled) {
+        setEntryError("Entry load timed out. The library may be large — try again.");
+        setEntryLoading(false);
+      }
+    }, 15_000);
+
+    void ensureBibEntry(selectedKey)
+      .then((entry) => {
+        if (!cancelled) {
+          setSelectedEntry(entry);
+          setEntryError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setEntryError(err instanceof Error ? err.message : String(err));
+          setSelectedEntry(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          window.clearTimeout(timeoutId);
+          setEntryLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [selectedKey, entryRetryTick]);
+
+  const handleSelect = useCallback(
+    (citeKey: string) => {
+      setSelectedKey(citeKey);
+      nav.setSelectedBibCiteKey(citeKey);
     },
-    [onError],
+    [nav],
   );
 
-  useEffect(() => {
-    void loadEntries();
-  }, [loadEntries]);
+  const handleReload = useCallback(async () => {
+    invalidateBibLibrary();
+    await Promise.all([reloadSummary(), loadList()]);
+    if (selectedKey) {
+      const entry = await ensureBibEntry(selectedKey, true);
+      setSelectedEntry(entry);
+    }
+  }, [loadList, reloadSummary, selectedKey]);
 
-  useEffect(() => {
-    const selected = selectedKey
-      ? entries.find((entry) => entry.citeKey === selectedKey) ?? null
-      : null;
-    setDraft(selected ? copyEntry(selected) : null);
-    setCrossrefCandidates([]);
-    setCrossrefDialogOpen(false);
-    setCrossrefDialogMode("candidates");
-    setPendingReplacement(null);
-    setNewFieldName("");
-    setNewFieldValue("");
-  }, [entries, selectedKey]);
+  const handlePreviewSplitChange = useCallback((percent: number) => {
+    const next = clampBibPreviewSplit(percent);
+    setPreviewSplit(next);
+    scheduleSaveWorkspacePreferences({ bibPreviewSplit: next });
+  }, []);
 
-  const verificationCounts = useMemo(
-    () =>
-      entries.reduce(
-        (counts, entry) => {
-          counts[entry.verifiedStatus] += 1;
-          return counts;
-        },
-        { verified: 0, stale: 0, unverified: 0 } as Record<VerificationStatus, number>,
-      ),
-    [entries],
+  const deletableKeys = useMemo(
+    () => listItems.map((entry) => entry.citeKey),
+    [listItems],
   );
 
-  const fieldNames = useMemo(() => {
-    if (!draft) return [...COMMON_FIELDS];
-    const names = new Set<string>(COMMON_FIELDS);
-    Object.keys(draft.fields)
-      .filter((field) => field !== "integrity")
-      .sort()
-      .forEach((field) => names.add(field));
-    return [...names];
-  }, [draft]);
+  const toggleChecked = useCallback((citeKey: string) => {
+    setCheckedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(citeKey)) next.delete(citeKey);
+      else next.add(citeKey);
+      return next;
+    });
+  }, []);
 
-  const savedSelectedEntry = useMemo(
-    () => (selectedKey ? entries.find((entry) => entry.citeKey === selectedKey) ?? null : null),
-    [entries, selectedKey],
-  );
+  const exitSelectionMode = useCallback(() => {
+    setSelectionMode(false);
+    setCheckedKeys(new Set());
+  }, []);
 
-  const refreshAfterChange = useCallback(
-    async (nextSelected: string) => {
-      invalidateReferenceSearchCache(paperPath ?? undefined);
+  const handleDeleteSelected = useCallback(async () => {
+    const keys = [...checkedKeys];
+    if (keys.length === 0) return;
+    setDeleting(true);
+    try {
+      const result = await deleteBibEntries(keys);
+      invalidateBibLibrary();
       onModelChanged?.();
-      await loadEntries(nextSelected);
-    },
-    [loadEntries, onModelChanged, paperPath],
+      await Promise.all([reloadSummary(), loadList()]);
+      exitSelectionMode();
+      setDeleteConfirmOpen(false);
+      if (selectedKey && result.deleted.includes(selectedKey)) {
+        setSelectedKey(null);
+        nav.setSelectedBibCiteKey(null);
+        setSelectedEntry(null);
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
+    }
+  }, [
+    checkedKeys,
+    exitSelectionMode,
+    listItems,
+    loadList,
+    nav,
+    onError,
+    onModelChanged,
+    reloadSummary,
+    selectedKey,
+  ]);
+
+  const listPane = (
+    <aside className="flex min-h-0 min-w-0 flex-col border-border bg-sidebar/60">
+      <div className="sticky top-0 z-10 shrink-0 space-y-2 border-b border-border bg-sidebar px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium">main.bib</span>
+          <span className="text-[10px] text-muted-foreground">
+            {summaryLoading ? "…" : `${listTotal} entr${listTotal === 1 ? "y" : "ies"}`}
+          </span>
+        </div>
+        {summary ? (
+          <BibVerificationCounts
+            verified={summary.verified}
+            stale={summary.stale}
+            unverified={summary.unverified}
+          />
+        ) : null}
+        <AssetSearchField value={searchQuery} onChange={setSearchQuery} placeholder="Filter entries…" />
+        <div className="flex flex-wrap gap-1">
+          {selectionMode ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                disabled={deleting}
+                onClick={exitSelectionMode}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                disabled={deleting || deletableKeys.length === 0}
+                onClick={() => setCheckedKeys(new Set(deletableKeys))}
+              >
+                Select all
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="h-7 text-[10px]"
+                disabled={deleting || checkedKeys.size === 0}
+                onClick={() => setDeleteConfirmOpen(true)}
+              >
+                <Trash2 className="mr-1 h-3 w-3" aria-hidden="true" />
+                Delete ({checkedKeys.size})
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-[10px]"
+              disabled={listLoading || listTotal === 0}
+              onClick={() => setSelectionMode(true)}
+            >
+              Select
+            </Button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {(["all", "unverified", "stale", "verified"] as const).map((filter) => (
+            <button
+              key={filter}
+              type="button"
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] capitalize",
+                statusFilter === filter
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-accent",
+              )}
+              onClick={() => setStatusFilter(filter)}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
+      </div>
+      <BibEntryList
+        items={listItems.map(toListItem)}
+        selectedKey={selectedKey}
+        onSelect={handleSelect}
+        selectionMode={selectionMode}
+        checkedKeys={checkedKeys}
+        onToggleChecked={toggleChecked}
+        emptyLabel={listLoading ? "Loading references..." : "No BibTeX entries match."}
+      />
+    </aside>
   );
 
-  const patchField = (field: string, value: string) => {
-    setDraft((current) =>
-      current ? { ...current, fields: { ...current.fields, [field]: value } } : current,
+  const detailPane = (
+    <main className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-4 sm:px-6 sm:py-5">
+      {entryLoading ? (
+        <div className="flex flex-col items-start gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">
+            Loading <span className="font-mono">@{selectedKey}</span>…
+          </p>
+        </div>
+      ) : entryError ? (
+        <div className="flex max-w-md flex-col gap-3">
+          <p className="text-sm text-destructive">{entryError}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setEntryRetryTick((n) => n + 1)}>
+            Retry
+          </Button>
+        </div>
+      ) : selectedEntry ? (
+        <BibEntryEditor
+          entry={selectedEntry}
+          onError={onError}
+          onModelChanged={onModelChanged}
+          paperPath={paperPath}
+          onSaved={(saved) => {
+            setSelectedEntry(saved);
+            if (saved.citeKey !== selectedKey) {
+              setSelectedKey(saved.citeKey);
+              nav.setSelectedBibCiteKey(saved.citeKey);
+            }
+            void Promise.all([reloadSummary(), loadList()]);
+          }}
+          onDeleted={() => {
+            invalidateBibLibrary();
+            onModelChanged?.();
+            setSelectedKey(null);
+            nav.setSelectedBibCiteKey(null);
+            setSelectedEntry(null);
+            void Promise.all([reloadSummary(), loadList()]);
+          }}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {hideEntryList
+            ? "Select a reference from the sidebar."
+            : listLoading
+              ? "Loading BibTeX…"
+              : "Select a BibTeX entry."}
+        </p>
+      )}
+    </main>
+  );
+
+  const previewBody = useMemo(() => {
+    if (!showInternalList) {
+      return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{detailPane}</div>;
+    }
+    return (
+      <ResizableDualPane
+        splitPercent={effectivePreviewSplit}
+        onSplitChange={handlePreviewSplitChange}
+        className="min-h-0 min-w-0 flex-1"
+        minPercent={compactPreviewList ? 18 : 20}
+        maxPercent={compactPreviewList ? 32 : 45}
+        left={listPane}
+        right={detailPane}
+      />
     );
-  };
-
-  const handleAddField = () => {
-    const field = newFieldName.trim().toLowerCase();
-    if (!field || !draft) return;
-    patchField(field, newFieldValue);
-    setNewFieldName("");
-    setNewFieldValue("");
-  };
-
-  const handleSave = async () => {
-    if (!draft || !selectedKey) return;
-    setSaving(true);
-    try {
-      const saved = await saveBibEntry(selectedKey, {
-        nextCiteKey: draft.citeKey,
-        type: draft.type,
-        fields: draft.fields,
-      });
-      await refreshAfterChange(saved.citeKey);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleVerify = async () => {
-    if (!selectedKey) return;
-    setSaving(true);
-    try {
-      const verified = await verifyBibEntry(selectedKey);
-      await refreshAfterChange(verified.citeKey);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSearchCrossref = async () => {
-    if (!draft) return;
-    setCrossrefDialogOpen(true);
-    setCrossrefDialogMode("candidates");
-    setPendingReplacement(null);
-    setCrossrefSearching(true);
-    try {
-      setCrossrefCandidates(await searchCrossrefForBibEntry(draft.fields.title || draft.citeKey));
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCrossrefSearching(false);
-    }
-  };
-
-  const handlePreviewCrossrefReplacement = async (candidate: CrossrefCandidate) => {
-    const oldEntry = savedSelectedEntry ?? draft;
-    if (!selectedKey || !oldEntry) return;
-    setPreviewingDoi(candidate.doi);
-    try {
-      const newEntry = await previewBibEntryFromCrossref(selectedKey, candidate.doi);
-      setPendingReplacement({
-        candidate,
-        oldEntry: copyEntry(oldEntry),
-        newEntry: copyEntry(newEntry),
-      });
-      setCrossrefDialogMode("compare");
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPreviewingDoi(null);
-    }
-  };
-
-  const handleConfirmCrossrefReplacement = async () => {
-    if (!pendingReplacement) return;
-    setSaving(true);
-    try {
-      const updated = await updateBibEntryFromCrossref(
-        pendingReplacement.oldEntry.citeKey,
-        pendingReplacement.candidate.doi,
-      );
-      setPendingReplacement(null);
-      setCrossrefDialogOpen(false);
-      setCrossrefDialogMode("candidates");
-      setCrossrefCandidates([]);
-      await refreshAfterChange(updated.citeKey);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const closeCrossrefDialog = () => {
-    if (saving) return;
-    setCrossrefDialogOpen(false);
-    setCrossrefDialogMode("candidates");
-    setPendingReplacement(null);
-    setPreviewingDoi(null);
-  };
+  }, [compactPreviewList, detailPane, effectivePreviewSplit, handlePreviewSplitChange, listPane, previewSplit, showInternalList]);
 
   return (
-    <>
-    <div className="flex min-h-0 flex-1 flex-col bg-reading">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-reading">
       <div className="ui-pane-header shrink-0">
         <span className="ui-label truncate">BibTeX preview</span>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className="hidden font-mono text-ui-2xs text-muted-foreground sm:inline">
-            {filePath}
-          </span>
+          <span className="hidden font-mono text-ui-2xs text-muted-foreground sm:inline">{filePath}</span>
           <Button
             type="button"
             variant="ghost"
@@ -428,207 +414,32 @@ export function BibFilePreview({
             className="h-7 w-7"
             title="Reload BibTeX"
             aria-label="Reload BibTeX"
-            disabled={loading || saving}
-            onClick={() => void loadEntries(selectedKey ?? undefined)}
+            disabled={summaryLoading || listLoading || entryLoading}
+            onClick={() => void handleReload()}
           >
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} aria-hidden="true" />
+            <RefreshCw
+              className={cn("h-3.5 w-3.5", (summaryLoading || listLoading) && "animate-spin")}
+              aria-hidden="true"
+            />
           </Button>
         </div>
       </div>
-
-      <div className="grid min-h-0 flex-1 grid-cols-1 bg-background/20 lg:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)]">
-        <aside className="max-h-64 min-h-0 overflow-auto border-b border-border bg-sidebar/60 lg:max-h-none lg:border-b-0 lg:border-r">
-          <div className="sticky top-0 z-10 border-b border-border bg-sidebar px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium">main.bib</span>
-              <span className="text-[10px] text-muted-foreground">
-                {entries.length} entr{entries.length === 1 ? "y" : "ies"}
-              </span>
-            </div>
-            <div className="mt-2 grid grid-cols-3 gap-1 text-[10px]">
-              <span className="rounded-sm border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-1 text-emerald-700 dark:text-emerald-300">
-                {verificationCounts.verified} verified
-              </span>
-              <span className="rounded-sm border border-amber-500/35 bg-amber-500/10 px-1.5 py-1 text-amber-700 dark:text-amber-300">
-                {verificationCounts.stale} stale
-              </span>
-              <span className="rounded-sm border border-border bg-muted/40 px-1.5 py-1 text-muted-foreground">
-                {verificationCounts.unverified} open
-              </span>
-            </div>
-          </div>
-
-          {entries.length === 0 ? (
-            <p className="px-3 py-4 text-xs text-muted-foreground">
-              {loading ? "Loading references..." : "No BibTeX entries in main.bib."}
-            </p>
-          ) : (
-            <ul className="space-y-1 p-2">
-              {entries.map((entry) => (
-                <li key={entry.citeKey}>
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex w-full min-w-0 flex-col gap-1 rounded-md border px-2 py-2 text-left hover:bg-accent/40",
-                      selectedKey === entry.citeKey
-                        ? "border-primary/40 bg-accent/50"
-                        : "border-transparent text-muted-foreground",
-                    )}
-                    onClick={() => setSelectedKey(entry.citeKey)}
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-mono text-[11px]">@{entry.citeKey}</span>
-                      <VerificationBadge status={entry.verifiedStatus} />
-                    </span>
-                    <span className="line-clamp-2 text-[11px]">
-                      {entry.fields.title || entry.citeKey}
-                    </span>
-                    <span className="truncate text-[10px] text-muted-foreground/80">
-                      {entry.fields.author ?? entry.fields.year ?? entry.type}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
-
-        <main className="min-h-0 overflow-auto px-6 py-5">
-          {draft ? (
-            <div className="mx-auto flex max-w-5xl flex-col gap-4">
-              <section className="rounded-md border border-border bg-background">
-                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate font-mono text-sm">@{draft.citeKey}</span>
-                      <VerificationBadge status={draft.verifiedStatus} large />
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                      {draft.fields.title || "Untitled BibTeX entry"}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={saving || crossrefSearching}
-                      onClick={handleSearchCrossref}
-                    >
-                      {crossrefSearching ? (
-                        <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                      ) : (
-                        <Search className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-                      )}
-                      Crossref
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" disabled={saving} onClick={handleVerify}>
-                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-                      Verify
-                    </Button>
-                    <Button type="button" size="sm" disabled={saving} onClick={handleSave}>
-                      <Save className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-                      Save
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 p-4">
-                  <div className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2">
-                    <label className="text-xs font-medium text-muted-foreground">Key</label>
-                    <input
-                      className="h-8 min-w-0 rounded-md border border-border bg-background px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={draft.citeKey}
-                      onChange={(event) =>
-                        setDraft((current) =>
-                          current ? { ...current, citeKey: event.target.value } : current,
-                        )
-                      }
-                    />
-                    <label className="text-xs font-medium text-muted-foreground">Type</label>
-                    <input
-                      className="h-8 min-w-0 rounded-md border border-border bg-background px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={draft.type}
-                      onChange={(event) =>
-                        setDraft((current) =>
-                          current ? { ...current, type: event.target.value } : current,
-                        )
-                      }
-                    />
-                    {fieldNames.map((field) => (
-                      <label key={field} className="contents">
-                        <span className="text-xs font-medium text-muted-foreground">{field}</span>
-                        <input
-                          className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          value={draft.fields[field] ?? ""}
-                          onChange={(event) => patchField(field, event.target.value)}
-                        />
-                      </label>
-                    ))}
-                  </div>
-
-                  <div className="grid grid-cols-[7rem_minmax(0,0.45fr)_minmax(0,1fr)_auto] items-center gap-2 border-t border-border pt-3">
-                    <span className="text-xs font-medium text-muted-foreground">Field</span>
-                    <input
-                      className="h-8 min-w-0 rounded-md border border-border bg-background px-2 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      placeholder="name"
-                      value={newFieldName}
-                      onChange={(event) => setNewFieldName(event.target.value)}
-                    />
-                    <input
-                      className="h-8 min-w-0 rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      placeholder="value"
-                      value={newFieldValue}
-                      onChange={(event) => setNewFieldValue(event.target.value)}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8"
-                      title="Add field"
-                      aria-label="Add field"
-                      disabled={!newFieldName.trim()}
-                      onClick={handleAddField}
-                    >
-                      <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                    </Button>
-                  </div>
-
-                  {draft.integrity ? (
-                    <p className="truncate font-mono text-[10px] text-muted-foreground">
-                      integrity {draft.integrity}
-                    </p>
-                  ) : null}
-                </div>
-              </section>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {loading ? "Loading BibTeX..." : "Select a BibTeX entry."}
-            </p>
-          )}
-        </main>
-      </div>
-    </div>
-    <CrossrefDialog
-      open={crossrefDialogOpen}
-      mode={crossrefDialogMode}
-      candidates={crossrefCandidates}
-      replacement={pendingReplacement}
-      loadingCandidates={crossrefSearching}
-      previewingDoi={previewingDoi}
-      busy={saving}
-      onSelectCandidate={(candidate) => void handlePreviewCrossrefReplacement(candidate)}
-      onBack={() => {
-        if (!saving) {
-          setPendingReplacement(null);
-          setCrossrefDialogMode("candidates");
+      {previewBody}
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Delete references from main.bib?"
+        message={
+          checkedKeys.size === 1
+            ? `Permanently remove @${[...checkedKeys][0]} from main.bib? Citations in drafts will show as missing until you add a replacement.`
+            : `Permanently remove ${checkedKeys.size} entries from main.bib? Citations in drafts may show as missing until you add replacements.`
         }
-      }}
-      onConfirm={() => void handleConfirmCrossrefReplacement()}
-      onCancel={closeCrossrefDialog}
-    />
-    </>
+        confirmLabel={deleting ? "Deleting…" : "Delete"}
+        destructive
+        onConfirm={() => void handleDeleteSelected()}
+        onCancel={() => {
+          if (!deleting) setDeleteConfirmOpen(false);
+        }}
+      />
+    </div>
   );
 }

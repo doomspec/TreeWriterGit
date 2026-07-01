@@ -24,9 +24,12 @@ export function usePaperList(
             slug: n.name,
             path: n.path,
             title: n.name,
+            docType: "paper" as const,
             journal: "",
             status: "",
             lastExport: null,
+            tags: [],
+            project: null,
             counts: { approved: 0, drafted: 0, outline: 0, total: 0 },
           })),
         );

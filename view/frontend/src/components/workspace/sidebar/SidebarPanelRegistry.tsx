@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 
 import { ApprovalReviewPanel } from "@/components/nav/ApprovalReviewPanel";
 import { DocumentOutlinePanel } from "@/components/nav/DocumentOutlinePanel";
+import { ReferencesPanel } from "@/components/nav/ReferencesPanel";
 import { WorkspaceNav } from "@/components/nav/WorkspaceNav";
 import { DocxImportPanel } from "@/components/paper/DocxImportPanel";
 import { PaperExportPanel } from "@/components/paper/PaperExportPanel";
@@ -70,6 +71,19 @@ export function SidebarPanelRegistry({
 
   if (panel === "review") {
     return <ApprovalReviewPanel className="h-full" />;
+  }
+
+  if (panel === "references") {
+    return (
+      <ReferencesPanel
+        paperPath={paperPath}
+        activeFile={activeFile}
+        refreshVersion={refreshVersion}
+        onOpenFile={onOpenFile}
+        onModelChanged={onModelChanged}
+        onError={onError}
+      />
+    );
   }
 
   if (panel === "graph") {

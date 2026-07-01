@@ -20,8 +20,11 @@
 }
 
 .markdown-pane .markdown-reading {
-  max-width: none;
-  margin-inline: 0;
+  /* Cap the reading measure on wide single-column panes (e.g. WRITE mode)
+     without shrinking narrower split-view panes: falls back to 100% of the
+     pane whenever that's less than the cap. */
+  max-width: min(100%, 48rem);
+  margin-inline: auto;
 }
 
 .markdown-pane .markdown-body h1,
@@ -478,9 +481,7 @@ del.highlight-inline--deleted.pending-change-focus {
 .markdown-body a.outline-nav-link--active {
   background: hsl(var(--accent) / 0.65);
   color: hsl(var(--foreground));
-  font-weight: 600;
   border-radius: 0.25rem;
-  padding-inline: 0.15rem;
   text-decoration: none;
   box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.35);
 }
@@ -609,6 +610,44 @@ del.highlight-inline--deleted.pending-change-focus {
 .latex-ref-badge--linked:hover {
   background: hsl(var(--primary) / 0.18);
   border-color: hsl(var(--primary) / 0.35);
+}
+
+.latex-cite-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.25rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.35);
+  padding: 0.05rem 0.35rem;
+  font-size: 0.72rem;
+  vertical-align: baseline;
+}
+
+.latex-cite-badge--clickable {
+  cursor: pointer;
+}
+
+.latex-cite-badge--clickable:hover {
+  background: hsl(var(--accent));
+}
+
+.latex-cite-badge__icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  opacity: 0.75;
+}
+
+.latex-cite-badge__tag {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.latex-cite-badge__key {
+  font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .text-highlight-badge {

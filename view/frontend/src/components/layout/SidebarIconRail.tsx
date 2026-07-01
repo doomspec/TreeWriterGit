@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Bot,
   CircleHelp,
   Download,
@@ -53,7 +54,8 @@ const RAIL_ITEMS: {
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
   { id: "explorer", label: "Explorer", icon: FolderTree },
-  { id: "papers", label: "Papers", icon: FileStack },
+  { id: "papers", label: "Manuscripts", icon: FileStack },
+  { id: "references", label: "References (BibTeX library)", icon: BookOpen },
   { id: "graph", label: "Graph", icon: Network },
   { id: "outline", label: "Document outline", icon: ListTree },
   { id: "review", label: "Review changes", icon: GitCompare },

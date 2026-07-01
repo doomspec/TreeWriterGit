@@ -1,11 +1,19 @@
 ---
 kind: unit
-title: Finally We Provide An Outlook On How The Converg
+title: 'Outlook: Open Bioengineering Ecosystems'
 status: approved
 links: []
-approved_at: '2026-06-25T21:38:46.855Z'
-approved_by: docx-import
-outline_approved_at: '2026-06-25T21:39:16.745Z'
-outline_approved_by: yakavetsiv
+outline_edited_by: null
+outline_edited_at: null
+outline_ai_assisted: false
+outline_ai_provider: null
+outline_approved_by: null
+outline_approved_at: '2026-07-01T03:38:58.808Z'
+edited_by: null
+edited_at: null
+ai_assisted: false
+ai_provider: null
+approved_by: yakavetsiv
+approved_at: '2026-07-01T02:53:06.861Z'
 ---
 

@@ -7,6 +7,7 @@ export {
 } from "./model/errors.js";
 export {
   resolveModelPath,
+  resolvePaperRel,
   toRelative,
   shellQuote,
   resolveManuscriptSectionsRoot,
@@ -24,6 +25,7 @@ export {
   isEquationDir,
   isFigureDir,
   isUnitDir,
+  isManuscriptRoot,
   classifyManuscriptNode,
   walkManuscript,
   walkManuscriptLeaves,

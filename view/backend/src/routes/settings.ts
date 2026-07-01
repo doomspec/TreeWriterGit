@@ -7,6 +7,7 @@ import {
 } from "../agentDispatch.js";
 import { saveGitSyncPreferences } from "../gitSyncConfig.js";
 import { saveExportPreferences, isAllowedExportDebounceMs } from "../exportConfig.js";
+import { loadZoteroLocalConfig } from "../zoteroLocalConfig.js";
 import { isAllowedSyncIntervalMs } from "../intervalPresets.js";
 import type { ServerDeps } from "./types.js";
 
@@ -59,6 +60,7 @@ export function registerSettingsRoutes(app: Express, deps: ServerDeps) {
     try {
       const gitSync = await deps.getGitSyncConfig();
       const exportSettings = await deps.getExportConfig();
+      const zoteroLocal = await loadZoteroLocalConfig(deps.repoRoot);
       const agents = await loadProviders(deps.repoRoot);
       response.json({
         gitSync: {
@@ -69,6 +71,7 @@ export function registerSettingsRoutes(app: Express, deps: ServerDeps) {
           ...exportSettings,
           status: deps.getAutoExportState(),
         },
+        zoteroLocal,
         agents,
       });
     } catch (error) {

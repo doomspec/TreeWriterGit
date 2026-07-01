@@ -53,7 +53,18 @@ function readBibValue(source: string, start: number): { value: string; end: numb
 
 /** Parse BibTeX source into entries (common .bib files). */
 export function parseBibtex(source: string): ParsedBibEntry[] {
-  const entries: ParsedBibEntry[] = [];
+  return parseBibtexWithSpans(source).map((item) => item.entry);
+}
+
+export type ParsedBibEntrySpan = {
+  entry: ParsedBibEntry;
+  sourceStart: number;
+  sourceEnd: number;
+};
+
+/** Parse BibTeX and record normalized source character spans for each entry. */
+export function parseBibtexWithSpans(source: string): ParsedBibEntrySpan[] {
+  const entries: ParsedBibEntrySpan[] = [];
   const text = source.replace(/\r\n/g, "\n");
   let index = 0;
 
@@ -91,7 +102,10 @@ export function parseBibtex(source: string): ParsedBibEntry[] {
     const fields: Record<string, string> = {};
     while (cursor < text.length) {
       while (cursor < text.length && /[\s,]/.test(text[cursor] ?? "")) cursor += 1;
-      if (text[cursor] === "}") break;
+      if (text[cursor] === "}") {
+        cursor += 1;
+        break;
+      }
 
       const fieldStart = cursor;
       while (cursor < text.length && text[cursor] !== "=") cursor += 1;
@@ -107,8 +121,12 @@ export function parseBibtex(source: string): ParsedBibEntry[] {
       cursor = valueRead.end;
     }
 
-    entries.push({ type, citeKey, fields });
-    index = cursor + 1;
+    entries.push({
+      entry: { type, citeKey, fields },
+      sourceStart: at,
+      sourceEnd: cursor,
+    });
+    index = cursor;
   }
 
   return entries;

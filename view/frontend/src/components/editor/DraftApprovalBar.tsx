@@ -9,6 +9,8 @@ export function DraftApprovalBar({
   editedBy,
   aiAssisted = false,
   aiProvider = null,
+  approvers = [],
+  gitCommit = null,
   onApprove,
   onDiscard,
   approving = false,
@@ -21,6 +23,8 @@ export function DraftApprovalBar({
   editedBy?: string | null;
   aiAssisted?: boolean;
   aiProvider?: string | null;
+  approvers?: string[];
+  gitCommit?: string | null;
   onApprove: () => void;
   onDiscard: () => void;
   approving?: boolean;
@@ -41,15 +45,29 @@ export function DraftApprovalBar({
   const aiPart = source === "ai" || aiAssisted ? " · AI assisted" : "";
   const message = `${editorPart}${aiPart} — saved for collaborators; approve to mark ready for export.`;
   const shortMessage = `${editorPart}${aiPart} — approve to export`;
+  const provenance =
+    approvers.length > 0 || gitCommit
+      ? [
+          approvers.length > 0 ? `Last approved by ${approvers.join(", ")}` : null,
+          gitCommit ? `@ ${gitCommit.slice(0, 7)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
-      <div className="flex min-w-0 items-center gap-1.5">
-        <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden="true" />
-        <span className="min-w-0 truncate sm:whitespace-normal">
-          <span className="sm:hidden">{shortMessage}</span>
-          <span className="hidden sm:inline">{message}</span>
-        </span>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Icon className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden="true" />
+          <span className="min-w-0 truncate sm:whitespace-normal">
+            <span className="sm:hidden">{shortMessage}</span>
+            <span className="hidden sm:inline">{message}</span>
+          </span>
+        </div>
+        {provenance ? (
+          <span className="pl-5 text-[10px] text-amber-900/80 dark:text-amber-100/70">{provenance}</span>
+        ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {changeNavigation?.canNavigate ? (

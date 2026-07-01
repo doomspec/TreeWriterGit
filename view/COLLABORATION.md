@@ -5,21 +5,49 @@ TreeWriter is **Git-first**: the `model/` directory is the source of truth. The 
 ## Model conventions
 
 - **Papers** live under `model/papers/{slug}/` with `INDEX.md` (metadata), `outline.md`, and optional `section_order`.
-- **Units** are folders with `INDEX.md`, `outline.md`, and `draft.md`. Approved baselines are stored in `draft.approved.md` / `outline.approved.md`.
+- **Units** are folders with `INDEX.md`, `outline.md`, and `draft.md`. Approved baselines and provenance live in a co-located **`.approval/`** folder:
+  - `.approval/draft.approved.md` / `.approval/outline.approved.md` — last approved body snapshot
+  - `.approval/draft.yaml` / `.approval/outline.yaml` — content hash, git commit, approvers, edit/AI metadata
 - **Assets** (figures, tables, equations) are folders with `INDEX.md` fields such as `figure_label`, `table_label`, and `equation_label` for cross-references.
-- **Comments** are JSON sidecars under `.comments/` mirroring the markdown path (flat papers: `papers/{slug}/.comments/...`; nested: `papers/{slug}/sections/.comments/...`).
+- **Comments** are inline `<comment id="…" author="…">text</comment>` tags in the manuscript. They are stripped before AI dispatch and DOCX export (same as `\author{}` notes).
 
-## Comment sidecar layout and fallback
+## Approval layout
 
-Canonical sidecar paths follow the paper layout:
+Each unit/section directory that tracks drafts may contain:
 
-| Manuscript path | Sidecar path |
-|-----------------|--------------|
-| `papers/{slug}/intro/draft.md` (flat) | `papers/{slug}/.comments/intro/draft.md.comments.json` |
-| `papers/{slug}/sections/intro/draft.md` (nested) | `papers/{slug}/sections/.comments/intro/draft.md.comments.json` |
-| Non-paper paths | `.comments/{path}.comments.json` |
+```
+papers/{slug}/intro/background/
+  INDEX.md
+  draft.md
+  outline.md
+  .approval/
+    draft.yaml
+    draft.approved.md
+    outline.yaml
+    outline.approved.md
+```
 
-When reading comments, the backend checks the **canonical** sidecar first. If that file is missing or empty, it **falls back** to the alternate layout (flat ↔ nested) so teams can migrate folder structure without losing comment history. New writes always use the canonical path for the current layout.
+| Field (draft.yaml) | Purpose |
+|--------------------|---------|
+| `content_hash` | SHA-256 of normalized manuscript (comments/author notes stripped) |
+| `git_commit` | Repo HEAD at approve time (best-effort) |
+| `approved_by` / `approvers` | Last approver and full sign-off list |
+| `edited_by`, `ai_assisted`, `ai_provider` | Pending edit attribution |
+| `status` | `approved`, `drafted`, or `outline` (cached in INDEX during transition) |
+
+Legacy top-level `draft.approved.md` files are still read as a fallback until migrated. Run `node scripts/migrate-approval-layout.mjs [modelRoot]` to move them into `.approval/`.
+
+## Inline comments
+
+Review comments use XML-style tags embedded in the manuscript:
+
+```markdown
+Some text <comment id="41ce3963" author="yakavetsiv">should be present tense</comment> here.
+```
+
+Supported attributes: `id`, `author`, `resolved="true"`, `assigned_to`, `assigned_by`, `assigned_at`.
+
+Legacy JSON sidecars under `.comments/` are read as a fallback when no inline tags exist. Run `node scripts/migrate-comments-inline.mjs [modelRoot]` to convert them.
 
 ## `.treewriter.json` team settings
 
@@ -43,21 +71,21 @@ Configure commit paths when your team stores assets outside `model/` or needs se
 2. **Edit in TreeWriter** — drafts autosave to `model/`; use approval bars before treating content as final.
 3. **Background sync** (optional) — commits configured `commitPaths`, rebases on `origin`, pushes. Local changes outside commit paths are stashed during sync.
 4. **Resolve conflicts in Git** — TreeWriter does not provide real-time OT; Git conflict resolution is authoritative.
-5. **Review approvals** — `edited_by`, `approved_by`, and `ai_assisted` in INDEX track attribution; export can gate on orphan cross-refs and pending approvals.
+5. **Review approvals** — `.approval/*.yaml` tracks hash, git commit, and approvers; INDEX `status` remains the export gate during transition.
 6. **Overleaf** — push modular LaTeX export; external co-authors edit in Overleaf; pull/merge back via Git.
 
 ## Presence and comments
 
 - **Presence** is advisory (in-memory, single server process). Do not rely on it for locking.
-- **Comments** attach to `.md` line numbers; use the comments panel in the editor.
+- **Comments** attach inline via `<comment>` tags; the comments panel reads/writes them through the same REST API.
 - **Comment assignment** (optional per comment):
-  - `assigned_to`: `{ type: "human" | "ai", id, label }` — human GitHub handle or AI provider name from `aiProviders`
-  - `assigned_by`, `assigned_at` — audit fields set when assigning
+  - `assigned_to` attribute: `human:id:label` or `ai:id:label`
+  - `assigned_by`, `assigned_at` — audit attributes on the tag
   - Assignment is **tracking only**; it does not auto-run agent dispatch
   - Filter in the comments panel: All · Assigned to me · Assigned to AI · Unassigned
   - Paper summary API returns `{ unresolved, total, assigned, assignedUnresolved }`
   - `GET /api/comments/assigned?paperSlug=…` lists assigned comments; optional `assigneeType` / `assigneeId` filters
-- **Comment cache behavior** — the UI does not keep a long-lived comment cache. Each editor pane reloads comments when the file path changes or when `refreshVersion` bumps (model tree reload, WebSocket `comments-changed`, or local create/update/delete). The comments panel refetches on the same signals; optimistic updates apply only until the next reload.
+- **Comment cache behavior** — the UI reloads comments when the file path changes or when `refreshVersion` bumps (model tree reload, WebSocket `comments-changed`, or local create/update/delete).
 - **WebSocket model events** refresh the tree (`kind: structure`) or editor content (`kind: content`) after external Git changes. Comment mutations broadcast `comments-changed` (path-scoped) without a full tree reload.
 
 ## Export gate matrix

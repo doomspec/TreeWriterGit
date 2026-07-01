@@ -1,4 +1,9 @@
+import { stripInlineComments } from "@/lib/inlineComments";
 import { stripTextHighlightMacrosForDiff } from "@/lib/textHighlight";
+
+function normalizeForApprovalDiff(text: string): string {
+  return stripTextHighlightMacrosForDiff(stripInlineComments(text));
+}
 
 export type DiffLineKind = "equal" | "insert" | "delete";
 
@@ -207,9 +212,7 @@ export function hasPendingApprovalDiff(
   current: string,
 ): boolean {
   const baseline = effectiveDiffBaseline(approvedBaseline, loadedContent);
-  return (
-    stripTextHighlightMacrosForDiff(baseline) !== stripTextHighlightMacrosForDiff(current)
-  );
+  return normalizeForApprovalDiff(baseline) !== normalizeForApprovalDiff(current);
 }
 
 export function pendingChangesRows(

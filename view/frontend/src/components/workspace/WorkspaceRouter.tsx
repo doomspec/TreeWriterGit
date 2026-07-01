@@ -11,6 +11,7 @@ import {
   outlinePathFor,
   parentPath,
 } from "@/lib/modelTree";
+import { resolveModelReloadScope } from "@/lib/modelReloadScope";
 import { useWorkspaceLayout } from "@/lib/workspace/WorkspaceLayoutContext";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 
@@ -30,7 +31,13 @@ export function WorkspaceRouter({
   const nav = useWorkspaceNavigationContext();
   const layout = useWorkspaceLayout();
   const reloadScopedModel = () =>
-    nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : nav.browsePath ? { path: nav.browsePath } : undefined);
+    nav.reloadModel(
+      resolveModelReloadScope({
+        browsePath: nav.browsePath,
+        paperPath: nav.paperPath,
+        activeFile: nav.activeFile,
+      }),
+    );
 
   const paneLayoutProps = {
     visiblePanes: layout.editorVisiblePanes,

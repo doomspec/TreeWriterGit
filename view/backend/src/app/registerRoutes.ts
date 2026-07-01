@@ -10,12 +10,14 @@ import {
   registerPresenceRoutes,
   registerSettingsRoutes,
 } from "../routes/index.js";
+import { registerZoteroRoutes } from "../routes/zotero.js";
 import { registerModelAssetRoutes } from "../routes/model/assets.js";
 import type { ServerDeps } from "../routes/types.js";
 
 /** Register all HTTP API route groups on the Express app. */
 export function registerAppRoutes(app: Express, deps: ServerDeps): void {
   registerSettingsRoutes(app, deps);
+  registerZoteroRoutes(app, deps);
   registerCommentsRoutes(app, deps);
   registerPresenceRoutes(app, deps);
   registerPapersRoutes(app, deps);

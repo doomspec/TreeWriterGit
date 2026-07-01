@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bot, Download, GitBranch, Monitor, RefreshCw, RotateCcw, User } from "lucide-react";
+import { ArrowLeft, Bot, Download, GitBranch, Monitor, Plug, RefreshCw, RotateCcw, User } from "lucide-react";
 
 import { KeyboardShortcutsSection } from "@/components/settings/KeyboardShortcutsSection";
 import { Button } from "@/components/ui/button";
@@ -16,18 +16,22 @@ import { useReadingTypography } from "@/lib/ReadingTypographyProvider";
 import type { ThemePreference } from "@/lib/themePreferences";
 import {
   fetchSettings,
+  fetchZoteroLocalStatus,
   formatExportDebounceLabel,
   formatInterval,
   runGitSyncNow,
   updateDefaultProvider,
   updateExportSettings,
   updateGitSyncSettings,
+  updateZoteroLocalSettings,
   SYNC_INTERVAL_OPTIONS,
   EXPORT_DEBOUNCE_OPTIONS,
   type AgentSettings,
   type AppSettings,
   type ExportSettings,
   type GitSyncSettings,
+  type ZoteroLocalSettings,
+  type ZoteroLocalStatus,
 } from "@/lib/settingsApi";
 import { saveLastAgentProvider } from "@/lib/lastAgentProvider";
 import { getGitHubHandle, getUserName, setGitHubHandle, setUserName } from "@/lib/userIdentity";
@@ -130,6 +134,9 @@ export function SettingsPage({
   const [saving, setSaving] = useState<string | null>(null);
   const [gitSync, setGitSync] = useState<GitSyncSettings | null>(null);
   const [exportSettings, setExportSettings] = useState<ExportSettings | null>(null);
+  const [zoteroLocal, setZoteroLocal] = useState<ZoteroLocalSettings | null>(null);
+  const [zoteroStatus, setZoteroStatus] = useState<ZoteroLocalStatus | null>(null);
+  const [settingsTab, setSettingsTab] = useState<"general" | "extensions">("general");
   const [agents, setAgents] = useState<AgentSettings | null>(null);
   const [authorName, setAuthorName] = useState(() => getUserName());
   const [githubHandle, setGithubHandleState] = useState(() => getGitHubHandle());
@@ -147,7 +154,15 @@ export function SettingsPage({
       const settings: AppSettings = await fetchSettings();
       setGitSync(settings.gitSync);
       setExportSettings(settings.export);
+      setZoteroLocal(
+        settings.zoteroLocal ?? { enabled: false, baseUrl: "http://127.0.0.1:23119/api" },
+      );
       setAgents(settings.agents);
+      try {
+        setZoteroStatus(await fetchZoteroLocalStatus());
+      } catch {
+        setZoteroStatus(null);
+      }
       onGitSyncChangeRef.current?.(settings.gitSync);
       hasLoadedRef.current = true;
     } catch (err) {
@@ -294,6 +309,32 @@ export function SettingsPage({
         ? "OK"
         : "Idle";
 
+  const zoteroStatusLabel = !zoteroLocal?.enabled
+    ? "Disabled"
+    : zoteroStatus?.connected
+      ? "Connected"
+      : "Not running";
+
+  const patchZoteroSettings = async (
+    patch: { enabled?: boolean; baseUrl?: string },
+    savingKey: string,
+  ) => {
+    setSaving(savingKey);
+    try {
+      const updated = await updateZoteroLocalSettings(patch);
+      setZoteroLocal(updated);
+      try {
+        setZoteroStatus(await fetchZoteroLocalStatus());
+      } catch {
+        setZoteroStatus(null);
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(null);
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-workspace">
       <div className="border-b border-border bg-card px-4 py-3">
@@ -304,12 +345,72 @@ export function SettingsPage({
           </Button>
           <h1 className="text-sm font-semibold">Settings</h1>
         </div>
+        <div className="mx-auto mt-3 flex max-w-3xl gap-1 px-4">
+          {(["general", "extensions"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium capitalize",
+                settingsTab === tab
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+              onClick={() => setSettingsTab(tab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-6">
         <div className="mx-auto max-w-3xl space-y-4">
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading settings…</p>
+          ) : settingsTab === "extensions" ? (
+            <>
+              <SettingsSection title="Zotero Local" icon={Plug}>
+                <SettingRow
+                  label="Enable local Zotero"
+                  hint="Search and import from Zotero desktop (localhost only)"
+                >
+                  <Toggle
+                    checked={Boolean(zoteroLocal?.enabled)}
+                    disabled={!zoteroLocal || saving === "zoteroEnabled"}
+                    label="Enable local Zotero"
+                    onChange={(checked) => void patchZoteroSettings({ enabled: checked }, "zoteroEnabled")}
+                  />
+                </SettingRow>
+                <SettingRow
+                  label="Base URL"
+                  hint="Default http://127.0.0.1:23119/api — localhost only"
+                >
+                  <input
+                    type="text"
+                    className="h-8 w-full max-w-xs rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    value={zoteroLocal?.baseUrl ?? ""}
+                    disabled={!zoteroLocal?.enabled || saving === "zoteroBaseUrl"}
+                    onChange={(event) => setZoteroLocal((prev) => (prev ? { ...prev, baseUrl: event.target.value } : prev))}
+                    onBlur={() => {
+                      if (!zoteroLocal?.baseUrl.trim()) return;
+                      void patchZoteroSettings({ baseUrl: zoteroLocal.baseUrl.trim() }, "zoteroBaseUrl");
+                    }}
+                  />
+                </SettingRow>
+                <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  Status: <strong className="text-foreground">{zoteroStatusLabel}</strong>
+                  {zoteroLocal?.enabled ? (
+                    <p className="mt-2">
+                      Requires Zotero desktop running. Agents can use{" "}
+                      <code className="text-foreground">pnpm tw-zotero</code> when enabled.
+                    </p>
+                  ) : (
+                    <p className="mt-2">Optional — leave off if you do not use Zotero.</p>
+                  )}
+                </div>
+              </SettingsSection>
+            </>
           ) : (
             <>
               <SettingsSection title="Appearance" icon={Monitor}>

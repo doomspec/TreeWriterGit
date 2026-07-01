@@ -1,5 +1,32 @@
 /** Shared API contracts — keep frontend and backend in sync. */
 
+export type DocumentType = "paper" | "grant" | "report";
+
+export type ContributionMode = "kernel" | "repository";
+
+export type ExportPrimaryFormat = "latex" | "docx" | "pdf";
+
+export type ManuscriptTemplate = {
+  templateId: string;
+  docType: DocumentType;
+  label: string;
+  description: string;
+  journal?: string;
+  targetWords: number;
+  targetPages?: number;
+  sectionOrder: string[];
+  statusOptions: string[];
+  assetDirs: string[];
+  notesDirs: string[];
+  requiredFields: string[];
+  exportPrimaryFormat: ExportPrimaryFormat;
+  /** LaTeX/export styling from template frontmatter (backend-only detail). */
+  export?: Record<string, unknown>;
+};
+
+/** @deprecated Use ManuscriptTemplate */
+export type JournalTemplate = ManuscriptTemplate & { journal: string };
+
 export type UnitStatusCounts = {
   approved: number;
   drafted: number;
@@ -7,15 +34,21 @@ export type UnitStatusCounts = {
   total: number;
 };
 
-export type PaperSummary = {
+export type ManuscriptSummary = {
   slug: string;
   path: string;
   title: string;
+  docType: DocumentType;
   journal: string;
   status: string;
   lastExport: string | null;
+  tags: string[];
+  project: string | null;
   counts: UnitStatusCounts;
 };
+
+/** @deprecated Use ManuscriptSummary */
+export type PaperSummary = ManuscriptSummary;
 
 export type SectionRollup = {
   path: string;
@@ -42,17 +75,27 @@ export type PendingReviewItem = {
   changeSummary: PendingReviewChangeSummary;
 };
 
-export type PaperDetail = PaperSummary & {
+export type ManuscriptDetail = ManuscriptSummary & {
+  templateId: string | null;
   authors: string[];
   targetWords: number;
   sectionOrder: string[];
   overleafRepoPath: string | null;
   overleafGitUrl: string | null;
+  funder: string | null;
+  program: string | null;
+  deadline: string | null;
+  audience: string | null;
+  contributionMode: ContributionMode | null;
+  agentSummary: string | null;
   sections: SectionRollup[];
   containerCounts: Record<string, UnitStatusCounts>;
   pendingApprovalPaths: string[];
   pendingReviews: PendingReviewItem[];
 };
+
+/** @deprecated Use ManuscriptDetail */
+export type PaperDetail = ManuscriptDetail;
 
 export type DraftEditMeta = {
   editedBy: string | null;
@@ -61,6 +104,9 @@ export type DraftEditMeta = {
   aiProvider: string | null;
   approvedBy: string | null;
   approvedAt: string | null;
+  contentHash?: string | null;
+  gitCommit?: string | null;
+  approvers?: string[];
 };
 
 export type DraftSaveMeta = {

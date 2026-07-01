@@ -37,7 +37,7 @@ export const HELP_SHORTCUT_GROUPS: HelpShortcutGroup[] = [
     category: "Navigation",
     shortcuts: [
       { label: "Switch to Explorer", chordId: "workspace.explorer" },
-      { label: "Switch to Papers", chordId: "workspace.papers" },
+      { label: "Switch to Manuscripts", chordId: "workspace.papers" },
       { label: "Document outline panel", chordId: "sidebar.outline" },
       { label: "Toggle sidebar panel", chordId: "sidebar.toggle" },
       { label: "Go up one folder", chordId: "navigate.up" },
@@ -75,10 +75,10 @@ export const HELP_SHORTCUT_GROUPS: HelpShortcutGroup[] = [
 
 export const HELP_FEATURES: HelpFeature[] = [
   {
-    title: "Papers workspace & section tree",
-    body: "Browse manuscripts under Papers. Drag sections and units to reorder. Hover a row for create, rename, and remove — or use the ⋯ menu on a narrow sidebar. Amber rows mark units with unapproved draft text.",
+    title: "Manuscripts workspace & section tree",
+    body: "Browse papers, grants, and reports under Manuscripts. Drag sections and units to reorder. Hover a row for create, rename, and remove — or use the ⋯ menu on a narrow sidebar. Amber rows mark units with unapproved draft text.",
     hints: [
-      "Create sections from the paper row; create units or subsections from section rows.",
+      "Create sections from the manuscript row; create units or subsections from section rows.",
       "On unit rows, Create adds a sibling under the parent section.",
     ],
   },
@@ -121,11 +121,11 @@ export const HELP_FEATURES: HelpFeature[] = [
   },
   {
     title: "Figures, tables & equations",
-    body: "Manage assets from the Papers sidebar. Embed figures with ::figure[], equations with ::equation[], and wikilinks for cross-references. Asset autocomplete suggests paths while you type.",
+    body: "Manage assets from the Manuscripts sidebar. Embed figures with ::figure[], equations with ::equation[], and wikilinks for cross-references. Asset autocomplete suggests paths while you type.",
   },
   {
     title: "Export & LaTeX",
-    body: "Open Export from the sidebar download icon to download LaTeX or PDF, or push to a connected Overleaf project. Toggle include drafts to export outline and non-approved text.",
+    body: "Open Export from the sidebar download icon to download LaTeX, PDF, or Word, or push to Overleaf for journal papers. Grants and reports emphasize Word export. Toggle include drafts to export outline and non-approved text.",
     hints: [
       "Settings → Export can auto-export after edits and optionally push to Overleaf.",
       "Modular export writes one .tex file per section for Overleaf \\input{} workflows.",
@@ -185,7 +185,7 @@ export const HELP_OVERLEAF = {
 };
 
 export const HELP_QUICK_START = [
-  "Open a paper under Papers and browse sections and units in the sidebar.",
+  "Open a manuscript under Manuscripts and browse sections and units in the sidebar.",
   "Edit outline and draft in split view; approve draft changes to sync composed text.",
   "Use the document outline panel or graph to jump between linked sections.",
   "Connect Overleaf from Export when you are ready to share LaTeX with collaborators.",

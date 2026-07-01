@@ -4,6 +4,7 @@ import { readFile, writeFile, readdir } from "node:fs/promises";
 import matter from "gray-matter";
 
 import { PAPER_ASSET_DIRS } from "./errors.js";
+import { isManuscriptRoot } from "./manuscriptKind.js";
 import { resolveChildPath, resolveModelPath } from "./paths.js";
 
 const SKIP_CHILDREN = new Set(["notes", ".sessions", ".trash", ...PAPER_ASSET_DIRS]);
@@ -66,7 +67,7 @@ const indexPathFor = (parentRel: string): string =>
 type OrderKey = "child_order" | "section_order";
 
 function orderKeyFor(data: Record<string, unknown>): OrderKey {
-  if (data.kind === "paper") return "section_order";
+  if (isManuscriptRoot(data)) return "section_order";
   if (Array.isArray(data.section_order) && data.section_order.length > 0) return "section_order";
   return "child_order";
 }

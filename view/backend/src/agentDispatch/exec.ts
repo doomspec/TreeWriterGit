@@ -12,6 +12,7 @@ import {
   promptFileRelFromModelCwd,
   promptSessionId,
   promptsDirectory,
+  sanitizePromptSessionId,
   type PreviewResult,
 } from "./commands.js";
 import { collectUnitPaths } from "./context.js";
@@ -125,7 +126,7 @@ export async function buildGitSyncResolvePreview(
   sessionId?: string,
 ): Promise<PreviewResult> {
   const modelRoot = path.join(repoRoot, "model");
-  const id = sessionId ?? promptSessionId();
+  const id = sanitizePromptSessionId(sessionId ?? promptSessionId());
   const promptsDir = promptsDirectory(modelRoot);
   await mkdir(promptsDir, { recursive: true });
   const promptFile = path.join(promptsDir, `${id}.txt`);

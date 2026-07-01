@@ -14,8 +14,10 @@ import { SidebarPanelRegistry } from "@/components/workspace/sidebar/SidebarPane
 import { ErrorToast } from "@/components/layout/ErrorToast";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { DocumentOutlineProvider } from "@/lib/documentOutline";
+import { BibLibraryProvider } from "@/lib/bibLibraryContext";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { parentPath, PAPERS_ROOT } from "@/lib/modelTree";
+import { resolveModelReloadScope } from "@/lib/modelReloadScope";
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { gitSyncHasError, isViewSyncPaused } from "@/lib/gitSync";
 import { resolveViewSyncWithHarness } from "@/lib/agentDispatchClient";
@@ -94,6 +96,16 @@ function AppShell({
     [pendingReviewItems],
   );
 
+  const reloadActiveModel = useCallback(() => {
+    nav.reloadModel(
+      resolveModelReloadScope({
+        browsePath: nav.browsePath,
+        paperPath: nav.paperPath,
+        activeFile: nav.activeFile,
+      }),
+    );
+  }, [nav]);
+
   const handleApproveAllAiChanges = useCallback(async () => {
     const aiItems = pendingReviewItems.filter((item) => item.aiAssisted);
     if (aiItems.length === 0) return;
@@ -101,7 +113,13 @@ function AppShell({
       for (const item of aiItems) {
         await approveDraftAtPath(item.path);
       }
-      nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined);
+      nav.reloadModel(
+        resolveModelReloadScope({
+          browsePath: nav.browsePath,
+          paperPath: nav.paperPath,
+          activeFile: nav.activeFile,
+        }),
+      );
       await reloadPendingReviews();
     } catch (err) {
       ws.setError(err instanceof Error ? err.message : String(err));
@@ -255,6 +273,19 @@ function AppShell({
     [layout, nav.notesPaneAvailable],
   );
 
+  const handleOpenMainBib = useCallback(
+    (citeKey?: string) => {
+      nav.setSidebarPanel("references");
+      nav.openFile("main.bib", citeKey ? { citeKey } : undefined);
+    },
+    [nav],
+  );
+
+  const handleShowUnverifiedReferences = useCallback(() => {
+    nav.setSidebarPanel("references");
+    nav.openFile("main.bib");
+  }, [nav]);
+
   const canFocusBack = nav.showPaperViewBack || nav.showSectionViewBack || nav.canGoUp;
   const handleFocusBack = useCallback(() => {
     if (nav.showPaperViewBack || nav.showSectionViewBack) {
@@ -281,6 +312,7 @@ function AppShell({
 
   return (
     <AgentDispatchPanelContext.Provider value={agentDispatchPanelValue}>
+        <BibLibraryProvider>
         <DocumentOutlineProvider>
         <main
           className={cn(
@@ -300,7 +332,7 @@ function AppShell({
             searchQuery={nav.searchQuery}
             onSearchChange={nav.setSearchQuery}
             onSearchSelect={nav.handleSearchSelect}
-            onRefreshModel={() => nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)}
+            onRefreshModel={reloadActiveModel}
             onHomeClick={handleHome}
             homeTitle={homeTitle}
             canBack={canFocusBack}
@@ -319,6 +351,7 @@ function AppShell({
             dualPaneEditorActive={nav.dualPaneEditorActive}
             notesPaneAvailable={nav.notesPaneAvailable}
             pendingAiReviewCount={pendingAiReviewCount}
+            selectedBibCiteKey={nav.selectedBibCiteKey}
             onSetAppView={ws.setAppView}
             onSetSidebarTab={nav.handleSidebarTabChange}
             onSetSidebarPanel={nav.setSidebarPanel}
@@ -326,9 +359,7 @@ function AppShell({
             onNavigateUp={handleNavigateUp}
             onBack={nav.backToSectionView}
             onCreateChild={createChild}
-            onRefreshModel={() =>
-              nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)
-            }
+            onRefreshModel={reloadActiveModel}
             onToggleBottomPanel={() => layout.setAgentPanelOpen((open) => !open)}
             onToggleReadingFocus={readingFocus.toggle}
             onSetEditorLayout={layout.setEditorLayout}
@@ -337,6 +368,8 @@ function AppShell({
             onFocusEditorPane={handleFocusEditorPane}
             onApplyEditorPanePreset={handleApplyEditorPanePreset}
             onApproveAllAiChanges={() => void handleApproveAllAiChanges()}
+            onOpenMainBib={handleOpenMainBib}
+            onShowUnverifiedReferences={handleShowUnverifiedReferences}
           />
 
           {ws.appView === "settings" ? (
@@ -438,9 +471,7 @@ function AppShell({
                           nav.reloadModel({ path: path.split("/").slice(0, 2).join("/") || path });
                           nav.navigateTo(path);
                         }}
-                        onModelChanged={() =>
-                          nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)
-                        }
+                        onModelChanged={reloadActiveModel}
                         onError={ws.setError}
                         onSidebarTabChange={nav.handleSidebarTabChange}
                       />
@@ -452,9 +483,7 @@ function AppShell({
                       onError={ws.setError}
                       onSendToTerminal={sendToTerminal}
                       onBeforeDispatch={openAgentPanel}
-                      onDispatchComplete={() =>
-                        nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined)
-                      }
+                      onDispatchComplete={reloadActiveModel}
                     />
                   </section>
                   <BottomPanel
@@ -509,6 +538,7 @@ function AppShell({
           ) : null}
         </main>
         </DocumentOutlineProvider>
+        </BibLibraryProvider>
     </AgentDispatchPanelContext.Provider>
   );
 }

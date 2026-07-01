@@ -2,7 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Bold,
+  Check,
+  Code,
   ChevronDown,
+  FileCode,
   Heading1,
   Heading2,
   Heading3,
@@ -10,10 +13,14 @@ import {
   Link2,
   List,
   ListOrdered,
+  ListTodo,
   MessageSquarePlus,
   Pilcrow,
   Quote,
   StickyNote,
+  Strikethrough,
+  Subscript,
+  Superscript,
   Type,
 } from "lucide-react";
 
@@ -53,6 +60,11 @@ const TOOLBAR_ITEMS: ToolbarItem[] = [
   },
   { action: "bold", label: "Bold", title: "Bold (Cmd+B)", icon: Bold },
   { action: "italic", label: "Italic", title: "Italic (Cmd+I)", icon: Italic },
+  { action: "strikethrough", label: "Strikethrough", title: "Strikethrough", icon: Strikethrough },
+  { action: "subscript", label: "Subscript", title: "Subscript (e.g. H~2~O)", icon: Subscript },
+  { action: "superscript", label: "Superscript", title: "Superscript (e.g. x^2^)", icon: Superscript },
+  { action: "code", label: "Inline code", title: "Inline code", icon: Code },
+  { action: "codeBlock", label: "Code block", title: "Code block", icon: FileCode },
   {
     action: "h1",
     label: "Heading 1",
@@ -91,6 +103,12 @@ const TOOLBAR_ITEMS: ToolbarItem[] = [
     icon: ListOrdered,
   },
   {
+    action: "taskList",
+    label: "Task list",
+    title: "Task list (- [ ] item)",
+    icon: ListTodo,
+  },
+  {
     action: "blockquote",
     label: "Blockquote",
     title: "Blockquote",
@@ -102,14 +120,14 @@ function FormatToolsPopover({
   items,
   disabled,
   onFormat,
-  onInsertInlineNote,
   embedded,
+  activeActions,
 }: {
   items: ToolbarItem[];
   disabled?: boolean;
   onFormat: (action: MarkdownFormatAction) => void;
-  onInsertInlineNote?: () => void;
   embedded?: boolean;
+  activeActions?: ReadonlySet<string>;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -191,38 +209,26 @@ function FormatToolsPopover({
               style={{ top: position.top, left: position.left }}
             >
               {items.map((item) => {
-                if (item.action === "inlineNote") {
-                  return (
-                    <button
-                      key={item.action}
-                      type="button"
-                      role="menuitem"
-                      disabled={disabled || !onInsertInlineNote}
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-                      onClick={() => {
-                        onInsertInlineNote?.();
-                        setOpen(false);
-                      }}
-                    >
-                      <item.icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                      {item.label}
-                    </button>
-                  );
-                }
+                const active = activeActions?.has(item.action) ?? false;
                 return (
                   <button
                     key={item.action}
                     type="button"
-                    role="menuitem"
+                    role="menuitemcheckbox"
+                    aria-checked={active}
                     disabled={disabled}
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:opacity-50",
+                      active && "bg-accent/60 font-medium text-accent-foreground",
+                    )}
                     onClick={() => {
                       onFormat(item.action as MarkdownFormatAction);
                       setOpen(false);
                     }}
                   >
                     <item.icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    {item.label}
+                    <span className="flex-1">{item.label}</span>
+                    {active ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
                   </button>
                 );
               })}
@@ -277,6 +283,7 @@ export function MarkdownToolbar({
   onInsertInlineNote,
   onInsertHighlight,
   onInsertSnippet,
+  activeActions,
 }: {
   renderedMode?: boolean;
   commentsOpen?: boolean;
@@ -293,6 +300,8 @@ export function MarkdownToolbar({
   onInsertInlineNote?: () => void;
   onInsertHighlight?: (color: TextHighlightColorId) => void;
   onInsertSnippet?: (snippet: string) => void;
+  /** Format actions active at the caret/selection (PM surface). Highlights toolbar items. */
+  activeActions?: ReadonlySet<string>;
 }) {
   const visibleItems = TOOLBAR_ITEMS.filter(
     (item) => !renderedMode || item.showInRendered !== false,
@@ -380,6 +389,7 @@ export function MarkdownToolbar({
                 key={item.action}
                 item={item}
                 disabled={disabled}
+                pressed={activeActions?.has(item.action)}
                 onClick={() => onFormat(item.action as MarkdownFormatAction)}
               />
             ))
@@ -393,14 +403,11 @@ export function MarkdownToolbar({
           />
         ) : null}
         <FormatToolsPopover
-          items={[
-            ...(noteItem && embedded && !inline ? [noteItem] : []),
-            ...(inline ? overflowFormatItems : formatItems),
-          ]}
+          items={inline ? overflowFormatItems : formatItems}
           disabled={disabled}
           embedded={embedded || inline}
           onFormat={onFormat}
-          onInsertInlineNote={onInsertInlineNote}
+          activeActions={activeActions}
         />
       </div>
     </div>

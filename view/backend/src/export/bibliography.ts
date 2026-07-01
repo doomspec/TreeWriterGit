@@ -49,6 +49,55 @@ export function extractCiteKeys(markdown: string): string[] {
   return [...keys].sort();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseCitationInner(inner: string): string[] {
+  return inner
+    .split(/[,;]/)
+    .map((part) => part.trim().replace(/^@/, ""))
+    .filter(Boolean);
+}
+
+function formatCitationKeys(keys: string[]): string {
+  if (keys.length === 0) return "";
+  if (keys.length === 1) return `[@${keys[0]}]`;
+  return `[@${keys.join("; @")}]`;
+}
+
+/** Remove one cite key from pandoc `[@…]` groups and bare `@key` tokens. */
+export function removeCiteKeyFromMarkdown(
+  markdown: string,
+  citeKey: string,
+): { content: string; removed: boolean } {
+  let removed = false;
+  let content = markdown.replace(/\[@([^\]]+)\]/g, (match, inner: string) => {
+    const keys = parseCitationInner(inner);
+    const filtered = keys.filter((key) => key !== citeKey);
+    if (filtered.length === keys.length) return match;
+    removed = true;
+    return formatCitationKeys(filtered);
+  });
+
+  const barePattern = new RegExp(`(?<![\\w/@])@${escapeRegExp(citeKey)}(?![\\w-])`, "g");
+  content = content.replace(barePattern, () => {
+    removed = true;
+    return "";
+  });
+
+  if (!removed) return { content: markdown, removed: false };
+
+  content = content
+    .replace(/\s+and\s+([,.;:!?])/g, "$1")
+    .replace(/\s+,\s+([,.;:!?])/g, "$1")
+    .replace(/\s+and\s*$/gm, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([,.;:!?])/g, "$1");
+
+  return { content, removed: true };
+}
+
 function bibEntryFromNote(citeKey: string, data: Record<string, unknown>, body: string): string {
   const title =
     String(data.title ?? "").trim() ||

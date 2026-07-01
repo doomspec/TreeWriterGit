@@ -45,5 +45,18 @@
   },
   "export": {
     "autoExport": true
+  },
+  "dispatchSkillsEnabled": [
+    "treewriter-context-cli.md",
+    "treewriter-structure-and-assets.md",
+    "scientific-writing-framework-skill.md",
+    "skill-scientific-writing.md",
+    "writing-deslop-basics.md",
+    "technology-paper-skill.md",
+    "cellpose-paper-pattern-skill.md"
+  ],
+  "zoteroLocal": {
+    "enabled": false,
+    "baseUrl": "http://127.0.0.1:23119/api"
   }
 }

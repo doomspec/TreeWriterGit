@@ -42,6 +42,7 @@ export function MarkdownSourcePane({
   content,
   diffBaseline,
   showInlinePendingHighlights,
+  disableSourceMirrors = false,
   filePath,
   setContent,
   assetAutocomplete,
@@ -71,6 +72,7 @@ export function MarkdownSourcePane({
   content: string;
   diffBaseline: string;
   showInlinePendingHighlights: boolean;
+  disableSourceMirrors?: boolean;
   filePath: string;
   setContent: (value: string) => void;
   assetAutocomplete: {
@@ -126,8 +128,9 @@ export function MarkdownSourcePane({
         )}
         mirrorClassName="p-4 font-mono text-[13px] leading-6"
         value={content}
-        baseline={diffBaseline}
-        highlight={showInlinePendingHighlights}
+        baseline={disableSourceMirrors ? content : diffBaseline}
+        highlight={showInlinePendingHighlights && !disableSourceMirrors}
+        showTextHighlights={!disableSourceMirrors}
         commentLines={commentLines}
         activeCommentLine={activeCommentLine}
         spellCheck={false}

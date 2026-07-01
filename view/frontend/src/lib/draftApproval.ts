@@ -15,22 +15,26 @@ export type DraftPendingSource = "human" | "ai";
 
 export type { DraftEditMeta };
 
+export const APPROVAL_DIR = ".approval";
 export const DRAFT_APPROVED_DOC = "draft.approved.md";
 export const OUTLINE_APPROVED_DOC = "outline.approved.md";
 
-export function requiresDraftApproval(filePath: string): boolean {
-  if (isTempNotesPath(filePath)) return false;
-  return isDraftPath(filePath) || isOutlineDocPath(filePath);
+export function approvalDirFor(unitDir: string): string {
+  return `${unitDir}/${APPROVAL_DIR}`;
 }
 
 export function approvedDraftPathFor(filePath: string): string {
   const unitDir = isDraftPath(filePath) ? parentPath(filePath) : filePath;
-  return `${unitDir}/${DRAFT_APPROVED_DOC}`;
+  return `${approvalDirFor(unitDir)}/${DRAFT_APPROVED_DOC}`;
 }
 
 export function approvedOutlinePathFor(filePath: string): string {
   const unitDir = isOutlineDocPath(filePath) ? parentPath(filePath) : filePath;
-  return `${unitDir}/${OUTLINE_APPROVED_DOC}`;
+  return `${approvalDirFor(unitDir)}/${OUTLINE_APPROVED_DOC}`;
+}
+export function requiresDraftApproval(filePath: string): boolean {
+  if (isTempNotesPath(filePath)) return false;
+  return isDraftPath(filePath) || isOutlineDocPath(filePath);
 }
 
 export function approvedBaselinePathFor(filePath: string): string {

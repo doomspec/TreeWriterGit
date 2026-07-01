@@ -13,6 +13,7 @@ import {
 import {
   isEquationDir,
   isFigureDir,
+  isManuscriptRoot,
   isTableDir,
   isUnitDir,
   orderedChildren,
@@ -50,7 +51,7 @@ function shouldEmitSectionHeading(data: Record<string, unknown>): boolean {
   if (kind === "unit" || kind === "figure" || kind === "table" || kind === "equation") {
     return false;
   }
-  return kind === "section" || kind === "subsection" || kind === "paper" || kind === "";
+  return kind === "section" || kind === "subsection" || isManuscriptRoot(data) || kind === "";
 }
 
 function headingMarkdown(depth: number, title: string): string {

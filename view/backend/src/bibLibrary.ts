@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 
-import { parseBibtex, type ParsedBibEntry } from "./bibtexImport.js";
+import { parseBibtex, parseBibtexWithSpans, type ParsedBibEntry } from "./bibtexImport.js";
 import { ModelFsError } from "./modelFs.js";
 
 export const MAIN_BIB_FILE = "main.bib";
@@ -27,6 +27,7 @@ export type BibReferenceMetadata = {
   type: string;
   verifiedStatus: BibVerificationStatus;
   integrity: string | null;
+  missingFromLibrary?: boolean;
 };
 
 export type CrossrefCandidate = {
@@ -96,15 +97,201 @@ export function dumpBibtex(entries: ParsedBibEntry[]): string {
   return entries.map(entryToBibtex).join("\n\n").trimEnd() + (entries.length ? "\n" : "");
 }
 
-export async function readMainBibEntries(modelRoot: string): Promise<BibLibraryEntry[]> {
+type MainBibCache = {
+  mtimeMs: number;
+  entries: BibLibraryEntry[];
+  byCiteKey: Map<string, BibLibraryEntry>;
+  references: BibReferenceMetadata[];
+  searchHaystacks: string[];
+  counts: { verified: number; stale: number; unverified: number };
+  entryOffsets: Map<string, { start: number; end: number }>;
+};
+
+function entrySearchHaystack(entry: BibLibraryEntry): string {
+  return [
+    entry.citeKey,
+    entry.type,
+    entry.fields.title,
+    entry.fields.author,
+    entry.fields.authors,
+    entry.fields.year,
+    entry.fields.journal,
+    entry.fields.doi,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function referenceFromEntry(entry: BibLibraryEntry): BibReferenceMetadata {
+  return {
+    path: `${MAIN_BIB_FILE}#${entry.citeKey}`,
+    title: entry.fields.title || entry.citeKey,
+    citeKey: entry.citeKey,
+    authors: entry.fields.author ?? entry.fields.authors ?? null,
+    year: entry.fields.year ?? entry.fields.date ?? null,
+    journal: entry.fields.journal ?? entry.fields.booktitle ?? entry.fields.publisher ?? null,
+    doi: entry.fields.doi ?? null,
+    type: entry.type,
+    verifiedStatus: entry.verifiedStatus,
+    integrity: entry.integrity,
+  };
+}
+
+function buildMainBibCache(raw: string, mtimeMs: number): MainBibCache {
+  const parsed = parseBibtexWithSpans(raw);
+  const entries: BibLibraryEntry[] = [];
+  const byCiteKey = new Map<string, BibLibraryEntry>();
+  const entryOffsets = new Map<string, { start: number; end: number }>();
+  const counts = { verified: 0, stale: 0, unverified: 0 };
+
+  for (const { entry, sourceStart, sourceEnd } of parsed) {
+    const enriched = enrichEntry(entry);
+    entries.push(enriched);
+    byCiteKey.set(enriched.citeKey, enriched);
+    entryOffsets.set(enriched.citeKey, { start: sourceStart, end: sourceEnd });
+    counts[enriched.verifiedStatus] += 1;
+  }
+
+  const pairs = entries.map((entry) => ({
+    reference: referenceFromEntry(entry),
+    haystack: entrySearchHaystack(entry),
+  }));
+  pairs.sort((a, b) => a.reference.citeKey.localeCompare(b.reference.citeKey));
+
+  return {
+    mtimeMs,
+    entries,
+    byCiteKey,
+    references: pairs.map((p) => p.reference),
+    searchHaystacks: pairs.map((p) => p.haystack),
+    counts,
+    entryOffsets,
+  };
+}
+
+const mainBibCache = new Map<string, MainBibCache>();
+
+export function invalidateMainBibCache(modelRoot?: string): void {
+  if (modelRoot) {
+    mainBibCache.delete(modelRoot);
+    return;
+  }
+  mainBibCache.clear();
+}
+
+async function readMainBibEntriesCached(modelRoot: string): Promise<BibLibraryEntry[]> {
   const abs = mainBibPath(modelRoot);
   if (!existsSync(abs)) return [];
-  return parseBibtex(await readFile(abs, "utf8")).map(enrichEntry);
+  const fileStat = await stat(abs);
+  const cached = mainBibCache.get(modelRoot);
+  if (cached && cached.mtimeMs === fileStat.mtimeMs) return cached.entries;
+  const raw = await readFile(abs, "utf8");
+  const next = buildMainBibCache(raw, fileStat.mtimeMs);
+  mainBibCache.set(modelRoot, next);
+  return next.entries;
+}
+
+async function getMainBibCache(modelRoot: string): Promise<MainBibCache | null> {
+  await readMainBibEntriesCached(modelRoot);
+  return mainBibCache.get(modelRoot) ?? null;
+}
+
+export async function readMainBibEntries(modelRoot: string): Promise<BibLibraryEntry[]> {
+  return readMainBibEntriesCached(modelRoot);
+}
+
+export type MainBibSummary = {
+  total: number;
+  verified: number;
+  stale: number;
+  unverified: number;
+  mtime: number | null;
+};
+
+export async function getMainBibSummary(modelRoot: string): Promise<MainBibSummary> {
+  const abs = mainBibPath(modelRoot);
+  if (!existsSync(abs)) {
+    return { total: 0, verified: 0, stale: 0, unverified: 0, mtime: null };
+  }
+  const fileStat = await stat(abs);
+  const cache = await getMainBibCache(modelRoot);
+  return {
+    total: cache?.entries.length ?? 0,
+    verified: cache?.counts.verified ?? 0,
+    stale: cache?.counts.stale ?? 0,
+    unverified: cache?.counts.unverified ?? 0,
+    mtime: fileStat.mtimeMs,
+  };
+}
+
+export async function searchMainBibReferences(
+  modelRoot: string,
+  options: BibSearchOptions = {},
+): Promise<{ entries: BibReferenceMetadata[]; total: number }> {
+  const cache = await getMainBibCache(modelRoot);
+  if (!cache) return { entries: [], total: 0 };
+
+  const q = (options.q ?? "").trim().toLowerCase();
+  const offset = Math.max(0, options.offset ?? 0);
+  const limit = Math.min(500, Math.max(1, options.limit ?? 80));
+  const status = options.status ?? "all";
+
+  let matched: BibReferenceMetadata[];
+  if (!q && status === "all") {
+    matched = cache.references;
+  } else {
+    matched = [];
+    for (let i = 0; i < cache.references.length; i += 1) {
+      const reference = cache.references[i]!;
+      if (status !== "all" && reference.verifiedStatus !== status) continue;
+      if (q && !cache.searchHaystacks[i]!.includes(q)) continue;
+      matched.push(reference);
+    }
+  }
+
+  return {
+    entries: matched.slice(offset, offset + limit),
+    total: matched.length,
+  };
+}
+
+export type BibSearchOptions = {
+  q?: string;
+  offset?: number;
+  limit?: number;
+  status?: BibVerificationStatus | "all";
+};
+
+export async function getMainBibEntry(
+  modelRoot: string,
+  citeKey: string,
+): Promise<BibLibraryEntry & { sourceRange?: { start: number; end: number } }> {
+  const cache = await getMainBibCache(modelRoot);
+  const entry = cache?.byCiteKey.get(citeKey);
+  if (!entry) throw new ModelFsError(`BibTeX entry not found: ${citeKey}`, 404);
+  const sourceRange = cache?.entryOffsets.get(citeKey);
+  return sourceRange ? { ...entry, sourceRange } : entry;
+}
+
+/** Ensure model/main.bib exists and return its raw contents for the file API. */
+export async function materializeMainBib(modelRoot: string): Promise<string> {
+  const abs = mainBibPath(modelRoot);
+  if (!existsSync(abs)) {
+    await mkdir(modelRoot, { recursive: true });
+    await writeFile(abs, "", "utf8");
+    return "";
+  }
+  return readFile(abs, "utf8");
 }
 
 async function writeMainBibEntries(modelRoot: string, entries: ParsedBibEntry[]): Promise<void> {
   await mkdir(modelRoot, { recursive: true });
-  await writeFile(mainBibPath(modelRoot), dumpBibtex(entries), "utf8");
+  const abs = mainBibPath(modelRoot);
+  const tmp = `${abs}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(tmp, dumpBibtex(entries), "utf8");
+  await rename(tmp, abs);
+  invalidateMainBibCache(modelRoot);
 }
 
 function sanitizeCiteKey(citeKey: string): string {
@@ -177,7 +364,7 @@ export async function updateMainBibEntry(
   const normalized = normalizeEntry({
     type: patch.type ?? entries[index].type,
     citeKey: nextKey,
-    fields: patch.fields,
+    fields: { ...entries[index].fields, ...patch.fields },
   });
   entries[index] = enrichEntry(normalized);
   await writeMainBibEntries(modelRoot, entries);
@@ -196,6 +383,25 @@ export async function markMainBibEntryVerified(
   entries[index] = enrichEntry(entry);
   await writeMainBibEntries(modelRoot, entries);
   return entries[index];
+}
+
+export async function deleteMainBibEntries(
+  modelRoot: string,
+  citeKeys: string[],
+): Promise<{ deleted: string[]; missing: string[] }> {
+  const wanted = [...new Set(citeKeys.map((key) => key.trim()).filter(Boolean))];
+  if (wanted.length === 0) throw new ModelFsError("citeKeys required", 400);
+
+  const entries = await readMainBibEntries(modelRoot);
+  const existing = new Set(entries.map((entry) => entry.citeKey));
+  const deleted = wanted.filter((key) => existing.has(key));
+  const missing = wanted.filter((key) => !existing.has(key));
+  const remove = new Set(deleted);
+  const remaining = entries
+    .filter((entry) => !remove.has(entry.citeKey))
+    .map(({ verifiedStatus, integrity, ...entry }) => entry);
+  await writeMainBibEntries(modelRoot, remaining);
+  return { deleted, missing };
 }
 
 export function referencesFromBibEntries(entries: BibLibraryEntry[]): BibReferenceMetadata[] {
@@ -226,13 +432,18 @@ export async function bibtexForCiteKeys(modelRoot: string, citeKeys: Set<string>
   return dumpBibtex(selected);
 }
 
-function normalizeDoi(value: string | null | undefined): string {
+export function normalizeDoi(value: string | null | undefined): string {
   return String(value ?? "")
     .trim()
     .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
     .replace(/^doi:\s*/i, "")
     .replace(/\.$/, "")
     .toLowerCase();
+}
+
+export function looksLikeDoi(value: string | null | undefined): boolean {
+  const normalized = normalizeDoi(value);
+  return /^10\.\d{4,}\/[^\s]+$/i.test(normalized);
 }
 
 function normalizeTitle(value: string | null | undefined): string {
@@ -293,9 +504,28 @@ const CROSSREF_HEADERS = {
   "User-Agent": "treewriter-bib-library/0.1 (mailto:metadata@example.invalid)",
 };
 
-export async function searchCrossrefCandidates(title: string, rows = 5): Promise<CrossrefCandidate[]> {
-  const trimmed = title.trim();
+async function fetchCrossrefWorkByDoi(doi: string): Promise<Record<string, unknown>> {
+  const normalized = normalizeDoi(doi);
+  if (!normalized) throw new ModelFsError("doi is required", 400);
+  const response = await fetch(
+    `https://api.crossref.org/works/${encodeURIComponent(normalized)}`,
+    { headers: CROSSREF_HEADERS },
+  );
+  if (response.status === 404) throw new ModelFsError(`DOI not found: ${normalized}`, 404);
+  if (!response.ok) throw new ModelFsError(`Crossref lookup failed: ${response.status}`, 502);
+  const data = (await response.json()) as { message?: Record<string, unknown> };
+  if (!data.message) throw new ModelFsError(`DOI not found: ${normalized}`, 404);
+  return data.message;
+}
+
+export async function searchCrossrefCandidates(query: string, rows = 5): Promise<CrossrefCandidate[]> {
+  const trimmed = query.trim();
   if (!trimmed) throw new ModelFsError("title is required", 400);
+  if (looksLikeDoi(trimmed)) {
+    const work = await fetchCrossrefWorkByDoi(trimmed);
+    const candidate = candidateFromCrossref(work, firstString(work.title));
+    return [{ ...candidate, similarity: 1 }];
+  }
   const url = new URL("https://api.crossref.org/works");
   url.searchParams.set("query.title", trimmed);
   url.searchParams.set("rows", String(Math.max(1, Math.min(rows, 10))));
@@ -339,6 +569,35 @@ export async function previewMainBibEntryFromCrossref(
   doi: string,
 ): Promise<BibLibraryEntry> {
   return (await crossrefReplacementEntry(modelRoot, citeKey, doi)).fresh;
+}
+
+export async function previewNewBibEntryFromCrossref(
+  modelRoot: string,
+  doi: string,
+): Promise<BibLibraryEntry> {
+  const bibtex = await fetchCrossrefBibtex(doi);
+  const [freshRaw] = parseBibtex(bibtex);
+  if (!freshRaw) throw new ModelFsError("Crossref returned unparseable BibTeX", 502);
+  const fresh = normalizeEntry(freshRaw);
+  fresh.fields[INTEGRITY_FIELD] = integrityHash(fresh);
+  return enrichEntry(fresh);
+}
+
+export async function addMainBibEntryFromCrossref(
+  modelRoot: string,
+  doi: string,
+): Promise<{ entry: BibLibraryEntry; created: boolean }> {
+  const bibtex = await fetchCrossrefBibtex(doi);
+  const result = await importMainBibtex(modelRoot, bibtex);
+  if (result.created.length > 0) {
+    const entry = await markMainBibEntryVerified(modelRoot, result.created[0]!);
+    return { entry, created: true };
+  }
+  if (result.skipped.length > 0) {
+    const entry = await getMainBibEntry(modelRoot, result.skipped[0]!);
+    return { entry, created: false };
+  }
+  throw new ModelFsError(result.errors[0] ?? "Could not add BibTeX entry from Crossref", 502);
 }
 
 export async function updateMainBibEntryFromCrossref(

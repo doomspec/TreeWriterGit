@@ -4,6 +4,7 @@ import { Bot, ChevronDown, ChevronRight, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { approveDraftAtPath, discardDraftAtPath } from "@/lib/draftApproval";
+import { resolveModelReloadScope } from "@/lib/modelReloadScope";
 import {
   authorGroupBorderColor,
   formatReviewChangeSummary,
@@ -184,7 +185,7 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
     nav.refreshVersion,
   );
   const [filter, setFilter] = useState<ReviewFilter>("all");
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
 
   const filterOptions = useMemo(() => {
@@ -203,7 +204,7 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
   }, [filter, groups]);
 
   const toggleGroup = useCallback((authorKey: string) => {
-    setExpandedGroups((prev) => {
+    setCollapsedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(authorKey)) next.delete(authorKey);
       else next.add(authorKey);
@@ -224,7 +225,13 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
       try {
         if (action === "approve") await approveDraftAtPath(item.path);
         else await discardDraftAtPath(item.path);
-        nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined);
+        nav.reloadModel(
+          resolveModelReloadScope({
+            browsePath: nav.browsePath,
+            paperPath: nav.paperPath,
+            activeFile: item.path,
+          }),
+        );
         await reload();
       } finally {
         setBusy(false);
@@ -241,7 +248,13 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
           if (action === "approve") await approveDraftAtPath(item.path);
           else await discardDraftAtPath(item.path);
         }
-        nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : undefined);
+        nav.reloadModel(
+          resolveModelReloadScope({
+            browsePath: nav.browsePath,
+            paperPath: nav.paperPath,
+            activeFile: group.items[0]?.path,
+          }),
+        );
         await reload();
       } finally {
         setBusy(false);
@@ -305,7 +318,7 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
               <AuthorGroupSection
                 key={group.authorKey}
                 group={group}
-                open={expandedGroups.has(group.authorKey) || visibleGroups.length === 1}
+                open={!collapsedGroups.has(group.authorKey)}
                 busy={busy}
                 onToggle={() => toggleGroup(group.authorKey)}
                 onOpen={handleOpen}

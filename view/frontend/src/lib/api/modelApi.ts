@@ -1,9 +1,15 @@
 import { ApiError, getApiBaseUrl, request } from "@/lib/apiClient";
 import type { ModelNode } from "@/lib/modelTree";
 import type {
+  ContributionMode,
+  DocumentType,
   DraftEditMeta,
   ExportPaperResult,
+  ExportPrimaryFormat,
   GitSyncState,
+  ManuscriptDetail,
+  ManuscriptSummary,
+  ManuscriptTemplate,
   OverleafPushResult,
   OverleafStatus,
   PaperDetail,
@@ -17,9 +23,15 @@ import type {
 
 export { ApiError, getApiBaseUrl, request };
 export type {
+  ContributionMode,
+  DocumentType,
   DraftEditMeta,
   ExportPaperResult,
+  ExportPrimaryFormat,
   GitSyncState,
+  ManuscriptDetail,
+  ManuscriptSummary,
+  ManuscriptTemplate,
   OverleafPushResult,
   OverleafStatus,
   PaperDetail,
@@ -147,22 +159,71 @@ export function reorderChildren(parent: string, childOrder: string[]) {
   });
 }
 
-export interface JournalTemplate {
+export interface JournalTemplate extends ManuscriptTemplate {
   journal: string;
-  targetWords: number;
-  sectionOrder: string[];
 }
 
-export function fetchPapers() {
-  return request<{ papers: PaperSummary[] }>("/api/papers");
+export function fetchManuscripts(options?: { docType?: DocumentType; tag?: string }) {
+  const params = new URLSearchParams();
+  if (options?.docType) params.set("docType", options.docType);
+  if (options?.tag) params.set("tag", options.tag);
+  const query = params.toString();
+  return request<{ manuscripts: ManuscriptSummary[] }>(
+    `/api/manuscripts${query ? `?${query}` : ""}`,
+  );
+}
+
+export function fetchPapers(options?: { docType?: DocumentType; tag?: string }) {
+  const params = new URLSearchParams();
+  if (options?.docType) params.set("docType", options.docType);
+  if (options?.tag) params.set("tag", options.tag);
+  const query = params.toString();
+  return request<{ papers: PaperSummary[] }>(`/api/papers${query ? `?${query}` : ""}`);
+}
+
+export function fetchManuscriptDetail(slug: string) {
+  return request<{ manuscript: ManuscriptDetail }>(
+    `/api/manuscripts?slug=${encodeURIComponent(slug)}`,
+  );
 }
 
 export function fetchPaperDetail(slug: string) {
   return request<{ paper: PaperDetail }>(`/api/papers?slug=${encodeURIComponent(slug)}`);
 }
 
+export function fetchManuscriptTemplates(docType?: DocumentType) {
+  const params = docType ? `?docType=${encodeURIComponent(docType)}` : "";
+  return request<{ templates: ManuscriptTemplate[] }>(`/api/manuscript/templates${params}`);
+}
+
 export function fetchJournalTemplates() {
   return request<{ journals: string[]; templates: JournalTemplate[] }>("/api/paper/templates");
+}
+
+export function createManuscript(body: {
+  title: string;
+  docType?: DocumentType;
+  templateId?: string;
+  journal?: string;
+  authors: string[];
+  slug?: string;
+  targetWords?: number;
+  sectionOrder?: string[];
+  status?: string;
+  overleafRepoPath?: string | null;
+  funder?: string;
+  program?: string;
+  deadline?: string;
+  audience?: string;
+  tags?: string[];
+  project?: string | null;
+  contributionMode?: ContributionMode;
+  agentSummary?: string;
+}) {
+  return request<{ ok: true; slug: string; path: string }>("/api/manuscript", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function createPaper(body: {
@@ -178,6 +239,31 @@ export function createPaper(body: {
   return request<{ ok: true; slug: string; path: string }>("/api/paper", {
     method: "POST",
     body: JSON.stringify(body)
+  });
+}
+
+export function updateManuscript(body: {
+  slug: string;
+  title: string;
+  authors: string[];
+  journal?: string;
+  templateId?: string;
+  targetWords?: number;
+  sectionOrder?: string[];
+  status?: string;
+  overleafRepoPath?: string | null;
+  funder?: string | null;
+  program?: string | null;
+  deadline?: string | null;
+  audience?: string | null;
+  tags?: string[];
+  project?: string | null;
+  contributionMode?: ContributionMode | null;
+  agentSummary?: string | null;
+}) {
+  return request<{ ok: true; slug: string; path: string }>("/api/manuscript", {
+    method: "PATCH",
+    body: JSON.stringify(body),
   });
 }
 

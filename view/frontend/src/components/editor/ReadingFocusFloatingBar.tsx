@@ -1,8 +1,10 @@
 import { BookOpen, Minimize2 } from "lucide-react";
 
+import { EditorPaneModeToggle } from "@/components/editor/EditorPaneModeToggle";
 import { EditorUndoRedoButtons } from "@/components/editor/EditorUndoRedoButtons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { EditorPaneMode } from "@/lib/editorSessionState";
 
 export function ReadingFocusFloatingBar({
   wordCount,
@@ -13,6 +15,12 @@ export function ReadingFocusFloatingBar({
   onRedo,
   onExit,
   className,
+  paneMode,
+  onPaneModeChange,
+  paneLabel = "Document",
+  pendingDiffAvailable = false,
+  cleanPreview = false,
+  onCleanPreviewChange,
 }: {
   wordCount: number;
   charCount: number;
@@ -22,6 +30,17 @@ export function ReadingFocusFloatingBar({
   onRedo: () => void;
   onExit: () => void;
   className?: string;
+  /**
+   * The render/raw switch is normally reached via the pane header, which gets
+   * concealed while reading focus uses the inline selection toolbar. Passing
+   * these keeps mode switching reachable without leaving focus mode.
+   */
+  paneMode?: EditorPaneMode;
+  onPaneModeChange?: (mode: EditorPaneMode) => void;
+  paneLabel?: string;
+  pendingDiffAvailable?: boolean;
+  cleanPreview?: boolean;
+  onCleanPreviewChange?: (clean: boolean) => void;
 }) {
   return (
     <div
@@ -38,6 +57,19 @@ export function ReadingFocusFloatingBar({
         {wordCount}w · {charCount}c
       </span>
       <div className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+      {paneMode && onPaneModeChange ? (
+        <>
+          <EditorPaneModeToggle
+            paneMode={paneMode}
+            onPaneModeChange={onPaneModeChange}
+            ariaLabel={`${paneLabel} editing mode`}
+            pendingDiffAvailable={pendingDiffAvailable}
+            cleanPreview={cleanPreview}
+            onCleanPreviewChange={onCleanPreviewChange}
+          />
+          <div className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
+        </>
+      ) : null}
       <EditorUndoRedoButtons
         canUndo={canUndo}
         canRedo={canRedo}

@@ -22,6 +22,7 @@ export type AppCommandsContext = {
   dualPaneEditorActive: boolean;
   notesPaneAvailable: boolean;
   pendingAiReviewCount: number;
+  selectedBibCiteKey: string | null;
   onSetAppView: (view: AppView) => void;
   onSetSidebarTab: (tab: WorkspaceNavTab) => void;
   onSetSidebarPanel: (panel: SidebarPanel) => void;
@@ -38,6 +39,8 @@ export type AppCommandsContext = {
   onFocusEditorPane: (pane: EditorPaneId) => void;
   onApplyEditorPanePreset: (preset: EditorPanePresetId) => void;
   onApproveAllAiChanges: () => void;
+  onOpenMainBib: (citeKey?: string) => void;
+  onShowUnverifiedReferences: () => void;
 };
 
 export function AppCommands(context: AppCommandsContext) {
@@ -80,11 +83,35 @@ export function AppCommands(context: AppCommandsContext) {
       },
       {
         id: "workspace.papers",
-        label: "Switch to Papers",
+        label: "Switch to Manuscripts",
         category: "Navigation",
-        aliases: ["manuscript", "paper"],
+        aliases: ["manuscript", "paper", "papers"],
         when: () => ctx().appView === "workspace",
         run: () => ctx().onSetSidebarPanel("papers"),
+      },
+      {
+        id: "sidebar.references",
+        label: "Show references library",
+        category: "Navigation",
+        aliases: ["bibtex", "bibliography", "citations", "main.bib", "refs"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("references"),
+      },
+      {
+        id: "references.openMainBib",
+        label: "Open main.bib",
+        category: "References",
+        aliases: ["bibliography editor", "edit references"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onOpenMainBib(ctx().selectedBibCiteKey ?? undefined),
+      },
+      {
+        id: "references.unverified",
+        label: "Show unverified references",
+        category: "References",
+        aliases: ["review references", "verify bibliography"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onShowUnverifiedReferences(),
       },
       {
         id: "sidebar.outline",

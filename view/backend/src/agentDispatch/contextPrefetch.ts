@@ -5,6 +5,8 @@ import matter from "gray-matter";
 import { isUnitDir, orderedChildren, resolveChildPath } from "../modelFs.js";
 import { searchModel } from "../search.js";
 import type { DispatchAction } from "./templates.js";
+import type { ZoteroLocalConfig } from "../zoteroLocalConfig.js";
+import { loadZoteroLocalConfig } from "../zoteroLocalConfig.js";
 
 function parentPath(relPath: string): string {
   const normalized = relPath.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -159,8 +161,8 @@ export async function gatherAutomaticContextPrefetch(
 }
 
 /** Tell dispatch agents how to pull more context on demand (no MCP tax). */
-export function buildDispatchContextCliBlock(_repoRoot: string): string {
-  return [
+export async function buildDispatchContextCliBlock(repoRoot: string): Promise<string> {
+  const lines = [
     "ON-DEMAND CONTEXT (use only if the sections above are insufficient):",
     "Terminal cwd is model/ — paths in this task are relative to model/.",
     "",
@@ -176,5 +178,25 @@ export function buildDispatchContextCliBlock(_repoRoot: string): string {
     "",
     "Search/compose need pnpm dev (localhost:4000); read/tree work offline.",
     "Full guide: .treewriter-skills/treewriter-context-cli.md",
-  ].join("\n");
+  ];
+
+  let zoteroLocal: ZoteroLocalConfig = { enabled: false, baseUrl: "http://127.0.0.1:23119/api" };
+  try {
+    zoteroLocal = await loadZoteroLocalConfig(repoRoot);
+  } catch {
+    // omit zotero block
+  }
+
+  if (zoteroLocal.enabled) {
+    lines.push(
+      "",
+      "ZOTERO LOCAL (Settings → Extensions → enabled):",
+      "  node ../scripts/tw-zotero.mjs search \"topic keywords\" --json",
+      "  node ../scripts/tw-zotero.mjs import --keys ITEMKEY1,ITEMKEY2 --json",
+      "  node ../scripts/tw-zotero.mjs snippet --keys cite_key1,cite_key2",
+      "Then add [@cite_key] to the target draft.md.",
+    );
+  }
+
+  return lines.join("\n");
 }

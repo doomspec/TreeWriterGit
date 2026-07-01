@@ -55,6 +55,7 @@ Layer 2 — Auto prefetch (default, no checklist)
 Layer 3 — On demand (agent runs in terminal)
   node ../scripts/tw-context.mjs search|read|tree|compose  (cwd = model/)
   pnpm import-docx / import-references  (repo root, bulk import)
+  pnpm tw-zotero search|import|snippet  (when Settings → Extensions → Zotero enabled)
   Documented in .treewriter-skills/treewriter-context-cli.md
 
 Workflow:

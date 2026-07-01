@@ -8,10 +8,12 @@ import {
   exportPaper,
   exportPaperBatch,
   fetchOverleafStatus,
+  fetchPaperDetail,
   importOverleafFeedback,
   pushToOverleaf,
   type OverleafStatus,
 } from "@/modelApi";
+import type { DocumentType } from "@/modelApi";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -35,8 +37,11 @@ export function PaperExportPanel({
   const [overleafGitUrl, setOverleafGitUrl] = useState("");
   const [overleafToken, setOverleafToken] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [docType, setDocType] = useState<DocumentType>("paper");
 
   const overleafConnected = overleafStatus?.connected ?? false;
+  const showOverleaf = docType === "paper";
+  const emphasizeDocx = docType === "grant" || docType === "report";
   const busy = exporting || pushingOverleaf || importingOverleaf || connectingOverleaf;
   const disabled = !paperSlug || busy;
 
@@ -57,9 +62,13 @@ export function PaperExportPanel({
     if (!paperSlug) {
       setOverleafStatus(null);
       setOverleafGitUrl("");
+      setDocType("paper");
       return;
     }
     void loadOverleafStatus(paperSlug);
+    void fetchPaperDetail(paperSlug)
+      .then(({ paper }) => setDocType(paper.docType ?? "paper"))
+      .catch(() => setDocType("paper"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperSlug]);
 
@@ -181,7 +190,7 @@ export function PaperExportPanel({
   if (!paperSlug) {
     return (
       <div className={cn("p-3 text-xs leading-normal text-muted-foreground", className)}>
-        Open a paper to export LaTeX/PDF or sync with Overleaf.
+        Open a manuscript to export {emphasizeDocx ? "Word/PDF" : "LaTeX/PDF"} or sync with Overleaf.
       </div>
     );
   }
@@ -234,7 +243,7 @@ export function PaperExportPanel({
               </Button>
               <Button
                 type="button"
-                variant="outline"
+                variant={emphasizeDocx ? "default" : "outline"}
                 size="sm"
                 className="h-8 w-full justify-center bg-card px-2"
                 disabled={disabled}
@@ -258,6 +267,8 @@ export function PaperExportPanel({
           </div>
 
           <div className="space-y-2 border-t border-border pt-4">
+            {showOverleaf ? (
+              <>
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Overleaf
@@ -356,6 +367,12 @@ export function PaperExportPanel({
                 {connectingOverleaf ? "Refreshing…" : "Refresh clone from Overleaf"}
               </Button>
             ) : null}
+              </>
+            ) : (
+              <p className="text-[11px] leading-normal text-muted-foreground">
+                Overleaf sync is available for journal papers only. Use Word export for grants and reports.
+              </p>
+            )}
           </div>
         </div>
 
@@ -368,3 +385,6 @@ export function PaperExportPanel({
     </div>
   );
 }
+
+/** @deprecated Use PaperExportPanel — name retained for sidebar registry */
+export const ManuscriptExportPanel = PaperExportPanel;

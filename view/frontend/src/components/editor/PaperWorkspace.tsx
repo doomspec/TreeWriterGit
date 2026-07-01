@@ -12,6 +12,7 @@ import { WorkspaceLoadingState } from "@/components/editor/workspace/WorkspaceLo
 import { useReadingFocusSplitPaneTitles } from "@/components/editor/ReadingFocusNavBar";
 import { SectionApproveChildrenButton } from "@/components/editor/SectionApproveChildrenButton";
 import { outlinePathFor, tempNotesPathFor, type NavigateTarget } from "@/lib/modelTree";
+import type { OpenFileOptions } from "@/lib/useWorkspaceNavigation";
 import { normalizeComposedDraftBody } from "@/lib/sectionCompose";
 import type { DualPaneActive, EditorVisiblePanes } from "@/lib/workspacePreferences";
 
@@ -37,7 +38,7 @@ export function PaperWorkspace({
   paperPath: string;
   refreshVersion: number;
   onNavigate: (path: string) => void;
-  onOpenFile: (path: string) => void;
+  onOpenFile: (path: string, options?: OpenFileOptions) => void;
   onError: (message: string) => void;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
@@ -59,6 +60,10 @@ export function PaperWorkspace({
 
   const handleLinkNavigate = useCallback(
     (target: NavigateTarget) => {
+      if (target.type === "bib") {
+        onOpenFile("main.bib", { citeKey: target.citeKey });
+        return;
+      }
       if (target.type === "file") {
         onOpenFile(target.path);
         return;

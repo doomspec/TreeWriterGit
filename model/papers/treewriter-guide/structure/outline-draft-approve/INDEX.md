@@ -1,8 +1,13 @@
 ---
-kind: "unit"
-title: "Outline, draft, and approve"
-status: "approved"
+kind: unit
+title: Outline, draft, and approve
+status: approved
 links: []
-approved_at: "2026-06-25T02:12:40.458Z"
-approved_by: "treewriter-guide-scaffold"
+approved_at: '2026-07-01T01:26:19.584Z'
+approved_by: yakavetsiv
+edited_by: null
+edited_at: null
+ai_assisted: false
+ai_provider: null
 ---
+

@@ -5,7 +5,7 @@ import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
-import { ModelFsError } from "./modelFs.js";
+import { ModelFsError, resolvePaperRel } from "./modelFs.js";
 import {
   buildCombinedMarkdown,
   buildSectionMarkdown,
@@ -240,7 +240,7 @@ export async function exportModularPaper(
   repoRoot: string,
   input: { paperSlug: string; includeDrafts?: boolean; validation?: ExportValidationConfig },
 ): Promise<ModularExportBundle> {
-  const paperRel = `papers/${input.paperSlug.trim()}`;
+  const paperRel = resolvePaperRel(modelRoot, input.paperSlug);
   const paperIndex = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(paperIndex)) {
     throw new ModelFsError(`Paper not found: ${input.paperSlug}`, 404);

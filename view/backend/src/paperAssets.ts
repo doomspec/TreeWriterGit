@@ -6,6 +6,7 @@ import matter from "gray-matter";
 import { listPaperEquations } from "./equations.js";
 import { listPaperFigures } from "./figures.js";
 import { indexSkeleton, outlineDocSkeleton } from "./modelFs.js";
+import { collectPaperCitedKeys } from "./paperCitations.js";
 import { listPaperTables } from "./tables.js";
 
 export type ReferenceMetadata = {
@@ -25,18 +26,7 @@ export type PaperAssetsBundle = {
 };
 
 export async function countPaperReferences(modelRoot: string, paperRel: string): Promise<number> {
-  const literatureDir = paperLiteratureDir(paperRel);
-  const abs = path.join(modelRoot, literatureDir);
-  if (!existsSync(abs)) return 0;
-
-  let count = 0;
-  for (const file of await readdir(abs)) {
-    if (!file.endsWith(".md") || file === "INDEX.md" || file === "outline.md" || file === "draft.md") {
-      continue;
-    }
-    count += 1;
-  }
-  return count;
+  return (await collectPaperCitedKeys(modelRoot, paperRel)).length;
 }
 
 export function paperLiteratureDir(paperRel: string): string {

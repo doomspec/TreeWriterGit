@@ -49,14 +49,18 @@ export function childOrderForFolder(tree: ModelNode[], folderPath: string): stri
   return node.childOrder;
 }
 
-export type NavigateTarget =
+export type ModelNavigateTarget =
   | { type: "folder"; path: string }
   | { type: "file"; path: string };
+
+export type NavigateTarget =
+  | ModelNavigateTarget
+  | { type: "bib"; citeKey: string };
 
 export function resolveModelPathTarget(
   tree: ModelNode[],
   pathValue: string,
-): NavigateTarget | null {
+): ModelNavigateTarget | null {
   if (!pathValue) return { type: "folder", path: "" };
 
   const direct = findNode(tree, pathValue);

@@ -96,6 +96,10 @@ export function DocumentOutlinePanel({ className }: { className?: string }) {
       if (!outline) return;
       if (outline.scrollToHeading(heading.id)) return;
       outline.navigateHeading(heading, (target) => {
+        if (target.type === "bib") {
+          nav.openFile("main.bib", { citeKey: target.citeKey });
+          return;
+        }
         if (target.type === "file") {
           nav.openFile(target.path);
           return;

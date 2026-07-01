@@ -43,7 +43,11 @@ export function getModelTreeVersion(): number {
 export function changeAffectsGraph(path: string | null): boolean {
   if (!path) return true;
   const normalized = path.replace(/\\/g, "/");
-  if (normalized.endsWith("/draft.md") || normalized.endsWith("/draft.approved.md")) {
+  if (
+    normalized.endsWith("/draft.md") ||
+    normalized.endsWith("/draft.approved.md") ||
+    normalized.includes("/.approval/")
+  ) {
     return false;
   }
   if (normalized.includes("/notes/sessions/")) {

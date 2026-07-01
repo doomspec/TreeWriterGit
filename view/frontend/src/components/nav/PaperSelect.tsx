@@ -3,7 +3,13 @@ import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { PaperSummary } from "@/modelApi";
+import type { DocumentType, PaperSummary } from "@/modelApi";
+import { DOC_TYPE_LABELS } from "@/lib/manuscriptForm";
+
+export function docTypeBadgeLabel(docType: DocumentType | undefined): string {
+  if (!docType || docType === "paper") return "";
+  return DOC_TYPE_LABELS[docType];
+}
 
 export function paperSlugFromPath(path: string): string | null {
   return /^papers\/([^/]+)/.exec(path)?.[1] ?? null;
@@ -19,12 +25,14 @@ export function PaperSelect({
   selectedSlug,
   loading,
   onChange,
+  docTypeFilter = "all",
   className,
 }: {
   papers: PaperSummary[];
   selectedSlug: string | null;
   loading: boolean;
   onChange: (slug: string) => void;
+  docTypeFilter?: DocumentType | "all";
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -34,7 +42,9 @@ export function PaperSelect({
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number } | null>(
     null,
   );
-  const selected = papers.find((p) => p.slug === selectedSlug);
+  const filteredPapers =
+    docTypeFilter === "all" ? papers : papers.filter((p) => (p.docType ?? "paper") === docTypeFilter);
+  const selected = filteredPapers.find((p) => p.slug === selectedSlug) ?? papers.find((p) => p.slug === selectedSlug);
 
   useEffect(() => {
     if (!open) return;
@@ -81,10 +91,10 @@ export function PaperSelect({
   }, [open]);
 
   const label = selected
-    ? `${selected.title}${selected.journal ? ` · ${selected.journal}` : ""}`
-    : papers.length === 0
-      ? "No papers yet"
-      : "Select a paper…";
+    ? `${selected.title}${selected.journal ? ` · ${selected.journal}` : docTypeBadgeLabel(selected.docType) ? ` · ${docTypeBadgeLabel(selected.docType)}` : ""}`
+    : filteredPapers.length === 0
+      ? "No manuscripts yet"
+      : "Select a manuscript…";
 
   return (
     <div ref={rootRef} className={cn("relative min-w-0", className)}>
@@ -95,7 +105,7 @@ export function PaperSelect({
         disabled={loading && papers.length === 0}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label="Select paper"
+        aria-label="Select manuscript"
         className={cn(
           "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2.5 text-left text-xs outline-none ring-primary focus-visible:ring-1",
           loading ? "opacity-60" : undefined,
@@ -121,10 +131,10 @@ export function PaperSelect({
               }}
               className="fixed z-overlay max-h-48 overflow-auto rounded-md border border-border bg-card py-1 text-card-foreground shadow-lg"
             >
-              {papers.length === 0 ? (
-                <li className="bg-card px-2.5 py-2 text-xs text-muted-foreground">No papers yet</li>
+              {filteredPapers.length === 0 ? (
+                <li className="bg-card px-2.5 py-2 text-xs text-muted-foreground">No manuscripts yet</li>
               ) : (
-                papers.map((paper) => {
+                filteredPapers.map((paper) => {
                   const active = paper.slug === selectedSlug;
                   return (
                     <li key={paper.slug} role="option" aria-selected={active} className="bg-card">
@@ -140,9 +150,9 @@ export function PaperSelect({
                         }}
                       >
                         <span className="line-clamp-2">{paper.title}</span>
-                        {paper.journal ? (
-                          <span className="text-[10px] text-muted-foreground">{paper.journal}</span>
-                        ) : null}
+                        <span className="text-[10px] text-muted-foreground">
+                          {[docTypeBadgeLabel(paper.docType), paper.journal].filter(Boolean).join(" · ")}
+                        </span>
                       </button>
                     </li>
                   );

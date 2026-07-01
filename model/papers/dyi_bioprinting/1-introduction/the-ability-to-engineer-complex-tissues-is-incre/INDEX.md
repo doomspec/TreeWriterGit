@@ -1,15 +1,19 @@
 ---
 kind: unit
-title: The Ability To Engineer Complex Tissues Is Incre
+title: Why Complex Tissue Engineering Matters
 status: approved
 links: []
-approved_at: '2026-06-25T21:38:46.848Z'
-approved_by: docx-import
-outline_approved_at: '2026-06-25T21:39:16.740Z'
+outline_edited_by: null
+outline_edited_at: null
+outline_ai_assisted: false
+outline_ai_provider: null
 outline_approved_by: yakavetsiv
+outline_approved_at: '2026-07-01T02:08:43.958Z'
 edited_by: null
 edited_at: null
 ai_assisted: false
 ai_provider: null
+approved_by: null
+approved_at: '2026-07-01T16:29:01.134Z'
 ---
 

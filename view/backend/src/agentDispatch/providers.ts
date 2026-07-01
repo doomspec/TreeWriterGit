@@ -8,6 +8,28 @@ export interface AiProvider {
   writesFiles: boolean;
 }
 
+/** Reject provider commands/args that would break out of a single shell token. */
+const SHELL_METACHAR_RE = /[;&|`$()<>\\!"'\n\r\0]/;
+
+export function assertSafeProvider(provider: AiProvider): void {
+  const command = provider.command.trim();
+  if (!command || /\s/.test(command) || SHELL_METACHAR_RE.test(command)) {
+    throw new Error(`Unsafe provider command: ${provider.name}`);
+  }
+  for (const arg of provider.args) {
+    if (arg === "{prompt}" || arg === "{files}") continue;
+    if (SHELL_METACHAR_RE.test(arg)) {
+      throw new Error(`Unsafe provider argument for ${provider.name}`);
+    }
+  }
+}
+
+export function assertSafeProviders(providers: AiProvider[]): void {
+  for (const provider of providers) {
+    assertSafeProvider(provider);
+  }
+}
+
 export interface ProviderConfig {
   aiProviders: AiProvider[];
   defaultProvider: string;
@@ -46,11 +68,13 @@ export async function loadProviders(repoRoot: string): Promise<ProviderConfig> {
     const providers = Array.isArray(parsed.aiProviders) && parsed.aiProviders.length > 0
       ? parsed.aiProviders
       : DEFAULT_PROVIDERS;
+    assertSafeProviders(providers);
     return {
       aiProviders: providers,
       defaultProvider: parsed.defaultProvider ?? providers[0].name,
     };
   } catch {
+    assertSafeProviders(DEFAULT_PROVIDERS);
     return { aiProviders: DEFAULT_PROVIDERS, defaultProvider: DEFAULT_PROVIDERS[0].name };
   }
 }

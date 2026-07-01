@@ -22,7 +22,7 @@ export function useMarkdownAnnotations({
   const [annotationItems, setAnnotationItems] = useState<CommentRecord[]>([]);
 
   useEffect(() => {
-    if (!commentsOpen) {
+    if (!commentsOpen || !filePath.endsWith(".md")) {
       setAnnotationItems([]);
       setAnnotationIndex(0);
       return;

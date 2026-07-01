@@ -1,4 +1,4 @@
-import type { BlockMarkdownEditorHandle } from "@/components/editor/BlockMarkdownEditor";
+import type { BlockMarkdownEditorHandle } from "@/components/editor/editorHandle";
 import { EditorFocusToggle } from "@/components/editor/EditorFocusToggle";
 import { EditorUndoRedoButtons } from "@/components/editor/EditorUndoRedoButtons";
 import { MarkdownToolbar } from "@/components/editor/MarkdownToolbar";
@@ -51,6 +51,7 @@ export function MarkdownPreviewPane({
   previewMeta,
   focusTitleContextPath,
   onNavigate,
+  onActiveFormatsChange,
   previewBody,
   approvedPreviewBody,
   loadedPreviewBody,
@@ -97,6 +98,7 @@ export function MarkdownPreviewPane({
   previewMeta: { title: string | null; body: string };
   focusTitleContextPath: string;
   onNavigate?: (target: NavigateTarget) => void;
+  onActiveFormatsChange?: (actions: string[]) => void;
   previewBody: string;
   approvedPreviewBody: string;
   loadedPreviewBody: string;
@@ -164,56 +166,22 @@ export function MarkdownPreviewPane({
         )}
       >
         {renderedEditable ? (
-          <ReadingFocusDocumentLayout
-            title={
-              previewMeta.title ? (
-                <ReadingFocusTitleLink
-                  title={previewMeta.title}
-                  contextPath={focusTitleContextPath}
-                  onNavigate={onNavigate}
-                />
-              ) : null
-            }
-          >
+          // PM keeps the h1 in the editable doc, so no separate title chrome.
+          <ReadingFocusDocumentLayout>
             <RenderedMarkdownField
-              inputRef={previewRef}
               editorRef={previewBlockRef}
               value={previewBody}
               approvedBaseline={approvedPreviewBody}
-              loadedContent={loadedPreviewBody}
               highlightPending={showInlinePendingHighlights}
-              figureLabelIndex={figureLabelIndex}
-              pendingApproval={
-                showInlinePendingHighlights
-                  ? {
-                      pendingSource: approvalDisplay.pendingSource ?? "human",
-                      editedBy: approvalDisplay.editedBy,
-                      aiAssisted: approvalDisplay.aiAssisted,
-                      aiProvider: approvalDisplay.aiProvider,
-                      loadedContent: loadedPreviewBody,
-                      onApprove: () => void handleApproveDraft(),
-                      onDiscard: () => void handleDiscardDraft(),
-                      approving: saveState === "saving",
-                      approveLabel: approvalLabel.replace(/^Approve /, ""),
-                    }
-                  : null
-              }
-              compact={compact}
-              showPreview
               ariaLabel={`Edit ${paneLabel ?? "document"} ${filePath}`}
               placeholder={editorPlaceholder}
               linkContextPath={linkContextPath}
               linksClickable={Boolean(onNavigate)}
               onNavigate={onNavigate}
+              onActiveFormatsChange={onActiveFormatsChange}
               refreshVersion={refreshVersion}
-              activeOutlineNavPath={activeOutlineNavPath}
               onChange={handlePreviewBodyChange}
               onSelect={updateSelectedLine}
-              onTextareaSync={(textarea) => void assetAutocomplete.sync(textarea)}
-              onBlur={(event) => assetAutocomplete.handleEditorBlur(event.currentTarget)}
-              onKeyDown={onPreviewKeyDown}
-              commentLines={commentLines}
-              activeCommentLine={activeCommentLine}
             />
           </ReadingFocusDocumentLayout>
         ) : (

@@ -1,12 +1,18 @@
 export type MarkdownFormatAction =
   | "bold"
   | "italic"
+  | "strikethrough"
+  | "subscript"
+  | "superscript"
+  | "code"
+  | "codeBlock"
   | "h1"
   | "h2"
   | "h3"
   | "paragraph"
   | "bulletList"
   | "orderedList"
+  | "taskList"
   | "link"
   | "blockquote";
 
@@ -136,6 +142,20 @@ export function applyMarkdownFormat(
       return wrapSelection(value, start, end, "**");
     case "italic":
       return wrapSelection(value, start, end, "*");
+    case "strikethrough":
+      return wrapSelection(value, start, end, "~~");
+    case "subscript":
+      return wrapSelection(value, start, end, "~");
+    case "superscript":
+      return wrapSelection(value, start, end, "^");
+    case "code":
+      return wrapSelection(value, start, end, "`");
+    case "codeBlock": {
+      const selected = value.slice(start, end) || "code";
+      const block = "```\n" + selected + "\n```";
+      const nextValue = value.slice(0, start) + block + value.slice(end);
+      return { value: nextValue, selectionStart: start + 4, selectionEnd: start + 4 + selected.length };
+    }
     case "h1":
       return replaceLineBlock(value, start, end, (lines) => setHeadingLevel(lines, 1));
     case "h2":
@@ -154,6 +174,8 @@ export function applyMarkdownFormat(
           return `${i + 1}. ${stripped}`;
         }),
       );
+    case "taskList":
+      return replaceLineBlock(value, start, end, (lines) => prefixLines(lines, "- [ ] "));
     case "blockquote":
       return replaceLineBlock(value, start, end, (lines) => prefixLines(lines, "> "));
     case "link": {

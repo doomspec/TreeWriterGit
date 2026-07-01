@@ -4,6 +4,26 @@ import { existsSync } from "node:fs";
 import { ModelFsError, PAPER_ASSET_DIRS } from "./errors.js";
 import { readIndexData } from "./ordering.js";
 
+const PAPER_SLUG_RE = /^[a-z0-9][a-z0-9-_]*$/;
+
+/** Validate a manuscript slug and return its model-relative path under `papers/`. */
+export function resolvePaperRel(modelRoot: string, slug: string): string {
+  const trimmed = slug.trim();
+  if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
+    throw new ModelFsError("Invalid paper slug", 400);
+  }
+  if (!PAPER_SLUG_RE.test(trimmed)) {
+    throw new ModelFsError("Invalid paper slug", 400);
+  }
+  const paperRel = `papers/${trimmed}`;
+  resolveModelPath(modelRoot, paperRel);
+  const normalized = toRelative(modelRoot, resolveModelPath(modelRoot, paperRel));
+  if (normalized !== paperRel) {
+    throw new ModelFsError("Invalid paper slug", 400);
+  }
+  return paperRel;
+}
+
 /** Resolve a model-relative path to an absolute path, rejecting any escape above modelRoot. */
 export function resolveModelPath(modelRoot: string, relativePath: string): string {
   const absolutePath = path.resolve(modelRoot, relativePath || ".");

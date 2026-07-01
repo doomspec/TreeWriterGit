@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile, rename, rm, stat, readdir } from "node:fs/p
 import matter from "gray-matter";
 
 import { ModelFsError, PAPER_ASSET_DIRS, TEMP_NOTES_DOC, type NodeKind } from "./errors.js";
+import { isManuscriptRoot } from "./manuscriptKind.js";
 import { resolveModelPath } from "./paths.js";
 import { patchNodeOrder, readIndexData } from "./ordering.js";
 import {
@@ -80,7 +81,7 @@ export async function createNode(
   }
   const parentData = parentRel ? await readIndexData(modelRoot, parentRel) : {};
   const skipParentOrder =
-    parentData.kind === "paper" && PAPER_ASSET_DIRS.has(name) && kind === "section";
+    isManuscriptRoot(parentData) && PAPER_ASSET_DIRS.has(name) && kind === "section";
   if (!skipParentOrder) {
     await patchNodeOrder(modelRoot, parentRel, (order) =>
       order.includes(name) ? order : [...order, name],
@@ -166,8 +167,8 @@ async function syncRenamedNodeTitles(
     typeof parsed.data.title === "string" && parsed.data.title.trim()
       ? String(parsed.data.title).trim()
       : oldDerivedTitle;
-  parsed.data.title = newTitle;
-  await writeFile(indexAbs, matter.stringify(parsed.content, parsed.data), "utf8");
+  const data = { ...(parsed.data as Record<string, unknown>), title: newTitle };
+  await writeFile(indexAbs, matter.stringify(parsed.content, data), "utf8");
 
   const outlineAbs = path.join(modelRoot, nodeRel, "outline.md");
   if (!existsSync(outlineAbs)) return;

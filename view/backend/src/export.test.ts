@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import matter from "gray-matter";
 
-import { buildBibliography, buildCombinedMarkdown, buildSectionMarkdown, exportPaper, extractCiteKeys, findMissingCitations, formatSectionOutlineNoteForExport, resolveCslPath } from "./export.js";
+import { buildBibliography, buildCombinedMarkdown, buildSectionMarkdown, exportPaper, extractCiteKeys, findMissingCitations, formatSectionOutlineNoteForExport, removeCiteKeyFromMarkdown, resolveCslPath } from "./export.js";
 import {
   buildHighlightColorLatexPreamble,
   prepareMarkdownForLatexExport,
@@ -78,6 +78,23 @@ afterEach(async () => {
 describe("extractCiteKeys", () => {
   it("parses bracketed pandoc citations", () => {
     expect(extractCiteKeys("See [@a, @b] and [@c]")).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("removeCiteKeyFromMarkdown", () => {
+  it("removes a key from grouped citations and bare tokens", () => {
+    const { content, removed } = removeCiteKeyFromMarkdown(
+      "See [@a, @b] and [@c] plus @b tail.",
+      "b",
+    );
+    expect(removed).toBe(true);
+    expect(content).toBe("See [@a] and [@c] plus tail.");
+  });
+
+  it("removes an entire citation when it is the only key", () => {
+    const { content, removed } = removeCiteKeyFromMarkdown("Prior work [@ghost] shows.", "ghost");
+    expect(removed).toBe(true);
+    expect(content).toBe("Prior work shows.");
   });
 });
 

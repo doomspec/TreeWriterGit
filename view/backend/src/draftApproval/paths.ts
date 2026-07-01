@@ -9,9 +9,12 @@ import {
   isUnitDir,
   ModelFsError,
 } from "../modelFs.js";
+import { manuscriptContentHash, normalizeManuscriptForHash } from "./hash.js";
+import { readManuscriptApprovalMeta } from "./approvalMeta.js";
 
 export const DRAFT_APPROVED_DOC = "draft.approved.md";
 export const OUTLINE_APPROVED_DOC = "outline.approved.md";
+export const APPROVAL_DIR = ".approval";
 export const TEMP_NOTES_DOC = "temp-notes.md";
 
 export type ManuscriptKind = "draft" | "outline";
@@ -24,6 +27,34 @@ export function manuscriptFileName(kind: ManuscriptKind): string {
 
 export function approvedDocName(kind: ManuscriptKind): string {
   return kind === "draft" ? DRAFT_APPROVED_DOC : OUTLINE_APPROVED_DOC;
+}
+
+export function approvalDirRel(unitRel: string): string {
+  return `${unitRel}/${APPROVAL_DIR}`;
+}
+
+export function approvalMetaRel(unitRel: string, kind: ManuscriptKind): string {
+  return `${approvalDirRel(unitRel)}/${kind}.yaml`;
+}
+
+export function approvedManuscriptRel(unitRel: string, kind: ManuscriptKind): string {
+  return `${approvalDirRel(unitRel)}/${approvedDocName(kind)}`;
+}
+
+export function legacyApprovedManuscriptRel(unitRel: string, kind: ManuscriptKind): string {
+  return `${unitRel}/${approvedDocName(kind)}`;
+}
+
+export function resolveApprovedManuscriptRel(
+  modelRoot: string,
+  unitRel: string,
+  kind: ManuscriptKind,
+): string | null {
+  const modern = approvedManuscriptRel(unitRel, kind);
+  if (existsSync(path.join(modelRoot, modern))) return modern;
+  const legacy = legacyApprovedManuscriptRel(unitRel, kind);
+  if (existsSync(path.join(modelRoot, legacy))) return legacy;
+  return null;
 }
 
 export function isDraftFilePath(relativePath: string): boolean {
@@ -75,10 +106,6 @@ export function unitDirFromManuscriptFile(relativePath: string, kind: Manuscript
   return kind === "draft" ? unitDirFromDraftFile(relativePath) : unitDirFromOutlineFile(relativePath);
 }
 
-export function approvedManuscriptRel(unitRel: string, kind: ManuscriptKind): string {
-  return `${unitRel}/${approvedDocName(kind)}`;
-}
-
 export function approvedDraftRel(unitRel: string): string {
   return approvedManuscriptRel(unitRel, "draft");
 }
@@ -87,18 +114,14 @@ export function approvedOutlineRel(unitRel: string): string {
   return approvedManuscriptRel(unitRel, "outline");
 }
 
-export function manuscriptFileRel(unitRel: string, kind: ManuscriptKind): string {
-  return `${unitRel}/${manuscriptFileName(kind)}`;
-}
-
 export async function readApprovedContent(
   modelRoot: string,
   unitRel: string,
   kind: ManuscriptKind,
 ): Promise<string> {
-  const abs = path.join(modelRoot, approvedManuscriptRel(unitRel, kind));
-  if (!existsSync(abs)) return "";
-  return readFile(abs, "utf8");
+  const approvedRel = resolveApprovedManuscriptRel(modelRoot, unitRel, kind);
+  if (!approvedRel) return "";
+  return readFile(path.join(modelRoot, approvedRel), "utf8");
 }
 
 export async function readApprovedDraftContent(modelRoot: string, unitRel: string): Promise<string> {
@@ -124,13 +147,21 @@ export async function manuscriptMatchesApproved(
 ): Promise<boolean> {
   const manuscriptAbs = path.join(modelRoot, manuscriptFileRel(unitRel, kind));
   if (!existsSync(manuscriptAbs)) return true;
-  const approvedAbs = path.join(modelRoot, approvedManuscriptRel(unitRel, kind));
-  if (!existsSync(approvedAbs)) return false;
-  const [current, approved] = await Promise.all([
-    readFile(manuscriptAbs, "utf8"),
-    readFile(approvedAbs, "utf8"),
-  ]);
-  return current === approved;
+  const approvedRel = resolveApprovedManuscriptRel(modelRoot, unitRel, kind);
+  if (!approvedRel) return false;
+
+  const current = await readFile(manuscriptAbs, "utf8");
+  const meta = await readManuscriptApprovalMeta(modelRoot, unitRel, kind);
+  if (meta.contentHash) {
+    return manuscriptContentHash(current) === meta.contentHash;
+  }
+
+  const approved = await readFile(path.join(modelRoot, approvedRel), "utf8");
+  return normalizeManuscriptForHash(current) === normalizeManuscriptForHash(approved);
+}
+
+export function manuscriptFileRel(unitRel: string, kind: ManuscriptKind): string {
+  return `${unitRel}/${manuscriptFileName(kind)}`;
 }
 
 export async function draftsMatchApproved(modelRoot: string, unitRel: string): Promise<boolean> {

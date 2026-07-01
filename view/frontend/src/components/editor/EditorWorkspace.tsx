@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, startTransition } fr
 import { Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { BibEntrySourcePane } from "@/components/editor/BibEntrySourcePane";
 import { BibFilePreview } from "@/components/editor/BibFilePreview";
 import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
 import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
@@ -15,13 +16,155 @@ import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { ResizableVerticalSplit } from "@/components/layout/ResizableVerticalSplit";
 import { outlinePathFor, stripFrontmatter, tempNotesPathFor, draftPathFor, type NavigateTarget } from "@/lib/modelTree";
 import { useReadingFocus } from "@/lib/readingFocus";
+import { useBibLibrarySummary } from "@/lib/bibLibraryContext";
+import { useWindowWidth } from "@/lib/useWindowWidth";
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import type { DualPaneActive, EditorVisiblePanes } from "@/lib/workspacePreferences";
+import {
+  loadWorkspacePreferences,
+  mergeWorkspaceDefaults,
+  scheduleSaveWorkspacePreferences,
+} from "@/lib/workspacePreferences";
 import { cn } from "@/lib/utils";
 
 function captionFromDraft(content: string): string {
   return stripFrontmatter(content)
     .replace(/^\s*#(?!#)\s+[^\n\r]+\r?\n?/, "")
     .trim();
+}
+
+function BibMainBibWorkspace({
+  activeFile,
+  refreshVersion,
+  getPathVersion,
+  layout,
+  onLayoutChange,
+  editorChrome,
+  dualPaneSplit,
+  onDualPaneSplitChange,
+  onError,
+  linkContextPath,
+  onNavigate,
+  onModelChanged,
+  paperPath,
+}: {
+  activeFile: string;
+  refreshVersion: number;
+  getPathVersion: (path: string) => number;
+  layout: EditorLayout;
+  onLayoutChange: (layout: EditorLayout) => void;
+  editorChrome: React.ReactNode;
+  dualPaneSplit: number;
+  onDualPaneSplitChange: (percent: number) => void;
+  onError: (message: string) => void;
+  linkContextPath: string;
+  onNavigate?: (target: NavigateTarget) => void;
+  onModelChanged?: () => void;
+  paperPath?: string | null;
+}) {
+  const nav = useWorkspaceNavigationContext();
+  const windowWidth = useWindowWidth();
+  const { summary } = useBibLibrarySummary();
+  const loadFullBibPref = mergeWorkspaceDefaults(loadWorkspacePreferences()).loadLargeBibSource;
+  const [fullSourceOptIn, setFullSourceOptIn] = useState(() => loadFullBibPref);
+  // References sidebar shows a LIST of many entries; BibFilePreview's own
+  // entry list would be redundant alongside it, so hide that one.
+  const hideEntryList = nav.sidebarPanel === "references" && nav.sidebarPanelOpen;
+
+  const showFullSource = layout === "source" || fullSourceOptIn;
+  /**
+   * The raw-source pane shows ONE entry's BibTeX text — not a list, so it's
+   * not redundant with the references sidebar and clicking a reference
+   * there should still show it alongside the verification form. Only hide
+   * it when there's genuinely no room (narrow layout).
+   */
+  const hideBibSourcePane = layout !== "source" && windowWidth < 1280;
+
+  const handleLoadFullSource = useCallback(() => {
+    setFullSourceOptIn(true);
+    scheduleSaveWorkspacePreferences({ loadLargeBibSource: true });
+  }, []);
+
+  const handleBackToEntryView = useCallback(() => {
+    setFullSourceOptIn(false);
+    scheduleSaveWorkspacePreferences({ loadLargeBibSource: false });
+    if (layout === "source") onLayoutChange("split");
+  }, [layout, onLayoutChange]);
+
+  const fullSourceEditor = (
+    <MarkdownEditor
+      key={`${activeFile}:source`}
+      filePath={activeFile}
+      refreshVersion={refreshVersion}
+      pathVersion={getPathVersion(activeFile)}
+      layout="source"
+      className="min-h-0 min-w-0 flex-1"
+      onError={onError}
+      linkContextPath={linkContextPath}
+      onNavigate={onNavigate}
+      splitPercent={dualPaneSplit}
+      onSplitChange={onDualPaneSplitChange}
+      paperPath={paperPath}
+      enableDispatch={false}
+      scrollToBibCiteKey={nav.selectedBibCiteKey}
+    />
+  );
+
+  const sourcePane = showFullSource ? (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-border bg-muted/20">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <span className="text-xs font-medium text-muted-foreground">Full main.bib</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={handleBackToEntryView}
+        >
+          Back to entry view
+        </Button>
+      </div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{fullSourceEditor}</div>
+    </div>
+  ) : (
+    <BibEntrySourcePane
+      citeKey={nav.selectedBibCiteKey}
+      totalEntries={summary?.total}
+      onLoadFullSource={handleLoadFullSource}
+    />
+  );
+
+  const previewPane = (
+    <BibFilePreview
+      key={`${activeFile}:preview`}
+      filePath={activeFile}
+      onError={onError}
+      onModelChanged={onModelChanged}
+      paperPath={paperPath}
+      hideEntryList={hideEntryList}
+    />
+  );
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {editorChrome}
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {layout === "source" ? (
+          sourcePane
+        ) : layout === "split" && !hideBibSourcePane ? (
+          <ResizableDualPane
+            splitPercent={dualPaneSplit}
+            onSplitChange={onDualPaneSplitChange}
+            className="min-h-0 min-w-0 flex-1"
+            left={previewPane}
+            right={sourcePane}
+          />
+        ) : (
+          previewPane
+        )}
+      </div>
+    </div>
+  );
 }
 
 function LeafUnitEditor({
@@ -400,14 +543,20 @@ export function EditorWorkspace({
   const draftPath = unitPath ? draftPathFor(unitPath) : null;
   const readingFocus = useReadingFocus();
 
-  const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = [
-    { id: "source", icon: FileCode2, label: "Source" },
-    { id: "split", icon: Columns2, label: "Split" },
-    { id: "preview", icon: Eye, label: "Preview" },
-  ];
-
   const isPaperEditor = Boolean(paperPath && unitPath === paperPath);
   const isBibFile = activeFile.toLowerCase().endsWith(".bib");
+
+  const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = isBibFile
+    ? [
+        { id: "preview", icon: Eye, label: "Preview" },
+        { id: "split", icon: Columns2, label: "Split" },
+        { id: "source", icon: FileCode2, label: "Source" },
+      ]
+    : [
+        { id: "source", icon: FileCode2, label: "Source" },
+        { id: "split", icon: Columns2, label: "Split" },
+        { id: "preview", icon: Eye, label: "Preview" },
+      ];
 
   const editorChrome = (
     <div
@@ -469,50 +618,22 @@ export function EditorWorkspace({
   }
 
   if (isBibFile) {
-    const sourcePane = (
-      <MarkdownEditor
-        key={`${activeFile}:source`}
-        filePath={activeFile}
+    return (
+      <BibMainBibWorkspace
+        activeFile={activeFile}
         refreshVersion={refreshVersion}
-        pathVersion={getPathVersion(activeFile)}
-        layout="source"
-        className="min-h-0 flex-1"
+        getPathVersion={getPathVersion}
+        layout={layout}
+        onLayoutChange={onLayoutChange}
+        editorChrome={editorChrome}
+        dualPaneSplit={dualPaneSplit}
+        onDualPaneSplitChange={onDualPaneSplitChange}
         onError={onError}
         linkContextPath={linkContextPath}
         onNavigate={onNavigate}
-        splitPercent={dualPaneSplit}
-        onSplitChange={onDualPaneSplitChange}
-        paperPath={paperPath}
-        enableDispatch={false}
-      />
-    );
-    const previewPane = (
-      <BibFilePreview
-        key={`${activeFile}:preview`}
-        filePath={activeFile}
-        onError={onError}
         onModelChanged={onModelChanged}
         paperPath={paperPath}
       />
-    );
-
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        {editorChrome}
-        {layout === "source" ? (
-          sourcePane
-        ) : layout === "split" ? (
-          <ResizableDualPane
-            splitPercent={dualPaneSplit}
-            onSplitChange={onDualPaneSplitChange}
-            className="min-h-0 flex-1"
-            left={sourcePane}
-            right={previewPane}
-          />
-        ) : (
-          previewPane
-        )}
-      </div>
     );
   }
 

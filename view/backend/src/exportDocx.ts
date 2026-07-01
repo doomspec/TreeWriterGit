@@ -32,14 +32,15 @@ import {
   buildMarkdownDocxExportOptions,
   postProcessDocxExport,
 } from "./exportDocxStyle.js";
+import { stripInlineComments } from "./inlineComments.js";
 import { stripInlineNotes } from "./inlineNotes.js";
 import { type JournalExportStyle } from "./journalExportStyle.js";
-import { ModelFsError } from "./modelFs.js";
+import { ModelFsError, resolvePaperRel } from "./modelFs.js";
 import { loadJournalTemplate } from "./papers.js";
 import { paperLiteratureDir } from "./paperAssets.js";
 
 function stripTreeWriterAuthorNotes(markdown: string): string {
-  return stripInlineNotes(markdown)
+  return stripInlineComments(stripInlineNotes(markdown))
     .replace(/\\todo\{[^}]*\}\{[^}]*\}/g, "")
     .replace(/\\hl\{[a-z]+\}\{([^}]*)\}/g, "$1")
     .replace(/\\(cite|fig|table|eq)\{([^}]*)\}/g, (_full, _macro: string, inner: string) => inner)
@@ -197,7 +198,7 @@ export async function exportPaperDocx(
   repoRoot: string,
   input: ExportPaperInput,
 ): Promise<ExportPaperResult> {
-  const paperRel = `papers/${input.paperSlug.trim()}`;
+  const paperRel = resolvePaperRel(modelRoot, input.paperSlug);
   const paperIndex = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(paperIndex)) {
     throw new ModelFsError(`Paper not found: ${input.paperSlug}`, 404);

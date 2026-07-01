@@ -31,6 +31,8 @@ export {
   type ManuscriptNodeKind,
 } from "./kinds.js";
 
+export { isManuscriptRoot, docTypeFromIndex } from "./manuscriptKind.js";
+
 export {
   walkManuscript,
   walkManuscriptLeaves,

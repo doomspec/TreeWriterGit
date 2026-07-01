@@ -1,14 +1,18 @@
 import type { Express } from "express";
 
 import {
+  addMainBibEntryFromCrossref,
+  deleteMainBibEntries,
   importMainBibtex,
   markMainBibEntryVerified,
   previewMainBibEntryFromCrossref,
+  previewNewBibEntryFromCrossref,
   searchCrossrefCandidates,
   updateMainBibEntry,
   updateMainBibEntryFromCrossref,
 } from "../../bibLibrary.js";
 import { uploadFigureImage } from "../../figures.js";
+import { removeCiteKeyFromPaperDrafts } from "../../paperCitations.js";
 import { resolveModelPath } from "../../modelFs.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { bodyString, requireBody } from "../params.js";
@@ -55,6 +59,20 @@ export function registerModelAssetRoutes(app: Express, deps: ServerDeps): void {
   );
 
   app.post(
+    "/api/model/references/remove-from-text",
+    asyncHandler(async (request, response) => {
+      const paperPath = requireBody(request, "paper");
+      const citeKey = requireBody(request, "citeKey");
+      resolveModelPath(deps.modelRoot, paperPath);
+      const result = await removeCiteKeyFromPaperDrafts(deps.modelRoot, paperPath, citeKey);
+      for (const relPath of result.modified) {
+        deps.broadcastModelEvent({ type: "model-changed", path: relPath });
+      }
+      response.json(result);
+    }),
+  );
+
+  app.post(
     "/api/model/bib/import",
     asyncHandler(async (request, response) => {
       const bibtex = requireBody(request, "bibtex");
@@ -95,6 +113,21 @@ export function registerModelAssetRoutes(app: Express, deps: ServerDeps): void {
   );
 
   app.post(
+    "/api/model/bib/delete",
+    asyncHandler(async (request, response) => {
+      const raw = request.body?.citeKeys;
+      const citeKeys = Array.isArray(raw)
+        ? raw.filter((key): key is string => typeof key === "string")
+        : [];
+      const result = await deleteMainBibEntries(deps.modelRoot, citeKeys);
+      if (result.deleted.length > 0) {
+        deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
+      }
+      response.json(result);
+    }),
+  );
+
+  app.post(
     "/api/model/bib/crossref/search",
     asyncHandler(async (request, response) => {
       const title = requireBody(request, "title");
@@ -110,6 +143,25 @@ export function registerModelAssetRoutes(app: Express, deps: ServerDeps): void {
       const doi = requireBody(request, "doi");
       const entry = await previewMainBibEntryFromCrossref(deps.modelRoot, citeKey, doi);
       response.json({ entry });
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/crossref/preview-new",
+    asyncHandler(async (request, response) => {
+      const doi = requireBody(request, "doi");
+      const entry = await previewNewBibEntryFromCrossref(deps.modelRoot, doi);
+      response.json({ entry });
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/crossref/add",
+    asyncHandler(async (request, response) => {
+      const doi = requireBody(request, "doi");
+      const result = await addMainBibEntryFromCrossref(deps.modelRoot, doi);
+      deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
+      response.status(result.created ? 201 : 200).json(result);
     }),
   );
 

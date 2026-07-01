@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
-import { ModelFsError, resolveModelPath } from "./modelFs.js";
+import { ModelFsError, resolvePaperRel } from "./modelFs.js";
 import { copyModularBundleToDir, exportModularPaper } from "./exportModular.js";
 import type { ExportValidationConfig } from "@treewriter/shared";
 
@@ -86,8 +86,7 @@ function cloneUrlWithToken(httpsCloneUrl: string, token?: string): string {
 }
 
 async function readPaperIndex(modelRoot: string, paperSlug: string) {
-  const paperRel = `papers/${paperSlug.trim()}`;
-  resolveModelPath(modelRoot, paperRel);
+  const paperRel = resolvePaperRel(modelRoot, paperSlug);
   const indexAbs = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(indexAbs)) {
     throw new ModelFsError(`Paper not found: ${paperSlug}`, 404);

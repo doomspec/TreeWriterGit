@@ -10,6 +10,7 @@ import {
   readIndexData,
   reorderChildren,
   resolveModelPath,
+  resolvePaperRel,
 } from "../modelFs.js";
 import { parseMarkdownImportStructure, uniqueImportSlug } from "./parse.js";
 import type {
@@ -131,8 +132,7 @@ export async function importMarkdownIntoPaper(
     throw new ModelFsError("paperSlug required", 400);
   }
 
-  const paperRel = `papers/${paperSlug.trim()}`;
-  resolveModelPath(modelRoot, paperRel);
+  const paperRel = resolvePaperRel(modelRoot, paperSlug);
   if (!existsSync(path.join(modelRoot, paperRel, "INDEX.md"))) {
     throw new ModelFsError(`Paper not found: ${paperRel}`, 404);
   }

@@ -62,7 +62,8 @@ describe("draftApproval", () => {
     const draftRel = "papers/demo/unit-a/draft.md";
     await writeFile(path.join(modelRoot, draftRel), "Final text.\n", "utf8");
     const result = await approveDraftTarget(modelRoot, draftRel, "reviewer");
-    expect(result.updated).toContain("papers/demo/unit-a/draft.approved.md");
+    expect(result.updated).toContain("papers/demo/unit-a/.approval/draft.approved.md");
+    expect(result.updated).toContain("papers/demo/unit-a/.approval/draft.yaml");
     expect(await draftsMatchApproved(modelRoot, "papers/demo/unit-a")).toBe(true);
     const index = matter(await readFile(path.join(modelRoot, "papers/demo/unit-a/INDEX.md"), "utf8"));
     expect(index.data.status).toBe("approved");
@@ -119,7 +120,7 @@ describe("draftApproval", () => {
       status: "approved",
     }), "utf8");
     const result = await approveDraftTarget(modelRoot, outlineRel, "reviewer");
-    expect(result.updated).toContain("papers/demo/unit-a/outline.approved.md");
+    expect(result.updated).toContain("papers/demo/unit-a/.approval/outline.approved.md");
     expect(await outlinesMatchApproved(modelRoot, "papers/demo/unit-a")).toBe(true);
     const index = matter(await readFile(path.join(modelRoot, "papers/demo/unit-a/INDEX.md"), "utf8"));
     expect(index.data.status).toBe("approved");
@@ -157,8 +158,8 @@ describe("draftApproval", () => {
     await writeFile(path.join(modelRoot, "papers/demo/intro/draft.md"), "Section draft.\n", "utf8");
 
     const result = await approvePendingChildrenTarget(modelRoot, "papers/demo/intro", "reviewer");
-    expect(result.updated).toContain("papers/demo/intro/u1/draft.approved.md");
-    expect(result.updated).toContain("papers/demo/intro/u2/outline.approved.md");
+    expect(result.updated).toContain("papers/demo/intro/u1/.approval/draft.approved.md");
+    expect(result.updated).toContain("papers/demo/intro/u2/.approval/outline.approved.md");
     expect(await draftsMatchApproved(modelRoot, "papers/demo/intro/u1")).toBe(true);
     expect(await outlinesMatchApproved(modelRoot, "papers/demo/intro/u2")).toBe(true);
   });
@@ -169,7 +170,7 @@ describe("draftApproval", () => {
     const draftRel = "papers/demo/intro/u1/draft.md";
     await writeFile(path.join(modelRoot, draftRel), "Child draft.\n", "utf8");
     const result = await approveDraftTarget(modelRoot, "papers/demo/intro", "reviewer");
-    expect(result.updated).toContain("papers/demo/intro/u1/draft.approved.md");
+    expect(result.updated).toContain("papers/demo/intro/u1/.approval/draft.approved.md");
     expect(await draftsMatchApproved(modelRoot, "papers/demo/intro/u1")).toBe(true);
   });
 
@@ -178,7 +179,7 @@ describe("draftApproval", () => {
     const draftRel = "papers/demo/abstract/draft.md";
     await writeFile(path.join(modelRoot, draftRel), "Abstract paragraph.\n", "utf8");
     const result = await approveDraftTarget(modelRoot, "papers/demo/abstract", "reviewer");
-    expect(result.updated).toContain("papers/demo/abstract/draft.approved.md");
+    expect(result.updated).toContain("papers/demo/abstract/.approval/draft.approved.md");
     expect(await draftsMatchApproved(modelRoot, "papers/demo/abstract")).toBe(true);
   });
 

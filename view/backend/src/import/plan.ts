@@ -8,18 +8,20 @@ import {
   PAPER_ASSET_DIRS,
   readIndexData,
   resolveModelPath,
+  resolvePaperRel,
 } from "../modelFs.js";
+import { isManuscriptRoot } from "../model/manuscriptKind.js";
 import { uniqueImportSlug, type ParsedDocxMarkdown } from "./parse.js";
 import type { DocxImportPreviewNode, DocxImportTargetOption } from "./types.js";
 
 export function containerKindForParent(parentKind: unknown): NodeKind {
-  if (parentKind === "paper") return "section";
+  if (parentKind === "paper" || parentKind === "manuscript") return "section";
   if (parentKind === "section" || parentKind === "subsection") return "subsection";
   return "subsection";
 }
 
 function orderFieldForParent(data: Record<string, unknown>): "section_order" | "child_order" {
-  if (data.kind === "paper") return "section_order";
+  if (isManuscriptRoot(data)) return "section_order";
   if (Array.isArray(data.section_order) && (data.section_order as string[]).length > 0) {
     return "section_order";
   }
@@ -207,8 +209,7 @@ export function resolveImportParent(
   paperSlug: string,
   targetSection?: string | null,
 ): { paperRel: string; importParentRel: string; importTargetSlug: string } {
-  const paperRel = `papers/${paperSlug.trim()}`;
-  resolveModelPath(modelRoot, paperRel);
+  const paperRel = resolvePaperRel(modelRoot, paperSlug);
   if (!existsSync(path.join(modelRoot, paperRel, "INDEX.md"))) {
     throw new ModelFsError(`Paper not found: ${paperRel}`, 404);
   }

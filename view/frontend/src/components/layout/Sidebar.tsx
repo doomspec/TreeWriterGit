@@ -200,7 +200,7 @@ export function Sidebar({
 
   const tabs: { id: SidebarTab; label: string }[] = [
     { id: "explorer", label: "Explorer" },
-    { id: "papers", label: "Papers" },
+    { id: "papers", label: "Manuscripts" },
     { id: "graph", label: "Graph" },
   ];
 

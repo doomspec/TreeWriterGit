@@ -15,6 +15,11 @@ export function useEditorComments(
   const [comments, setComments] = useState<CommentRecord[]>([]);
 
   useEffect(() => {
+    if (!filePath.endsWith(".md")) {
+      setComments([]);
+      setUnresolvedComments(0);
+      return;
+    }
     let cancelled = false;
     fetchComments(filePath)
       .then(({ comments: nextComments }) => {

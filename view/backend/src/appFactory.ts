@@ -9,6 +9,7 @@ import { createGitSyncRunner } from "./gitSyncRunner.js";
 import { loadGitSyncConfig, type GitSyncConfig } from "./gitSyncConfig.js";
 import { createAutoExportRunner } from "./autoExportRunner.js";
 import { loadExportConfig, type ExportConfig, type AutoExportRuntimeState } from "./exportConfig.js";
+import { loadZoteroLocalConfig, type ZoteroLocalConfig } from "./zoteroLocalConfig.js";
 import { resetServerMemoryState } from "./devReset.js";
 import { handleExternalManuscriptWrite } from "./draftApproval.js";
 import { createModelEventBroadcaster } from "./modelEvents.js";
@@ -45,6 +46,7 @@ export type AppRuntime = {
   modelEventsServer: WebSocketServer;
   gitSyncConfigCache: { current: GitSyncConfig | null };
   exportConfigCache: { current: ExportConfig | null };
+  zoteroLocalConfigCache: { current: ZoteroLocalConfig | null };
   autoExportState: AutoExportRuntimeState;
   stopWatch?: () => void;
   stopGitSyncInterval?: () => void;
@@ -86,6 +88,15 @@ export function createApp(config: AppConfig): AppRuntime {
     return exportConfigCache.current;
   };
 
+  const zoteroLocalConfigCache = { current: null as ZoteroLocalConfig | null };
+  const getZoteroLocalConfig = async (): Promise<ZoteroLocalConfig> => {
+    zoteroLocalConfigCache.current = await loadZoteroLocalConfig(repoRoot);
+    return zoteroLocalConfigCache.current;
+  };
+  const invalidateZoteroLocalConfig = (): void => {
+    zoteroLocalConfigCache.current = null;
+  };
+
   const { state: gitSyncState, runGitSync } = createGitSyncRunner(repoRoot, gitSyncEnabled, getGitSyncConfig);
   const agentJobs = createAgentJobManager();
 
@@ -98,6 +109,28 @@ export function createApp(config: AppConfig): AppRuntime {
   app.use("/api/model/bib/import", json25mb);
   app.use("/api/import/docx", json25mb);
   app.use(express.json({ limit: "2mb" }));
+
+  const wsToken = process.env.TREEWRITER_WS_TOKEN?.trim();
+  const apiToken =
+    process.env.TREEWRITER_REST_AUTH === "true" ? wsToken : undefined;
+  if (apiToken) {
+    app.use((request, response, next) => {
+      if (request.path === "/health") {
+        next();
+        return;
+      }
+      const headerToken = request.headers["x-treewriter-token"];
+      const queryToken = request.query.token;
+      const token =
+        (typeof headerToken === "string" ? headerToken : "") ||
+        (typeof queryToken === "string" ? queryToken : "");
+      if (token !== apiToken) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      next();
+    });
+  }
 
   const modelEventClients = new Set<WebSocket>();
   const baseBroadcastModelEvent = createModelEventBroadcaster(
@@ -125,6 +158,8 @@ export function createApp(config: AppConfig): AppRuntime {
     runGitSync,
     getGitSyncConfig,
     getExportConfig,
+    getZoteroLocalConfig,
+    invalidateZoteroLocalConfig,
     getAutoExportState: () => autoExportRunner.state,
     runAutoExportNow: autoExportRunner.runAutoExportNow,
     reloadGitSyncSchedule: () => scheduleGitSyncInterval(),
@@ -278,6 +313,7 @@ export function createApp(config: AppConfig): AppRuntime {
     modelEventsServer,
     gitSyncConfigCache,
     exportConfigCache,
+    zoteroLocalConfigCache,
     autoExportState: autoExportRunner.state,
     stopWatch,
     stopGitSyncInterval,

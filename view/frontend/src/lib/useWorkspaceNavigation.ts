@@ -14,35 +14,90 @@ import {
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
 import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 
+export type OpenFileOptions = {
+  citeKey?: string;
+};
+
+export type NavigateFromTargetDeps = {
+  openFile: (path: string, options?: OpenFileOptions) => void;
+  navigateTo: (path: string) => void;
+  tree?: ModelNode[];
+};
+
+/**
+ * Resolve a NavigateTarget to the right workspace action. Pure helper shared by
+ * the markdown editor, paper, and section workspaces so link-click behavior
+ * stays consistent.
+ */
+export function navigateFromTarget(
+  target: NavigateTarget,
+  { openFile, navigateTo, tree }: NavigateFromTargetDeps,
+): void {
+  if (target.type === "bib") {
+    openFile("main.bib", { citeKey: target.citeKey });
+    return;
+  }
+  if (target.type === "file") {
+    openFile(target.path);
+    return;
+  }
+  if (tree) {
+    const resolved = resolveModelPathTarget(tree, target.path);
+    if (resolved?.type === "file") {
+      openFile(resolved.path);
+      return;
+    }
+    if (resolved) {
+      navigateTo(resolved.path);
+      return;
+    }
+  }
+  navigateTo(target.path);
+}
+
 type UseWorkspaceNavigationOptions = {
   tree: ModelNode[];
   sidebarTab: WorkspaceNavTab;
+  lastPaperPath: string | null;
   setCurrentPath: Dispatch<SetStateAction<string>>;
   setActiveFile: Dispatch<SetStateAction<string | null>>;
   setEditorLayout: Dispatch<SetStateAction<EditorLayout>>;
   setSidebarTab: Dispatch<SetStateAction<WorkspaceNavTab>>;
   setSearchQuery: Dispatch<SetStateAction<string>>;
+  setSelectedBibCiteKey: Dispatch<SetStateAction<string | null>>;
 };
 
 export function useWorkspaceNavigation({
   tree,
   sidebarTab,
+  lastPaperPath,
   setCurrentPath,
   setActiveFile,
   setEditorLayout,
   setSidebarTab,
   setSearchQuery,
+  setSelectedBibCiteKey,
 }: UseWorkspaceNavigationOptions) {
   const openFile = useCallback(
-    (path: string) => {
+    (path: string, options?: OpenFileOptions) => {
       const folder = parentPath(path);
-      const nextPath =
-        sidebarTab === "papers" && folder !== "" && !isUnderPapers(folder) ? PAPERS_ROOT : folder;
-      setCurrentPath(nextPath);
+      setCurrentPath((current) => {
+        if (folder === "" && path.toLowerCase().endsWith(".bib")) {
+          if (isUnderPapers(current)) return current;
+          if (lastPaperPath && isUnderPapers(lastPaperPath)) return lastPaperPath;
+          return PAPERS_ROOT;
+        }
+        const nextPath =
+          sidebarTab === "papers" && folder !== "" && !isUnderPapers(folder) ? PAPERS_ROOT : folder;
+        return nextPath;
+      });
       setActiveFile(path);
       setEditorLayout("split");
+      if (options?.citeKey) {
+        setSelectedBibCiteKey(options.citeKey);
+      }
     },
-    [setActiveFile, setCurrentPath, setEditorLayout, sidebarTab],
+    [lastPaperPath, setActiveFile, setCurrentPath, setEditorLayout, setSelectedBibCiteKey, sidebarTab],
   );
 
   const navigateTo = useCallback(
@@ -69,14 +124,7 @@ export function useWorkspaceNavigation({
 
   const handleMarkdownNavigate = useCallback(
     (target: NavigateTarget) => {
-      const path = target.type === "file" ? target.path : target.path;
-      const resolved = resolveModelPathTarget(tree, path);
-      if (!resolved) return;
-      if (resolved.type === "file") {
-        openFile(resolved.path);
-        return;
-      }
-      navigateTo(resolved.path);
+      navigateFromTarget(target, { openFile, navigateTo, tree });
     },
     [navigateTo, openFile, tree],
   );

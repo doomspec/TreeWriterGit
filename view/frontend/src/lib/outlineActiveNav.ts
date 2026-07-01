@@ -8,7 +8,7 @@ export function resolveHeadingFolderPath(
 ): string | null {
   if (!heading.href?.trim() || !linkContextPath) return null;
   const target = resolveNavigateTarget(linkContextPath, heading.href);
-  if (!target) return null;
+  if (!target || target.type === "bib") return null;
   if (target.type === "file") {
     const folder = parentPath(target.path);
     return folder || null;
@@ -51,7 +51,7 @@ export function isOutlineNavLinkActive(
 ): boolean {
   if (!focusPath || !linkContextPath || !href.trim()) return false;
   const target = resolveNavigateTarget(linkContextPath, href);
-  if (!target) return false;
+  if (!target || target.type === "bib") return false;
   const folderPath =
     target.type === "file" ? parentPath(target.path) : target.path.replace(/\/$/, "");
   if (!folderPath) return false;

@@ -18,7 +18,7 @@ import { lineInFullDocument, mergePreviewEdit, parsePreviewBody, splitForPreview
 import { MarkdownSourcePane } from "@/components/editor/markdown/MarkdownSourcePane";
 import { resolveActivePane } from "@/components/editor/markdown/resolveActivePane";
 import { useMarkdownAnnotations } from "@/components/editor/markdown/useMarkdownAnnotations";
-import type { BlockMarkdownEditorHandle } from "@/components/editor/BlockMarkdownEditor";
+import type { BlockMarkdownEditorHandle } from "@/components/editor/editorHandle";
 import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { Button } from "@/components/ui/button";
 import { Eye, FileCode2 } from "lucide-react";
@@ -60,6 +60,8 @@ import { useReadingFocus } from "@/lib/readingFocus";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { useAssetAutocomplete } from "@/lib/useAssetAutocomplete";
 import { sessionKeyForFile, loadEditorSession, type EditorPaneMode } from "@/lib/editorSessionState";
+import { scrollSourceToBibEntry, buildLineStartIndex } from "@/lib/bibEntrySource";
+import { ensureBibEntry, getCachedBibEntry } from "@/lib/bibLibraryStore";
 import { useEditorPresence } from "@/lib/hooks/useEditorPresence";
 import { useReviewRailOpen } from "@/lib/useReviewRailOpen";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
@@ -94,6 +96,7 @@ export function MarkdownEditor({
   syncDocumentOutline = false,
   splitPaneTitle,
   showReadingFocusBar = true,
+  scrollToBibCiteKey = null,
 }: {
   filePath: string;
   refreshVersion: number;
@@ -127,6 +130,8 @@ export function MarkdownEditor({
   syncDocumentOutline?: boolean;
   /** When false, hides the reading-focus floating bar (multi-pane workspaces pass active pane). */
   showReadingFocusBar?: boolean;
+  /** Scroll source selection to this BibTeX cite key (main.bib split view). */
+  scrollToBibCiteKey?: string | null;
 }) {
   const readingFocus = useReadingFocus();
   const nav = useWorkspaceNavigationContext();
@@ -208,6 +213,8 @@ export function MarkdownEditor({
   const sourceRef = useRef<HTMLTextAreaElement | null>(null);
   const previewRef = useRef<HTMLTextAreaElement | null>(null);
   const previewBlockRef = useRef<BlockMarkdownEditorHandle | null>(null);
+  const [activeActions, setActiveActions] = useState<ReadonlySet<string>>(() => new Set());
+  const handleActiveFormats = useCallback((actions: string[]) => setActiveActions(new Set(actions)), []);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const sourceScrollRef = useRef<HTMLDivElement | null>(null);
   const editorScopeRef = useRef<HTMLDivElement | null>(null);
@@ -240,7 +247,19 @@ export function MarkdownEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneMode]);
   const showInlinePendingHighlights = showPendingHighlights && pendingHighlightsReady;
+  // "Clean preview": lets the author read the current text without the inline
+  // tracked-changes diff, without discarding the pending approval state.
+  const [cleanPreview, setCleanPreview] = useState(false);
+  const effectivePendingHighlights = showInlinePendingHighlights && !cleanPreview;
+  const isMainBibFile = filePath === "main.bib" || filePath.endsWith("/main.bib");
   const figureLabelIndex = useEditorCrossRef(paperPath, refreshVersion);
+
+  const bibLineStarts = useMemo(() => {
+    if (!isMainBibFile || !loadedContent) return null;
+    return buildLineStartIndex(content.replace(/\r\n/g, "\n"));
+  }, [content, isMainBibFile, loadedContent]);
+
+  const debouncedScrollCiteKey = useDebouncedValue(scrollToBibCiteKey ?? "", 50);
 
   const loadedPreviewBody = useMemo(() => {
     const meta = parsePreviewBody(loadedContent);
@@ -329,6 +348,20 @@ export function MarkdownEditor({
   const showSource = effectiveLayout === "source" || effectiveLayout === "split";
   const showPreview = effectiveLayout === "preview" || effectiveLayout === "split";
   const renderedEditable = compact ? paneMode === "rendered" : previewRawEdit;
+  // On the PM surface, route undo/redo to its own history so the toolbar and
+  // keyboard share one stack (legacy string history is used otherwise).
+  const previewUndo = useCallback(() => {
+    if (renderedEditable && previewBlockRef.current?.runUndo) previewBlockRef.current.runUndo();
+    else undo();
+  }, [renderedEditable, undo]);
+  const previewRedo = useCallback(() => {
+    if (renderedEditable && previewBlockRef.current?.runRedo) previewBlockRef.current.runRedo();
+    else redo();
+  }, [renderedEditable, redo]);
+  const previewCanUndo =
+    renderedEditable && previewBlockRef.current?.canUndo ? previewBlockRef.current.canUndo() : canUndo;
+  const previewCanRedo =
+    renderedEditable && previewBlockRef.current?.canRedo ? previewBlockRef.current.canRedo() : canRedo;
   const bindOutlineScroll = useSyncDocumentOutline(
     content,
     previewScrollRef,
@@ -390,6 +423,8 @@ export function MarkdownEditor({
       editedBy={approvalDisplay.editedBy}
       aiAssisted={approvalDisplay.aiAssisted}
       aiProvider={approvalDisplay.aiProvider}
+      approvers={editMeta.approvers ?? []}
+      gitCommit={editMeta.gitCommit ?? null}
       onApprove={() => void handleApproveDraft()}
       onDiscard={() => void handleDiscardDraft()}
       approving={saveState === "saving"}
@@ -423,8 +458,72 @@ export function MarkdownEditor({
 
   useEffect(() => {
     if (!loadedContent) return;
+    const isMainBib = filePath === "main.bib" || filePath.endsWith("/main.bib");
+    if (isMainBib && scrollToBibCiteKey) return;
     restore(getActiveTextarea(), getScrollElement(), setPaneMode);
-  }, [filePath, getActiveTextarea, getScrollElement, loadedContent, restore]);
+  }, [filePath, getActiveTextarea, getScrollElement, loadedContent, restore, scrollToBibCiteKey]);
+
+  useEffect(() => {
+    if (!debouncedScrollCiteKey || !showSource || !isMainBibFile) return;
+
+    let cancelled = false;
+    let retryTimer: number | undefined;
+
+    const attemptScroll = (attempt = 0) => {
+      if (cancelled) return;
+      const textarea = sourceRef.current;
+      if (!textarea) {
+        if (attempt < 20) retryTimer = window.setTimeout(() => attemptScroll(attempt + 1), 50);
+        return;
+      }
+      const body = textarea.value || content;
+      if (!body.trim()) {
+        if (attempt < 20) retryTimer = window.setTimeout(() => attemptScroll(attempt + 1), 50);
+        return;
+      }
+
+      const runScroll = (sourceRange?: { start: number; end: number }) => {
+        if (cancelled) return;
+        scrollSourceToBibEntry(textarea, body, debouncedScrollCiteKey, {
+          sourceRange,
+          lineStarts: bibLineStarts ?? undefined,
+        });
+      };
+
+      const cached = getCachedBibEntry(debouncedScrollCiteKey);
+      if (cached?.sourceRange) {
+        runScroll(cached.sourceRange);
+        return;
+      }
+
+      void ensureBibEntry(debouncedScrollCiteKey)
+        .then((entry) => {
+          if (cancelled) return;
+          runScroll(entry.sourceRange);
+        })
+        .catch(() => {
+          if (!cancelled && attempt < 10) {
+            retryTimer = window.setTimeout(() => attemptScroll(attempt + 1), 100);
+          }
+        });
+    };
+
+    const frame = window.requestAnimationFrame(() => attemptScroll());
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+      if (retryTimer != null) window.clearTimeout(retryTimer);
+    };
+  }, [
+    bibLineStarts,
+    content,
+    debouncedScrollCiteKey,
+    isMainBibFile,
+    loadedContent,
+    showSource,
+    pathVersion,
+    filePath,
+  ]);
 
   useEffect(() => {
     const scrollEl = getScrollElement();
@@ -491,6 +590,9 @@ export function MarkdownEditor({
 
   const insertInlineNote = useCallback(
     (targetPane?: "preview" | "source") => {
+      if (targetPane !== "source" && renderedEditable && previewBlockRef.current?.runInlineNote?.()) {
+        return;
+      }
       const previewEl = previewRef.current;
       const sourceEl = sourceRef.current;
       const { usePreview, target } = resolveActivePane({
@@ -515,6 +617,9 @@ export function MarkdownEditor({
 
   const insertTextHighlight = useCallback(
     (colorId: TextHighlightColorId, targetPane?: "preview" | "source") => {
+      if (targetPane !== "source" && renderedEditable && previewBlockRef.current?.runHighlight?.(colorId)) {
+        return;
+      }
       const previewEl = previewRef.current;
       const sourceEl = sourceRef.current;
       const { usePreview, target } = resolveActivePane({
@@ -599,8 +704,19 @@ export function MarkdownEditor({
     [content, handlePreviewBodyChange, previewBody, renderedEditable, showPreview, showSource],
   );
 
+  useEffect(() => {
+    nav.registerEditorInsertSnippet((snippet) => insertSnippet(snippet));
+    return () => nav.registerEditorInsertSnippet(null);
+  }, [insertSnippet, nav]);
+
   const applyFormat = useCallback(
     (action: MarkdownFormatAction, targetPane?: "preview" | "source") => {
+      // Native ProseMirror command path. The PM surface has no textarea, so
+      // this must run before the target guard below (which would early-return).
+      if (targetPane !== "source" && renderedEditable && previewBlockRef.current?.runFormat?.(action)) {
+        return;
+      }
+
       const previewEl = previewRef.current;
       const sourceEl = sourceRef.current;
       const { usePreview, target } = resolveActivePane({
@@ -707,7 +823,10 @@ export function MarkdownEditor({
       paneMode={paneMode}
       onPaneModeChange={setPaneMode}
       ariaLabel={`${paneLabel ?? "Document"} editing mode`}
-      reviewMode={showInlinePendingHighlights && paneMode === "rendered"}
+      reviewMode={effectivePendingHighlights && paneMode === "rendered"}
+      pendingDiffAvailable={showInlinePendingHighlights}
+      cleanPreview={cleanPreview}
+      onCleanPreviewChange={setCleanPreview}
     />
   ) : (
     <Button
@@ -742,6 +861,7 @@ export function MarkdownEditor({
     onInsertInlineNote: () => insertInlineNote(compactTargetPane),
     onInsertHighlight: (color: TextHighlightColorId) => insertTextHighlight(color, compactTargetPane),
     onInsertSnippet: (snippet: string) => insertSnippet(snippet, compactTargetPane),
+    activeActions,
   };
 
   const focusToolbarTarget: "preview" | "source" = compact
@@ -779,10 +899,10 @@ export function MarkdownEditor({
       headerExtra={headerExtra}
       unitStatus={unitStatus}
       statusText={statusText}
-      canUndo={canUndo}
-      canRedo={canRedo}
-      undo={undo}
-      redo={redo}
+      canUndo={previewCanUndo}
+      canRedo={previewCanRedo}
+      undo={previewUndo}
+      redo={previewRedo}
       editorStats={editorStats}
       textZoomControl={textZoomControl}
     />
@@ -808,8 +928,9 @@ export function MarkdownEditor({
       insertTextHighlight={insertTextHighlight}
       insertSnippet={insertSnippet}
       content={content}
-      diffBaseline={diffBaseline}
-      showInlinePendingHighlights={showInlinePendingHighlights}
+      diffBaseline={isMainBibFile ? content : diffBaseline}
+      showInlinePendingHighlights={effectivePendingHighlights && !isMainBibFile}
+      disableSourceMirrors={isMainBibFile}
       filePath={filePath}
       setContent={setContent}
       assetAutocomplete={assetAutocomplete}
@@ -845,10 +966,11 @@ export function MarkdownEditor({
       previewMeta={previewMeta}
       focusTitleContextPath={focusTitleContextPath}
       onNavigate={onNavigate}
+      onActiveFormatsChange={handleActiveFormats}
       previewBody={previewBody}
       approvedPreviewBody={approvedPreviewBody}
       loadedPreviewBody={loadedPreviewBody}
-      showInlinePendingHighlights={showInlinePendingHighlights}
+      showInlinePendingHighlights={effectivePendingHighlights}
       figureLabelIndex={figureLabelIndex}
       approvalDisplay={approvalDisplay}
       handleApproveDraft={handleApproveDraft}
@@ -979,6 +1101,12 @@ export function MarkdownEditor({
                   onUndo={undo}
                   onRedo={redo}
                   onExit={readingFocus.exit}
+                  paneMode={paneMode}
+                  onPaneModeChange={setPaneMode}
+                  paneLabel={paneLabel ?? "Document"}
+                  pendingDiffAvailable={showInlinePendingHighlights}
+                  cleanPreview={cleanPreview}
+                  onCleanPreviewChange={setCleanPreview}
                 />
               </div>
             ) : null}

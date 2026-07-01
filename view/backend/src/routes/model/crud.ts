@@ -8,6 +8,7 @@ import {
   isOutlineFilePath,
   normalizeGitHubHandle,
 } from "../../draftApproval.js";
+import { materializeMainBib, MAIN_BIB_FILE } from "../../bibLibrary.js";
 import {
   createFile,
   createNode,
@@ -57,6 +58,15 @@ export function registerModelCrudRoutes(app: Express, deps: ServerDeps): void {
           }
           if (relativePath === "temp-notes.md" || relativePath.endsWith("/temp-notes.md")) {
             const content = await materializeTempNotes(deps.modelRoot, relativePath);
+            response.json({
+              path: relativePath,
+              content,
+              updatedAt: new Date().toISOString(),
+            });
+            return;
+          }
+          if (relativePath === MAIN_BIB_FILE) {
+            const content = await materializeMainBib(deps.modelRoot);
             response.json({
               path: relativePath,
               content,

@@ -12,7 +12,7 @@ import {
 } from "../journalExportStyle.js";
 import { prepareMarkdownForLatexExport } from "../exportMarkdown.js";
 import { validatePaperCrossRefs } from "../crossRefValidation.js";
-import { ModelFsError, readIndexData } from "../modelFs.js";
+import { ModelFsError, readIndexData, resolvePaperRel } from "../modelFs.js";
 import { loadJournalTemplate } from "../papers.js";
 import { buildCombinedMarkdown, countUnitSources } from "./assembly.js";
 import { resolveCslPath } from "./bibliography.js";
@@ -111,7 +111,7 @@ export async function exportPaper(
     return exportPaperDocx(modelRoot, repoRoot, input);
   }
 
-  const paperRel = `papers/${input.paperSlug.trim()}`;
+  const paperRel = resolvePaperRel(modelRoot, input.paperSlug);
   const paperIndex = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(paperIndex)) {
     throw new ModelFsError(`Paper not found: ${input.paperSlug}`, 404);

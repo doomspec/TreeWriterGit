@@ -11,9 +11,11 @@ import {
   deletePaper,
   getPaperDetail,
   listJournalTemplateDetails,
+  listManuscripts,
   listPapers,
   loadJournalTemplate,
   normalizeSectionOrder,
+  scaffoldManuscript,
   scaffoldPaper,
   slugify,
   updatePaper,
@@ -201,7 +203,8 @@ describe("loadJournalTemplate", () => {
     expect(tpl.sectionOrder).toEqual(["introduction", "results", "methods"]);
     expect(tpl.export?.documentclass).toBe("article");
     expect(tpl.export?.documentclassOptions).toEqual(["11pt"]);
-    expect(tpl.export?.pandocVariables?.linestretch).toBe("1.15");
+    const pandocVariables = tpl.export?.pandocVariables as Record<string, string> | undefined;
+    expect(pandocVariables?.linestretch).toBe("1.15");
   });
 
   it("falls back to plos-one when the journal key is absent", async () => {
@@ -239,7 +242,8 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
     const paperIndex = matter(
       await readFile(path.join(modelRoot, "papers/my-study/INDEX.md"), "utf8"),
     );
-    expect(paperIndex.data.kind).toBe("paper");
+    expect(paperIndex.data.kind).toBe("manuscript");
+    expect(paperIndex.data.doc_type).toBe("paper");
     // template sections lead the order; asset folders live outside section_order
     expect((paperIndex.data.section_order as string[]).slice(0, 3)).toEqual([
       "introduction",
@@ -295,7 +299,7 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
     ).rejects.toMatchObject({ status: 409 });
   });
 
-  it("lists only kind:paper directories with rolled-up counts", async () => {
+  it("lists only manuscript root directories with rolled-up counts", async () => {
     await scaffoldPaper(modelRoot, { title: "Paper One", journal: "PLOS ONE", authors: [] });
     // a stray non-paper directory under papers/ must be ignored
     await writeIndex("papers/not-a-paper", { kind: "section" });
@@ -420,5 +424,74 @@ describe("updatePaper + deletePaper", () => {
     await deletePaper(modelRoot, "editable");
     expect(existsSync(path.join(modelRoot, "papers/editable"))).toBe(false);
     await expect(getPaperDetail(modelRoot, "editable")).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("scaffoldManuscript grant + filters", () => {
+  beforeEach(async () => {
+    await writeTemplate("nsf-research-proposal", {
+      doc_type: "grant",
+      template_id: "nsf-research-proposal",
+      section_order: ["specific-aims", "research-plan"],
+      notes_dirs: ["literature", "budget"],
+      asset_dirs: [],
+    });
+    await writeTemplate("plos-one", {
+      journal: "PLOS ONE",
+      section_order: ["introduction"],
+    });
+  });
+
+  it("scaffolds grant without asset dirs and with grant notes", async () => {
+    const { slug } = await scaffoldManuscript(modelRoot, {
+      title: "NSF Demo",
+      docType: "grant",
+      templateId: "nsf-research-proposal",
+      authors: ["PI"],
+      funder: "NSF",
+      tags: ["nsf", "2026"],
+      project: "roboculture",
+    });
+    expect(slug).toBe("nsf-demo");
+    const index = matter(await readFile(path.join(modelRoot, "papers/nsf-demo/INDEX.md"), "utf8"));
+    expect(index.data.doc_type).toBe("grant");
+    expect(index.data.funder).toBe("NSF");
+    expect(index.data.tags).toEqual(["nsf", "2026"]);
+    expect(index.data.project).toBe("roboculture");
+    expect(existsSync(path.join(modelRoot, "papers/nsf-demo/figures"))).toBe(false);
+    expect(existsSync(path.join(modelRoot, "papers/nsf-demo/notes/budget"))).toBe(true);
+  });
+
+  it("filters listManuscripts by docType and tag", async () => {
+    await scaffoldManuscript(modelRoot, {
+      title: "Grant One",
+      docType: "grant",
+      templateId: "nsf-research-proposal",
+      authors: [],
+      tags: ["nsf"],
+    });
+    await scaffoldPaper(modelRoot, { title: "Paper One", journal: "PLOS ONE", authors: [] });
+
+    const grants = await listManuscripts(modelRoot, { docType: "grant" });
+    expect(grants).toHaveLength(1);
+    expect(grants[0]?.docType).toBe("grant");
+
+    const tagged = await listManuscripts(modelRoot, { tag: "nsf" });
+    expect(tagged).toHaveLength(1);
+    expect(tagged[0]?.tags).toContain("nsf");
+  });
+
+  it("defaults docType to paper for legacy kind:paper INDEX", async () => {
+    await writeIndex("papers/legacy-paper", {
+      kind: "paper",
+      title: "Legacy",
+      slug: "legacy-paper",
+      journal: "Nature",
+      status: "Planning",
+      section_order: ["intro"],
+    });
+    const papers = await listManuscripts(modelRoot);
+    const legacy = papers.find((p) => p.slug === "legacy-paper");
+    expect(legacy?.docType).toBe("paper");
   });
 });

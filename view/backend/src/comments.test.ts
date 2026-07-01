@@ -46,15 +46,19 @@ describe("comments CRUD", () => {
   });
 
   it("creates and lists comments", async () => {
-    const created = await createComment(modelRoot, "papers/ml/sections/intro/draft.md", {
+    const fileRel = "papers/ml/sections/intro/draft.md";
+    const created = await createComment(modelRoot, fileRel, {
       line: 2,
       author: "Ilya",
       text: "Tighten opening",
     });
     expect(created.id).toBeTruthy();
-    const list = await listComments(modelRoot, "papers/ml/sections/intro/draft.md");
+    const list = await listComments(modelRoot, fileRel);
     expect(list).toHaveLength(1);
     expect(list[0].text).toBe("Tighten opening");
+    const raw = await readFile(path.join(modelRoot, fileRel), "utf8");
+    expect(raw).toContain("<comment");
+    expect(raw).toContain("Tighten opening");
   });
 
   it("updates and deletes comments", async () => {
@@ -99,6 +103,11 @@ describe("summarizeCommentsForPaper", () => {
     expect(summary.unresolved).toBe(1);
     expect(summary.assigned).toBe(0);
     expect(summary.assignedUnresolved).toBe(0);
+  });
+
+  it("returns empty list when manuscript file is missing", async () => {
+    const list = await listComments(modelRoot, "papers/ml/sections/intro/draft.md");
+    expect(list).toEqual([]);
   });
 
   it("assigns and clears assignee with summary counts", async () => {

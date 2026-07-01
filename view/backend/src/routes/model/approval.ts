@@ -54,7 +54,9 @@ export function registerModelApprovalRoutes(app: Express, deps: ServerDeps): voi
         return;
       }
       resolveModelPath(deps.modelRoot, pathParam);
-      const result = await approveDraftTarget(deps.modelRoot, pathParam, approvedBy);
+      const result = await approveDraftTarget(deps.modelRoot, pathParam, approvedBy, {
+        repoRoot: deps.repoRoot,
+      });
       for (const rel of result.updated) {
         deps.broadcastModelEvent({ type: "model-changed", path: rel });
       }
@@ -72,7 +74,9 @@ export function registerModelApprovalRoutes(app: Express, deps: ServerDeps): voi
         return;
       }
       resolveModelPath(deps.modelRoot, pathParam);
-      const result = await approvePendingChildrenTarget(deps.modelRoot, pathParam, approvedBy);
+      const result = await approvePendingChildrenTarget(deps.modelRoot, pathParam, approvedBy, {
+        repoRoot: deps.repoRoot,
+      });
       for (const rel of result.updated) {
         deps.broadcastModelEvent({ type: "model-changed", path: rel });
       }

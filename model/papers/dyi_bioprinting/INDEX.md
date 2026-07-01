@@ -18,4 +18,4 @@ last_export: null
 ---
 # Democratizing Tissue Engineering: Alleviating the Technological Barriers to Advanced Biofabrication
 
-_Thesis / one-line summary._
+DIY biofabrication democratizes the tissue-engineering technology stack through openness, modularity, and interoperability—not merely lower cost.

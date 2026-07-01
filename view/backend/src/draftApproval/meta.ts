@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
 
-import { readIndexData } from "../modelFs.js";
 import {
   isDraftLeafDir,
   isOutlineFilePath,
@@ -12,21 +11,19 @@ import {
   unitDirFromApprovalFile,
   unitDirFromManuscriptFile,
 } from "./paths.js";
+import {
+  approvalMetaToDraftEditMeta,
+  buildUnapprovedMetaPatch,
+  indexPatchFromApprovalMeta,
+  normalizeGitHubHandle,
+  readManuscriptApprovalMeta,
+  writeApprovalMetaYaml,
+} from "./approvalMeta.js";
 
 import type { DraftEditMeta, DraftSaveMeta } from "@treewriter/shared";
 
 export type { DraftEditMeta, DraftSaveMeta };
-
-const META_FIELD_PREFIX: Record<ManuscriptKind, string> = {
-  draft: "",
-  outline: "outline_",
-};
-
-export function normalizeGitHubHandle(handle: unknown): string | null {
-  if (typeof handle !== "string") return null;
-  const trimmed = handle.trim().replace(/^@+/, "");
-  return trimmed.length > 0 ? trimmed : null;
-}
+export { normalizeGitHubHandle };
 
 function emptyDraftEditMeta(): DraftEditMeta {
   return {
@@ -36,11 +33,10 @@ function emptyDraftEditMeta(): DraftEditMeta {
     aiProvider: null,
     approvedBy: null,
     approvedAt: null,
+    contentHash: null,
+    gitCommit: null,
+    approvers: [],
   };
-}
-
-function metaField(data: Record<string, unknown>, kind: ManuscriptKind, field: string): unknown {
-  return data[`${META_FIELD_PREFIX[kind]}${field}`];
 }
 
 export async function readManuscriptEditMeta(
@@ -52,23 +48,8 @@ export async function readManuscriptEditMeta(
   if (!existsSync(indexAbs)) {
     return emptyDraftEditMeta();
   }
-  const data = await readIndexData(modelRoot, unitRel);
-  return {
-    editedBy: normalizeGitHubHandle(metaField(data, kind, "edited_by")),
-    editedAt: typeof metaField(data, kind, "edited_at") === "string"
-      ? (metaField(data, kind, "edited_at") as string)
-      : null,
-    aiAssisted: Boolean(metaField(data, kind, "ai_assisted")),
-    aiProvider:
-      typeof metaField(data, kind, "ai_provider") === "string" &&
-      String(metaField(data, kind, "ai_provider")).trim()
-        ? String(metaField(data, kind, "ai_provider")).trim()
-        : null,
-    approvedBy: normalizeGitHubHandle(metaField(data, kind, "approved_by")),
-    approvedAt: typeof metaField(data, kind, "approved_at") === "string"
-      ? (metaField(data, kind, "approved_at") as string)
-      : null,
-  };
+  const record = await readManuscriptApprovalMeta(modelRoot, unitRel, kind);
+  return approvalMetaToDraftEditMeta(record);
 }
 
 export async function readDraftEditMeta(modelRoot: string, unitRel: string): Promise<DraftEditMeta> {
@@ -106,26 +87,6 @@ export async function patchLeafIndex(
   return `${unitRel}/INDEX.md`;
 }
 
-function unapprovedPatch(kind: ManuscriptKind, meta?: DraftSaveMeta): Record<string, unknown> {
-  const prefix = META_FIELD_PREFIX[kind];
-  const patch: Record<string, unknown> = {
-    [`${prefix}edited_at`]: new Date().toISOString(),
-  };
-  if (kind === "draft") {
-    patch.status = "drafted";
-  }
-  if (meta?.editedBy !== undefined) {
-    patch[`${prefix}edited_by`] = meta.editedBy;
-  }
-  if (meta?.aiAssisted !== undefined) {
-    patch[`${prefix}ai_assisted`] = meta.aiAssisted;
-  }
-  if (meta?.aiProvider !== undefined) {
-    patch[`${prefix}ai_provider`] = meta.aiProvider;
-  }
-  return patch;
-}
-
 /** After manuscript diverges from approved baseline, record edit metadata. */
 export async function markManuscriptUnapproved(
   modelRoot: string,
@@ -136,8 +97,13 @@ export async function markManuscriptUnapproved(
   if (!(await isDraftLeafDir(modelRoot, unitRel))) return [];
   if (await manuscriptMatchesApproved(modelRoot, unitRel, kind)) return [];
 
-  const indexPath = await patchLeafIndex(modelRoot, unitRel, unapprovedPatch(kind, meta));
-  return indexPath ? [indexPath] : [];
+  const previous = await readManuscriptApprovalMeta(modelRoot, unitRel, kind);
+  const record = buildUnapprovedMetaPatch(kind, previous, meta);
+  const updated: string[] = [];
+  updated.push(await writeApprovalMetaYaml(modelRoot, unitRel, kind, record));
+  const indexPath = await patchLeafIndex(modelRoot, unitRel, indexPatchFromApprovalMeta(kind, record));
+  if (indexPath) updated.push(indexPath);
+  return updated;
 }
 
 export async function markDraftUnapproved(

@@ -58,7 +58,8 @@ export function highlightColorClass(colorId: string): string {
 
 export function wrapTextHighlight(colorId: TextHighlightColorId, selectedText: string): string {
   const color = normalizeHighlightColor(colorId);
-  const body = selectedText.trim() || "…";
+  const body = selectedText.trim();
+  if (!body) return "";
   return `\\hl{${color}}{${body}}`;
 }
 
@@ -257,7 +258,10 @@ export function applyTextHighlight(
   }
 
   const color = normalizeHighlightColor(colorId);
-  const body = selected.trim() || "…";
+  const body = selected.trim();
+  if (!body) {
+    return { value, selectionStart: start, selectionEnd: end };
+  }
   const prefix = `\\hl{${color}}{`;
   const wrapped = `${prefix}${body}}`;
   const nextValue = value.slice(0, start) + wrapped + value.slice(end);

@@ -15,6 +15,7 @@ import {
   isFigureTargetPath,
   isInlineFigureLine,
   isTableTargetPath,
+  tableLabel,
   type ExportEmbedResult,
 } from "./shared.js";
 

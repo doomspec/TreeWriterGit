@@ -52,6 +52,7 @@ import {
   resolveEditorPanePrefsScopePath,
   type EditorPaneScopePrefs,
 } from "@/lib/editorPaneScopePrefs";
+import { ensurePathLoaded } from "@/lib/model/modelTreeMerge";
 import { useModelTree } from "@/lib/useModelTree";
 import { useWorkspaceNavigation } from "@/lib/useWorkspaceNavigation";
 import {
@@ -136,6 +137,14 @@ export function WorkspaceProvider({
   const [editorPanePrefsByScope, setEditorPanePrefsByScope] = useState<
     Record<string, EditorPaneScopePrefs>
   >(savedPrefs.editorPanePrefsByScope ?? {});
+  const [selectedBibCiteKey, setSelectedBibCiteKey] = useState<string | null>(null);
+  const editorInsertSnippetRef = useRef<((snippet: string) => void) | null>(null);
+  const registerEditorInsertSnippet = useCallback((fn: ((snippet: string) => void) | null) => {
+    editorInsertSnippetRef.current = fn;
+  }, []);
+  const insertEditorSnippet = useCallback((snippet: string) => {
+    editorInsertSnippetRef.current?.(snippet);
+  }, []);
   const scopePaneLoadRef = useRef(false);
   const editorPanePrefsByScopeRef = useRef(editorPanePrefsByScope);
   editorPanePrefsByScopeRef.current = editorPanePrefsByScope;
@@ -189,11 +198,13 @@ export function WorkspaceProvider({
   } = useWorkspaceNavigation({
     tree,
     sidebarTab,
+    lastPaperPath,
     setCurrentPath,
     setActiveFile,
     setEditorLayout,
     setSidebarTab,
     setSearchQuery,
+    setSelectedBibCiteKey,
   });
 
   const handleSidebarTabChange = useCallback(
@@ -217,10 +228,12 @@ export function WorkspaceProvider({
       }
       setSidebarPanelState(panel);
       setSidebarPanelOpen(true);
-      if (panel === "explorer" || panel === "papers") {
-        setSidebarTab(panel);
+      if (panel === "explorer") {
+        setSidebarTab("explorer");
+      } else if (panel === "papers" || panel === "references") {
+        setSidebarTab("papers");
+        setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
         if (panel === "papers") {
-          setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
           setActiveFile(null);
         }
       }
@@ -393,16 +406,22 @@ export function WorkspaceProvider({
   const showPaperViewBack = Boolean(activeFile && isPaperRoot);
 
   useEffect(() => {
-    if (!treeLoaded) return;
-    if (browsePath && (!currentNode || currentNode.type !== "directory")) {
-      if (sidebarTab === "papers") {
-        setCurrentPath(PAPERS_ROOT);
-      } else {
-        setCurrentPath("");
-      }
-      setActiveFile(null);
+    if (!treeLoaded || !browsePath) return;
+    if (currentNode?.type === "directory") return;
+
+    // After a scoped tree reload the folder may be missing until lazy paths load.
+    if (ensurePathLoaded(tree, browsePath).length > 0) {
+      void ensureTreePath(browsePath);
+      return;
     }
-  }, [browsePath, currentNode, sidebarTab, treeLoaded]);
+
+    if (sidebarTab === "papers") {
+      setCurrentPath(PAPERS_ROOT);
+    } else {
+      setCurrentPath("");
+    }
+    setActiveFile(null);
+  }, [browsePath, currentNode, ensureTreePath, sidebarTab, tree, treeLoaded]);
 
   useEffect(() => {
     if (!treeLoaded || !activeFile) return;
@@ -587,6 +606,10 @@ export function WorkspaceProvider({
       editorPaneScopePath,
       dualPaneEditorActive,
       notesPaneAvailable,
+      selectedBibCiteKey,
+      setSelectedBibCiteKey,
+      insertEditorSnippet,
+      registerEditorInsertSnippet,
       paperChildOrders,
     }),
     [
@@ -636,6 +659,10 @@ export function WorkspaceProvider({
       reloadModel,
       searchQuery,
       sectionPath,
+      selectedBibCiteKey,
+      setSelectedBibCiteKey,
+      insertEditorSnippet,
+      registerEditorInsertSnippet,
       showPaperViewBack,
       showSectionViewBack,
       sidebarPanel,

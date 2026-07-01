@@ -5,7 +5,8 @@ import matter from "gray-matter";
 
 import { extractCiteKeys } from "../export.js";
 import { parseEquationEmbeds, parseFigureEmbeds, parseWikilinks } from "../graph.js";
-import { isUnitDir, orderedChildren, resolveChildPath } from "../modelFs.js";
+import { isUnitDir, ModelFsError, orderedChildren, readIndexData, resolveChildPath, resolveModelPath, toRelative } from "../modelFs.js";
+import { buildManuscriptManifestBlock } from "../model/manuscriptKind.js";
 import { paperLiteratureDir } from "../paperAssets.js";
 import { gatherAutomaticContextPrefetch } from "./contextPrefetch.js";
 import { actionNeedsDraft, type DispatchAction } from "./templates.js";
@@ -82,9 +83,21 @@ async function gatherContext(modelRoot: string, links: string[]): Promise<string
   return parts.length > 0 ? `RELATED SECTIONS:\n${parts.join("\n\n")}` : "";
 }
 
+export function validateContextPaths(modelRoot: string, paths: string[]): string[] {
+  return paths.map((relPath) => {
+    const trimmed = relPath.trim();
+    if (!trimmed) {
+      throw new ModelFsError("Invalid context path", 400);
+    }
+    const abs = resolveModelPath(modelRoot, trimmed);
+    return toRelative(modelRoot, abs);
+  });
+}
+
 export async function gatherContextFromPaths(modelRoot: string, paths: string[]): Promise<string> {
+  const safePaths = validateContextPaths(modelRoot, paths);
   const parts: string[] = [];
-  for (const relPath of paths.slice(0, 12)) {
+  for (const relPath of safePaths.slice(0, 12)) {
     const snippet = await readContextSnippet(modelRoot, relPath);
     if (snippet) parts.push(`[${relPath}]\n${snippet}`);
   }
@@ -412,7 +425,7 @@ export async function gatherSummarizeOutlineContext(
 ): Promise<string> {
   const entries =
     contextPaths && contextPaths.length > 0
-      ? contextPaths.map((pathValue) => ({
+      ? validateContextPaths(modelRoot, contextPaths).map((pathValue) => ({
           path: pathValue,
           category:
             pathValue.includes("/notes/literature/")
@@ -489,6 +502,21 @@ export async function readDispatchUnitContext(
   );
   if (prefetch) {
     context = context ? `${context}\n\n${prefetch}` : prefetch;
+  }
+
+  const paperRel = paperRelFromUnitPath(unitPath);
+  if (paperRel) {
+    try {
+      const indexData = await readIndexData(modelRoot, paperRel);
+      const manifest = buildManuscriptManifestBlock(indexData);
+      if (manifest) {
+        context = context
+          ? `[Manuscript manifest]\n${manifest}\n\n${context}`
+          : `[Manuscript manifest]\n${manifest}`;
+      }
+    } catch {
+      // ignore missing manifest
+    }
   }
 
   return { idea, links, context };

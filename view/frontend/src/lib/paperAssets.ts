@@ -35,6 +35,7 @@ export type ReferenceMetadata = {
   type?: string;
   verifiedStatus?: "verified" | "stale" | "unverified";
   integrity?: string | null;
+  missingFromLibrary?: boolean;
 };
 
 export type PaperAssetsBundle = {
@@ -62,6 +63,23 @@ export async function fetchReferenceIndex(paperPath: string): Promise<ReferenceM
     `/api/model/references/index?paper=${encodeURIComponent(paperPath)}`,
   );
   return data.references;
+}
+
+export async function fetchCitedReferences(paperPath: string): Promise<ReferenceMetadata[]> {
+  const data = await request<{ references: ReferenceMetadata[] }>(
+    `/api/model/references/cited?paper=${encodeURIComponent(paperPath)}`,
+  );
+  return data.references;
+}
+
+export async function removeCitationFromDrafts(
+  paperPath: string,
+  citeKey: string,
+): Promise<{ modified: string[] }> {
+  return request<{ modified: string[] }>("/api/model/references/remove-from-text", {
+    method: "POST",
+    body: JSON.stringify({ paper: paperPath, citeKey }),
+  });
 }
 
 export function literatureNoteTemplate(title: string, citeKey: string): string {
@@ -106,6 +124,20 @@ export type BibLibraryEntry = {
   fields: Record<string, string>;
   verifiedStatus: "verified" | "stale" | "unverified";
   integrity: string | null;
+  sourceRange?: { start: number; end: number };
+};
+
+export type MainBibSummary = {
+  total: number;
+  verified: number;
+  stale: number;
+  unverified: number;
+  mtime: number | null;
+};
+
+export type BibSearchResponse = {
+  entries: ReferenceMetadata[];
+  total: number;
 };
 
 export type CrossrefCandidate = {
@@ -132,6 +164,32 @@ export async function fetchBibLibrary(): Promise<BibLibraryEntry[]> {
   return data.entries;
 }
 
+export async function fetchBibLibrarySummary(): Promise<MainBibSummary> {
+  return request<MainBibSummary>("/api/model/bib/summary");
+}
+
+export async function fetchBibSearch(options: {
+  q?: string;
+  offset?: number;
+  limit?: number;
+  status?: "all" | "verified" | "stale" | "unverified";
+}): Promise<BibSearchResponse> {
+  const params = new URLSearchParams();
+  if (options.q?.trim()) params.set("q", options.q.trim());
+  if (options.offset != null) params.set("offset", String(options.offset));
+  if (options.limit != null) params.set("limit", String(options.limit));
+  if (options.status && options.status !== "all") params.set("status", options.status);
+  const query = params.toString();
+  return request<BibSearchResponse>(`/api/model/bib/search${query ? `?${query}` : ""}`);
+}
+
+export async function fetchBibEntry(citeKey: string): Promise<BibLibraryEntry> {
+  const data = await request<{ entry: BibLibraryEntry }>(
+    `/api/model/bib/entry/${encodeURIComponent(citeKey)}`,
+  );
+  return data.entry;
+}
+
 export async function saveBibEntry(
   citeKey: string,
   body: { nextCiteKey?: string; type?: string; fields: Record<string, string> },
@@ -149,6 +207,15 @@ export async function verifyBibEntry(citeKey: string): Promise<BibLibraryEntry> 
     body: JSON.stringify({ citeKey }),
   });
   return data.entry;
+}
+
+export async function deleteBibEntries(
+  citeKeys: string[],
+): Promise<{ deleted: string[]; missing: string[] }> {
+  return request<{ deleted: string[]; missing: string[] }>("/api/model/bib/delete", {
+    method: "POST",
+    body: JSON.stringify({ citeKeys }),
+  });
 }
 
 export async function searchCrossrefForBibEntry(
@@ -181,4 +248,51 @@ export async function previewBibEntryFromCrossref(
     body: JSON.stringify({ citeKey, doi }),
   });
   return data.entry;
+}
+
+export async function previewNewBibEntryFromCrossref(doi: string): Promise<BibLibraryEntry> {
+  const data = await request<{ entry: BibLibraryEntry }>("/api/model/bib/crossref/preview-new", {
+    method: "POST",
+    body: JSON.stringify({ doi }),
+  });
+  return data.entry;
+}
+
+export async function addBibEntryFromCrossref(
+  doi: string,
+): Promise<{ entry: BibLibraryEntry; created: boolean }> {
+  return request<{ entry: BibLibraryEntry; created: boolean }>("/api/model/bib/crossref/add", {
+    method: "POST",
+    body: JSON.stringify({ doi }),
+  });
+}
+
+export type ZoteroSearchHit = {
+  itemKey: string;
+  title: string;
+  authors: string | null;
+  year: string | null;
+  doi: string | null;
+  citeKey: string | null;
+  itemType: string | null;
+};
+
+export type ZoteroImportResult = BibtexImportResult & {
+  citeKeys: string[];
+};
+
+export async function searchZoteroLocal(
+  query: string,
+  limit = 20,
+): Promise<ZoteroSearchHit[]> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  const data = await request<{ hits: ZoteroSearchHit[] }>(`/api/zotero/local/search?${params}`);
+  return data.hits;
+}
+
+export async function importZoteroLocalItems(itemKeys: string[]): Promise<ZoteroImportResult> {
+  return request<ZoteroImportResult>("/api/zotero/local/import", {
+    method: "POST",
+    body: JSON.stringify({ itemKeys }),
+  });
 }

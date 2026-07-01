@@ -44,9 +44,19 @@ export type ExportSettings = {
   status: AutoExportStatus;
 };
 
+export type ZoteroLocalSettings = {
+  enabled: boolean;
+  baseUrl: string;
+};
+
+export type ZoteroLocalStatus = ZoteroLocalSettings & {
+  connected: boolean;
+};
+
 export type AppSettings = {
   gitSync: GitSyncSettings;
   export: ExportSettings;
+  zoteroLocal: ZoteroLocalSettings;
   agents: AgentSettings;
 };
 
@@ -89,6 +99,20 @@ export function updateDefaultProvider(defaultProvider: string): Promise<AgentSet
     method: "PATCH",
     body: JSON.stringify({ defaultProvider }),
   });
+}
+
+export function updateZoteroLocalSettings(patch: {
+  enabled?: boolean;
+  baseUrl?: string;
+}): Promise<ZoteroLocalSettings> {
+  return request("/api/settings/zotero-local", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function fetchZoteroLocalStatus(): Promise<ZoteroLocalStatus> {
+  return request<ZoteroLocalStatus>("/api/zotero/local/status");
 }
 
 export function fetchGitSyncStatus(): Promise<GitSyncStatus & { autoSync?: boolean; intervalMs?: number }> {

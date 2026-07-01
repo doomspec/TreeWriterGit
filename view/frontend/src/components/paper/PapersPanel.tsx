@@ -86,7 +86,8 @@ export function PapersPanel({
   const [detail, setDetail] = useState<PaperDetail | null>(null);
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
   const [childOrderOverrides, setChildOrderOverrides] = useState<Record<string, string[]>>({});
-  const { commentSummary, paperChildOrders, setSidebarPanel } = useWorkspaceNavigationContext();
+  const { commentSummary, paperChildOrders, setSidebarPanel, lastPaperPath } =
+    useWorkspaceNavigationContext();
   const childOrders = useMemo(
     () => ({ ...paperChildOrders, ...childOrderOverrides }),
     [childOrderOverrides, paperChildOrders],
@@ -266,10 +267,14 @@ export function PapersPanel({
 
   useEffect(() => {
     if (papersLoading || detailLoading || selectedSlug || papers.length === 0) return;
-    if (currentPath === "papers" || currentPath === "") {
-      onNavigate(defaultPaperPath(papers));
-    }
-  }, [currentPath, detailLoading, onNavigate, papers, papersLoading, selectedSlug]);
+    if (currentPath !== "papers" && currentPath !== "") return;
+
+    const restorePath =
+      lastPaperPath && papers.some((paper) => `papers/${paper.slug}` === lastPaperPath)
+        ? lastPaperPath
+        : defaultPaperPath(papers);
+    onNavigate(restorePath);
+  }, [currentPath, detailLoading, lastPaperPath, onNavigate, papers, papersLoading, selectedSlug]);
 
   const containerCounts = detail?.containerCounts ?? {};
 

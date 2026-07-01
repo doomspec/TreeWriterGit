@@ -65,6 +65,13 @@ export function createTestDeps(overrides: Partial<ServerDeps> = {}): ServerDeps 
         blockOnUnapproved: false,
         blockOnMissingCitations: false,
       })),
+    getZoteroLocalConfig:
+      overrides.getZoteroLocalConfig ??
+      (async () => ({
+        enabled: false,
+        baseUrl: "http://127.0.0.1:23119/api",
+      })),
+    invalidateZoteroLocalConfig: overrides.invalidateZoteroLocalConfig ?? (() => {}),
     getAutoExportState:
       overrides.getAutoExportState ??
       (() => ({

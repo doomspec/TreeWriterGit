@@ -4,7 +4,7 @@ export type WorkspaceModeTab = "explorer" | "papers";
 
 const TABS: { id: WorkspaceModeTab; label: string; shortLabel: string }[] = [
   { id: "explorer", label: "Explorer", shortLabel: "Exp" },
-  { id: "papers", label: "Papers", shortLabel: "Papers" },
+  { id: "papers", label: "Manuscripts", shortLabel: "Docs" },
 ];
 
 export function WorkspaceModeTabs({

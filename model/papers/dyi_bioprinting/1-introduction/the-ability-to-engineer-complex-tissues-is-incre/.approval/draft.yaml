@@ -1,0 +1,12 @@
+content_hash: "sha256:0d9c55e3d269c461847d8ebea90895721c60026964a0f6791d67fd50ff930a09"
+git_commit: "a4383c5bfafea0ee72d54a48e5338ae6a4f203cb"
+git_file_blob: "sha1:6f933d013f2c4448ddc8593994013482b139da3a"
+approved_at: "2026-07-01T16:29:01.134Z"
+approved_by: null
+approvers: 
+  - "yakavetsiv"
+edited_by: null
+edited_at: null
+ai_assisted: false
+ai_provider: null
+status: "approved"

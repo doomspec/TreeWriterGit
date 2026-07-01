@@ -3,49 +3,94 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import matter from "gray-matter";
 
-import { ModelFsError, createNode, deleteNode, resolveModelPath, isUnitDir, orderedChildren, readIndexData, resolveChildPath, resolveManuscriptSectionsRoot, PAPER_ASSET_DIRS } from "./modelFs.js";
+import { ModelFsError, createNode, deleteNode, resolveModelPath, resolvePaperRel, isUnitDir, orderedChildren, readIndexData, resolveChildPath, resolveManuscriptSectionsRoot, PAPER_ASSET_DIRS } from "./modelFs.js";
 import { collectPendingReviewItems } from "./draftApproval.js";
 
 import {
   loadJournalTemplate,
+  loadTemplate,
   listJournalTemplateDetails,
   listJournalTemplates,
+  listManuscriptTemplates,
   type JournalTemplate,
+  type ManuscriptTemplate,
 } from "./papers/templates.js";
+import { isManuscriptRoot, docTypeFromIndex, contributionModeFromIndex } from "./model/manuscriptKind.js";
+import { normalizeManuscriptTags, normalizeProjectSlug } from "./model/manuscriptTags.js";
 
 import type {
+  ContributionMode,
+  DocumentType,
+  ManuscriptDetail,
+  ManuscriptSummary,
   PaperDetail,
   PaperSummary,
   SectionRollup,
   UnitStatusCounts,
 } from "@treewriter/shared";
 
-export type { PaperDetail, PaperSummary, SectionRollup, UnitStatusCounts };
+export type { ManuscriptDetail, ManuscriptSummary, PaperDetail, PaperSummary, SectionRollup, UnitStatusCounts };
 export type UnitStatus = "outline" | "drafted" | "approved";
-export type { JournalTemplate };
-export { loadJournalTemplate, listJournalTemplateDetails, listJournalTemplates };
+export type { JournalTemplate, ManuscriptTemplate };
+export {
+  loadJournalTemplate,
+  loadTemplate,
+  listJournalTemplateDetails,
+  listJournalTemplates,
+  listManuscriptTemplates,
+};
 
-export interface UpdatePaperInput {
+export interface UpdateManuscriptInput {
   slug: string;
   title: string;
-  journal: string;
   authors: string[];
+  journal?: string;
+  templateId?: string;
   targetWords?: number;
   sectionOrder?: string[];
   status?: string;
   overleafRepoPath?: string | null;
+  funder?: string | null;
+  program?: string | null;
+  deadline?: string | null;
+  audience?: string | null;
+  tags?: string[];
+  project?: string | null;
+  contributionMode?: ContributionMode | null;
+  agentSummary?: string | null;
 }
 
-export interface ScaffoldPaperInput {
+/** @deprecated Use UpdateManuscriptInput */
+export type UpdatePaperInput = UpdateManuscriptInput & { journal: string };
+
+export interface ScaffoldManuscriptInput {
   title: string;
-  journal: string;
   authors: string[];
   slug?: string;
+  docType?: DocumentType;
+  templateId?: string;
+  journal?: string;
   targetWords?: number;
   sectionOrder?: string[];
   status?: string;
   overleafRepoPath?: string | null;
+  funder?: string | null;
+  program?: string | null;
+  deadline?: string | null;
+  audience?: string | null;
+  tags?: string[];
+  project?: string | null;
+  contributionMode?: ContributionMode | null;
+  agentSummary?: string | null;
 }
+
+/** @deprecated Use ScaffoldManuscriptInput */
+export type ScaffoldPaperInput = ScaffoldManuscriptInput & { journal: string };
+
+export type ListManuscriptsOptions = {
+  docType?: DocumentType;
+  tag?: string;
+};
 
 const EMPTY_COUNTS: UnitStatusCounts = { approved: 0, drafted: 0, outline: 0, total: 0 };
 
@@ -217,18 +262,38 @@ async function topLevelSections(modelRoot: string, paperRel: string): Promise<{ 
 }
 
 
-export async function scaffoldPaper(
+async function resolveTemplate(
   modelRoot: string,
-  input: ScaffoldPaperInput,
+  input: { templateId?: string; journal?: string; docType?: DocumentType },
+): Promise<ManuscriptTemplate & { journal?: string }> {
+  if (input.templateId?.trim()) {
+    return loadTemplate(modelRoot, input.templateId.trim());
+  }
+  if (input.journal?.trim()) {
+    return loadJournalTemplate(modelRoot, input.journal.trim());
+  }
+  const docType = input.docType ?? "paper";
+  const defaults: Record<DocumentType, string> = {
+    paper: "plos-one",
+    grant: "nsf-research-proposal",
+    report: "technical-report",
+  };
+  return loadTemplate(modelRoot, defaults[docType]);
+}
+
+export async function scaffoldManuscript(
+  modelRoot: string,
+  input: ScaffoldManuscriptInput,
 ): Promise<{ slug: string; path: string }> {
   const slug = input.slug?.trim() || slugify(input.title);
-  const paperRel = `papers/${slug}`;
+  const paperRel = resolvePaperRel(modelRoot, slug);
   const paperAbs = resolveModelPath(modelRoot, paperRel);
   if (existsSync(paperAbs)) {
-    throw new ModelFsError(`Paper already exists: ${paperRel}`, 409);
+    throw new ModelFsError(`Manuscript already exists: ${paperRel}`, 409);
   }
 
-  const template = await loadJournalTemplate(modelRoot, input.journal);
+  const template = await resolveTemplate(modelRoot, input);
+  const docType = input.docType ?? template.docType;
   const targetWords =
     input.targetWords != null && Number.isFinite(input.targetWords) && input.targetWords > 0
       ? Math.round(input.targetWords)
@@ -237,23 +302,43 @@ export async function scaffoldPaper(
     input.sectionOrder && input.sectionOrder.length > 0
       ? normalizeSectionOrder(input.sectionOrder)
       : template.sectionOrder;
-  const status = input.status?.trim() || "Planning";
-  const overleafRepoPath = input.overleafRepoPath?.trim() || null;
+  const status = input.status?.trim() || template.statusOptions[0] || "Planning";
+  const overleafRepoPath = docType === "paper" ? input.overleafRepoPath?.trim() || null : null;
+  const tags = normalizeManuscriptTags(input.tags);
+  const project = normalizeProjectSlug(input.project);
+
   await mkdir(paperAbs, { recursive: true });
 
   const paperBody = `# ${input.title}\n\n_Thesis / one-line summary._\n`;
-  const paperFrontmatter = {
-    kind: "paper",
+  const paperFrontmatter: Record<string, unknown> = {
+    kind: "manuscript",
+    doc_type: docType,
+    template_id: template.templateId,
     title: input.title,
     slug,
-    journal: template.journal,
     status,
     authors: input.authors,
     target_words: targetWords,
     section_order: sectionOrder,
-    overleaf_repo_path: overleafRepoPath,
     last_export: null,
+    tags,
+    project,
   };
+  if (docType === "paper" && (template.journal || input.journal)) {
+    paperFrontmatter.journal = template.journal ?? input.journal;
+    paperFrontmatter.overleaf_repo_path = overleafRepoPath;
+  }
+  if (docType === "grant") {
+    if (input.funder?.trim()) paperFrontmatter.funder = input.funder.trim();
+    if (input.program?.trim()) paperFrontmatter.program = input.program.trim();
+    if (input.deadline?.trim()) paperFrontmatter.deadline = input.deadline.trim();
+  }
+  if (docType === "report" && input.audience?.trim()) {
+    paperFrontmatter.audience = input.audience.trim();
+  }
+  if (input.contributionMode) paperFrontmatter.contribution_mode = input.contributionMode;
+  if (input.agentSummary?.trim()) paperFrontmatter.agent_summary = input.agentSummary.trim();
+
   await writeFile(
     path.join(paperAbs, "INDEX.md"),
     matter.stringify(paperBody, paperFrontmatter),
@@ -264,11 +349,11 @@ export async function scaffoldPaper(
     await createNode(modelRoot, paperRel, sectionName, "section");
   }
 
-  for (const assetDir of PAPER_ASSET_DIRS) {
+  for (const assetDir of template.assetDirs) {
     await createNode(modelRoot, paperRel, assetDir, "section");
   }
 
-  for (const notesDir of ["literature", "data", "feedback"]) {
+  for (const notesDir of template.notesDirs) {
     const notesRel = `${paperRel}/notes/${notesDir}`;
     await mkdir(path.join(modelRoot, notesRel), { recursive: true });
     await writeFile(
@@ -278,29 +363,44 @@ export async function scaffoldPaper(
     );
   }
 
-  const exampleSection = sectionOrder[0] ?? "introduction";
-  const exampleFigureRel = `${paperRel}/notes/data/fig-example`;
-  await writeFile(
-    path.join(modelRoot, `${exampleFigureRel}.md`),
-    matter.stringify(
-      `# Example figure\n\n## Summary\n\n_Describe panels, axes, and what readers should take away._\n`,
-      {
-        kind: "figure",
-        title: "Example figure",
-        caption: "Figure 1. Example comparison across conditions.",
-        figure_source: `${exampleFigureRel}.mmd`,
-        sections: [exampleSection],
-      },
-    ),
-    "utf8",
-  );
-  await writeFile(
-    path.join(modelRoot, `${exampleFigureRel}.mmd`),
-    "flowchart LR\n  A[Input] --> B[Output]\n",
-    "utf8",
-  );
+
+  const seedExampleFigure =
+    docType === "paper" &&
+    template.notesDirs.includes("data") &&
+    sectionOrder.length > 0;
+  if (seedExampleFigure) {
+    const exampleSection = sectionOrder[0] ?? "introduction";
+    const exampleFigureRel = `${paperRel}/notes/data/fig-example`;
+    await writeFile(
+      path.join(modelRoot, `${exampleFigureRel}.md`),
+      matter.stringify(
+        `# Example figure\n\n## Summary\n\n_Describe panels, axes, and what readers should take away._\n`,
+        {
+          kind: "figure",
+          title: "Example figure",
+          caption: "Figure 1. Example comparison across conditions.",
+          figure_source: `${exampleFigureRel}.mmd`,
+          sections: [exampleSection],
+        },
+      ),
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, `${exampleFigureRel}.mmd`),
+      "flowchart LR\n  A[Input] --> B[Output]\n",
+      "utf8",
+    );
+  }
 
   return { slug, path: paperRel };
+}
+
+/** @deprecated Use scaffoldManuscript */
+export async function scaffoldPaper(
+  modelRoot: string,
+  input: ScaffoldPaperInput,
+): Promise<{ slug: string; path: string }> {
+  return scaffoldManuscript(modelRoot, { ...input, docType: "paper" });
 }
 
 function paperSectionOrder(data: Record<string, unknown>): string[] {
@@ -317,18 +417,30 @@ function updatePaperBodyTitle(content: string, title: string): string {
   return `# ${title}\n\n${trimmed}`.trim() + "\n";
 }
 
-export async function updatePaper(
+export async function updateManuscript(
   modelRoot: string,
-  input: UpdatePaperInput,
+  input: UpdateManuscriptInput,
 ): Promise<{ slug: string; path: string }> {
   const slug = input.slug.trim();
-  const paperRel = `papers/${slug}`;
+  const paperRel = resolvePaperRel(modelRoot, slug);
   const indexPath = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(indexPath)) {
-    throw new ModelFsError(`Paper not found: ${slug}`, 404);
+    throw new ModelFsError(`Manuscript not found: ${slug}`, 404);
   }
 
-  const template = await loadJournalTemplate(modelRoot, input.journal);
+  const parsed = matter(await readFile(indexPath, "utf8"));
+  const data = parsed.data as Record<string, unknown>;
+  if (!isManuscriptRoot(data)) {
+    throw new ModelFsError(`Not a manuscript: ${paperRel}`, 400);
+  }
+
+  const docType = docTypeFromIndex(data);
+  const template = await resolveTemplate(modelRoot, {
+    templateId: input.templateId ?? (data.template_id ? String(data.template_id) : undefined),
+    journal: input.journal ?? (data.journal ? String(data.journal) : undefined),
+    docType,
+  });
+
   const targetWords =
     input.targetWords != null && Number.isFinite(input.targetWords) && input.targetWords > 0
       ? Math.round(input.targetWords)
@@ -338,28 +450,44 @@ export async function updatePaper(
       ? normalizeSectionOrder(input.sectionOrder)
       : undefined;
 
-  const parsed = matter(await readFile(indexPath, "utf8"));
-  const data = parsed.data as Record<string, unknown>;
-  if (data.kind !== "paper") {
-    throw new ModelFsError(`Not a paper: ${paperRel}`, 400);
-  }
-
   const nextTitle = input.title.trim();
-  const nextFrontmatter = {
+  const tags = input.tags !== undefined ? normalizeManuscriptTags(input.tags) : normalizeManuscriptTags(data.tags);
+  const project =
+    input.project !== undefined ? normalizeProjectSlug(input.project) : normalizeProjectSlug(data.project);
+
+  const nextFrontmatter: Record<string, unknown> = {
     ...data,
-    kind: "paper",
+    kind: isManuscriptRoot(data) && data.kind === "paper" ? "paper" : "manuscript",
+    doc_type: docType,
+    template_id: template.templateId,
     title: nextTitle,
     slug,
-    journal: template.journal,
     status: input.status?.trim() || String(data.status ?? "Planning"),
     authors: input.authors,
     target_words: targetWords ?? Number(data.target_words ?? template.targetWords),
     section_order: sectionOrder ?? paperSectionOrder(data),
-    overleaf_repo_path:
+    tags,
+    project,
+  };
+
+  if (docType === "paper") {
+    nextFrontmatter.journal = template.journal ?? input.journal ?? data.journal;
+    nextFrontmatter.overleaf_repo_path =
       input.overleafRepoPath !== undefined
         ? input.overleafRepoPath?.trim() || null
-        : data.overleaf_repo_path ?? null,
-  };
+        : data.overleaf_repo_path ?? null;
+  }
+
+  if (input.funder !== undefined) nextFrontmatter.funder = input.funder?.trim() || null;
+  if (input.program !== undefined) nextFrontmatter.program = input.program?.trim() || null;
+  if (input.deadline !== undefined) nextFrontmatter.deadline = input.deadline?.trim() || null;
+  if (input.audience !== undefined) nextFrontmatter.audience = input.audience?.trim() || null;
+  if (input.contributionMode !== undefined) {
+    nextFrontmatter.contribution_mode = input.contributionMode;
+  }
+  if (input.agentSummary !== undefined) {
+    nextFrontmatter.agent_summary = input.agentSummary?.trim() || null;
+  }
 
   await writeFile(
     indexPath,
@@ -370,27 +498,32 @@ export async function updatePaper(
   return { slug, path: paperRel };
 }
 
+/** @deprecated Use updateManuscript */
+export async function updatePaper(modelRoot: string, input: UpdatePaperInput): Promise<{ slug: string; path: string }> {
+  return updateManuscript(modelRoot, input);
+}
+
 export async function deletePaper(modelRoot: string, slug: string): Promise<{ slug: string; path: string }> {
-  const trimmed = slug.trim();
-  const paperRel = `papers/${trimmed}`;
+  const paperRel = resolvePaperRel(modelRoot, slug.trim());
+  const trimmed = paperRel.slice("papers/".length);
   const indexPath = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(indexPath)) {
     throw new ModelFsError(`Paper not found: ${trimmed}`, 404);
   }
   const data = await readIndexData(modelRoot, paperRel);
-  if (data.kind !== "paper") {
-    throw new ModelFsError(`Not a paper: ${paperRel}`, 400);
+  if (!isManuscriptRoot(data)) {
+    throw new ModelFsError(`Not a manuscript: ${paperRel}`, 400);
   }
   await deleteNode(modelRoot, paperRel, true);
   return { slug: trimmed, path: paperRel };
 }
 
-async function parsePaperSummary(modelRoot: string, paperRel: string): Promise<PaperSummary | null> {
+async function parseManuscriptSummary(modelRoot: string, paperRel: string): Promise<ManuscriptSummary | null> {
   const indexPath = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(indexPath)) return null;
   const parsed = matter(await readFile(indexPath, "utf8"));
   const data = parsed.data as Record<string, unknown>;
-  if (data.kind !== "paper") return null;
+  if (!isManuscriptRoot(data)) return null;
 
   const slug = String(data.slug ?? path.basename(paperRel));
   const counts = await countUnitsUnder(modelRoot, paperRel);
@@ -399,32 +532,49 @@ async function parsePaperSummary(modelRoot: string, paperRel: string): Promise<P
     slug,
     path: paperRel,
     title: String(data.title ?? slug),
+    docType: docTypeFromIndex(data),
     journal: String(data.journal ?? ""),
     status: String(data.status ?? "Planning"),
     lastExport: data.last_export ? String(data.last_export) : null,
+    tags: normalizeManuscriptTags(data.tags),
+    project: normalizeProjectSlug(data.project),
     counts,
   };
 }
 
-export async function listPapers(modelRoot: string): Promise<PaperSummary[]> {
+export async function listManuscripts(
+  modelRoot: string,
+  options: ListManuscriptsOptions = {},
+): Promise<ManuscriptSummary[]> {
   const papersDir = path.join(modelRoot, "papers");
   if (!existsSync(papersDir)) return [];
 
   const entries = await readdir(papersDir, { withFileTypes: true });
-  const papers: PaperSummary[] = [];
+  const papers: ManuscriptSummary[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const summary = await parsePaperSummary(modelRoot, `papers/${entry.name}`);
-    if (summary) papers.push(summary);
+    const summary = await parseManuscriptSummary(modelRoot, `papers/${entry.name}`);
+    if (!summary) continue;
+    if (options.docType && summary.docType !== options.docType) continue;
+    if (options.tag) {
+      const tag = options.tag.trim().toLowerCase();
+      if (!summary.tags.includes(tag)) continue;
+    }
+    papers.push(summary);
   }
   return papers.sort((a, b) => a.title.localeCompare(b.title));
 }
 
-export async function getPaperDetail(modelRoot: string, slug: string): Promise<PaperDetail> {
-  const paperRel = `papers/${slug}`;
-  const summary = await parsePaperSummary(modelRoot, paperRel);
+/** @deprecated Use listManuscripts */
+export async function listPapers(modelRoot: string, options?: ListManuscriptsOptions): Promise<PaperSummary[]> {
+  return listManuscripts(modelRoot, options);
+}
+
+export async function getManuscriptDetail(modelRoot: string, slug: string): Promise<ManuscriptDetail> {
+  const paperRel = resolvePaperRel(modelRoot, slug);
+  const summary = await parseManuscriptSummary(modelRoot, paperRel);
   if (!summary) {
-    throw new ModelFsError(`Paper not found: ${slug}`, 404);
+    throw new ModelFsError(`Manuscript not found: ${slug}`, 404);
   }
 
   const indexPath = path.join(modelRoot, paperRel, "INDEX.md");
@@ -452,16 +602,28 @@ export async function getPaperDetail(modelRoot: string, slug: string): Promise<P
 
   return {
     ...summary,
+    templateId: data.template_id ? String(data.template_id) : null,
     authors,
     targetWords,
     sectionOrder,
     overleafRepoPath,
     overleafGitUrl,
+    funder: data.funder ? String(data.funder) : null,
+    program: data.program ? String(data.program) : null,
+    deadline: data.deadline ? String(data.deadline) : null,
+    audience: data.audience ? String(data.audience) : null,
+    contributionMode: contributionModeFromIndex(data),
+    agentSummary: data.agent_summary ? String(data.agent_summary) : null,
     sections,
     containerCounts,
     pendingApprovalPaths,
     pendingReviews,
   };
+}
+
+/** @deprecated Use getManuscriptDetail */
+export async function getPaperDetail(modelRoot: string, slug: string): Promise<PaperDetail> {
+  return getManuscriptDetail(modelRoot, slug);
 }
 
 /** Exported for agent dispatch context gathering. */

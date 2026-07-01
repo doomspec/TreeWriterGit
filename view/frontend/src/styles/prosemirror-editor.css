@@ -1,0 +1,134 @@
+/* Stage 5 ProseMirror markdown editor surface (feature-flagged). */
+.prosemirror-markdown-field .ProseMirror {
+  outline: none;
+  min-height: 8rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.prosemirror-markdown-field .ProseMirror:focus {
+  outline: none;
+}
+
+.prosemirror-markdown-field .ProseMirror p {
+  margin: 0 0 0.75em;
+}
+
+/* React node views (figure/equation cards, citation badges). */
+.prosemirror-markdown-field .tw-node-view {
+  margin: 0.75em 0;
+}
+.prosemirror-markdown-field .tw-node-view--inline {
+  display: inline;
+  margin: 0;
+}
+
+/* Pending-approval inline diff. */
+.prosemirror-markdown-field .tw-diff-ins {
+  background: hsl(142 70% 45% / 0.22);
+  border-radius: 0.1rem;
+}
+.prosemirror-markdown-field .tw-diff-del {
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--destructive) / 0.6);
+  opacity: 0.75;
+  margin: 0 0.1em;
+}
+
+/* Find & replace match highlights. */
+.prosemirror-markdown-field .tw-find-match {
+  background: hsl(var(--primary) / 0.18);
+  border-radius: 0.15rem;
+}
+.prosemirror-markdown-field .tw-find-current {
+  background: hsl(var(--primary) / 0.45);
+  box-shadow: 0 0 0 1px hsl(var(--primary));
+}
+
+/* Custom-node chips rendered via schema toDOM. */
+.prosemirror-markdown-field [data-citation],
+.prosemirror-markdown-field [data-latex-token],
+.prosemirror-markdown-field [data-author-note] {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.3em;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+}
+
+.prosemirror-markdown-field [data-wikilink] {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.prosemirror-markdown-field [data-citation],
+.prosemirror-markdown-field [data-figure-embed],
+.prosemirror-markdown-field [data-equation-embed] {
+  cursor: pointer;
+}
+
+.prosemirror-markdown-field mark[data-hl] {
+  border-radius: 0.15rem;
+  padding: 0 0.1em;
+}
+.prosemirror-markdown-field mark[data-hl="yellow"] { background: #fff3a3; }
+.prosemirror-markdown-field mark[data-hl="green"] { background: #b6f0c0; }
+.prosemirror-markdown-field mark[data-hl="blue"] { background: #bfe0ff; }
+.prosemirror-markdown-field mark[data-hl="pink"] { background: #ffc7e0; }
+.prosemirror-markdown-field mark[data-hl="orange"] { background: #ffd6a8; }
+.prosemirror-markdown-field mark[data-hl="purple"] { background: #e0ccff; }
+
+.prosemirror-markdown-field [data-figure-embed],
+.prosemirror-markdown-field [data-equation-embed] {
+  display: block;
+  margin: 0.75em 0;
+  padding: 0.5em 0.75em;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 0.375rem;
+  font-size: 0.85em;
+  color: hsl(var(--muted-foreground));
+}
+.prosemirror-markdown-field [data-figure-embed]::before { content: "figure: "; font-weight: 600; }
+.prosemirror-markdown-field [data-equation-embed]::before { content: "equation: "; font-weight: 600; }
+
+/* Task list items: checkbox pinned left of the first line, text flows beside it. */
+.prosemirror-markdown-field li[data-task] {
+  list-style: none;
+  position: relative;
+  padding-left: 1.9em;
+}
+.prosemirror-markdown-field li[data-task]::before {
+  content: "\2610"; /* ballot box */
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 1.35em;
+  line-height: 1.1;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  /* Thicken the glyph strokes in both states. */
+  -webkit-text-stroke: 0.035em currentColor;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+.prosemirror-markdown-field li[data-task]:hover::before {
+  color: hsl(var(--foreground));
+}
+.prosemirror-markdown-field li[data-task][data-checked="true"]::before {
+  content: "\2611"; /* ballot box with check */
+  color: hsl(var(--primary));
+  transform: scale(1.08);
+}
+/* De-emphasize completed task text. */
+.prosemirror-markdown-field li[data-task][data-checked="true"] > p {
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+}
+/* Tighten the per-item paragraph so the checkbox lines up with its text. */
+.prosemirror-markdown-field li[data-task] > p {
+  margin: 0;
+}

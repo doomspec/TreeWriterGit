@@ -1,6 +1,6 @@
 import { useCallback, type RefObject } from "react";
 
-import type { BlockMarkdownEditorHandle } from "@/components/editor/BlockMarkdownEditor";
+import type { BlockMarkdownEditorHandle } from "@/components/editor/editorHandle";
 import { applyMarkdownFormat, type MarkdownFormatAction } from "@/lib/markdownFormat";
 import { authorNoteMacro, wrapInlineNote } from "@/lib/inlineNotes";
 import { applyTextHighlight, type TextHighlightColorId } from "@/lib/textHighlight";
@@ -39,6 +39,7 @@ export function useRenderedOrTextareaFormat({
 }) {
   const applyFormat = useCallback(
     (action: MarkdownFormatAction) => {
+      if (renderedActive && blockRef.current?.runFormat?.(action)) return;
       applyWithBlockEditorFirst(
         blockRef.current,
         renderedActive,
@@ -60,6 +61,7 @@ export function useRenderedOrTextareaFormat({
   );
 
   const insertInlineNote = useCallback(() => {
+    if (renderedActive && blockRef.current?.runInlineNote?.()) return;
     const target = textareaRef.current;
     if (!target) return;
     const start = target.selectionStart;
@@ -67,10 +69,11 @@ export function useRenderedOrTextareaFormat({
     const selected = target.value.slice(start, end);
     const note = wrapInlineNote(authorNoteMacro(getUserName()), selected);
     onTextareaEdit(`${target.value.slice(0, start)}${note}${target.value.slice(end)}`, start + note.length);
-  }, [onTextareaEdit, textareaRef]);
+  }, [blockRef, onTextareaEdit, renderedActive, textareaRef]);
 
   const insertTextHighlight = useCallback(
     (colorId: TextHighlightColorId) => {
+      if (renderedActive && blockRef.current?.runHighlight?.(colorId)) return;
       applyWithBlockEditorFirst(
         blockRef.current,
         renderedActive,

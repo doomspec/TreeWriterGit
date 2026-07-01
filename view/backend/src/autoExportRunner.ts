@@ -18,7 +18,8 @@ export function shouldAutoExportPath(relativePath: string | null | undefined): b
   return (
     normalized.endsWith("/draft.md") ||
     normalized.endsWith("/outline.md") ||
-    normalized.endsWith("/draft.approved.md")
+    normalized.endsWith("/draft.approved.md") ||
+    normalized.includes("/.approval/")
   );
 }
 

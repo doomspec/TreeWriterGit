@@ -1,5 +1,6 @@
 ---
 kind: paper
+doc_type: paper
 title: TreeWriter Guide
 slug: treewriter-guide
 journal: TreeWriter
@@ -16,5 +17,6 @@ section_order:
 ---
 # TreeWriter Guide
 
-Hands-on documentation for writing papers in TreeWriter: structure, figures, approval, and export. You are reading this paper inside the app — explore sections in the Papers sidebar.
+Hands-on documentation for writing **papers, grants, and reports** in TreeWriter: structure, figures, approval, and export. You are reading this guide inside the app — explore sections in the **Manuscripts** sidebar.
 
+Use **New manuscript** to pick a deliverable type (paper, grant, or report), choose a template, and scaffold sections automatically. Journal papers can sync to Overleaf; grants and reports export to Word.
