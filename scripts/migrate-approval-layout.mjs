@@ -2,12 +2,17 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { readdir } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
-import matter from "gray-matter";
+const require = createRequire(
+  path.join(fileURLToPath(new URL(".", import.meta.url)), "../view/backend/package.json"),
+);
+const matter = require("gray-matter");
 
 const MODEL_ROOT = process.argv[2] ?? path.join(process.cwd(), "model");
 
-async function walkUnits(dirRel: string, visit: (unitRel: string) => Promise<void>): Promise<void> {
+async function walkUnits(dirRel, visit) {
   const abs = path.join(MODEL_ROOT, dirRel);
   if (!existsSync(abs)) return;
   const entries = await readdir(abs, { withFileTypes: true });
@@ -16,12 +21,14 @@ async function walkUnits(dirRel: string, visit: (unitRel: string) => Promise<voi
     await visit(dirRel);
   }
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    if (!entry.isDirectory()) continue;
+    // Descend into .trash; skip other dot dirs (.approval, .sessions, …).
+    if (entry.name.startsWith(".") && entry.name !== ".trash") continue;
     await walkUnits(`${dirRel}/${entry.name}`, visit);
   }
 }
 
-function yamlValue(value: unknown): string {
+function yamlValue(value) {
   if (value === null || value === undefined) return "null";
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") return String(value);
@@ -32,20 +39,20 @@ function yamlValue(value: unknown): string {
   return JSON.stringify(String(value));
 }
 
-function buildYaml(data: Record<string, unknown>): string {
+function buildYaml(data) {
   return `${Object.entries(data)
     .map(([key, value]) => `${key}: ${yamlValue(value)}`)
     .join("\n")}\n`;
 }
 
-async function migrateUnit(unitRel: string): Promise<string[]> {
-  const updated: string[] = [];
+async function migrateUnit(unitRel) {
+  const updated = [];
   const indexAbs = path.join(MODEL_ROOT, unitRel, "INDEX.md");
   if (!existsSync(indexAbs)) return updated;
   const index = matter(await readFile(indexAbs, "utf8"));
-  const data = index.data as Record<string, unknown>;
+  const data = index.data;
 
-  for (const kind of ["draft", "outline"] as const) {
+  for (const kind of ["draft", "outline"]) {
     const prefix = kind === "outline" ? "outline_" : "";
     const legacyApproved = path.join(MODEL_ROOT, unitRel, `${kind}.approved.md`);
     const approvalDir = path.join(MODEL_ROOT, unitRel, ".approval");
@@ -58,6 +65,9 @@ async function migrateUnit(unitRel: string): Promise<string[]> {
     if (existsSync(legacyApproved) && !existsSync(modernApproved)) {
       await rename(legacyApproved, modernApproved);
       updated.push(`${unitRel}/.approval/${kind}.approved.md`);
+    } else if (existsSync(legacyApproved) && existsSync(modernApproved)) {
+      await rm(legacyApproved);
+      updated.push(`${unitRel}/${kind}.approved.md (removed legacy duplicate)`);
     }
 
     if (!existsSync(yamlPath)) {
@@ -83,8 +93,8 @@ async function migrateUnit(unitRel: string): Promise<string[]> {
   return updated;
 }
 
-async function main(): Promise<void> {
-  const updated: string[] = [];
+async function main() {
+  const updated = [];
   await walkUnits("papers", async (unitRel) => {
     updated.push(...(await migrateUnit(unitRel)));
   });
