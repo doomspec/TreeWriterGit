@@ -109,7 +109,25 @@ export type WorkspacePreferences = {
   explorerOpenTabs: string[];
   /** Active Explorer tab path. */
   explorerActiveTab: string | null;
+  /** Right-docked AI assistant chat panel. */
+  aiPanelOpen: boolean;
+  /** AI assistant panel width in px. */
+  aiPanelWidth: number;
+  /** Collapsible terminal section inside the assistant panel. */
+  aiPanelTerminalOpen: boolean;
+  /** Collapsible dispatch section inside the assistant panel. */
+  aiPanelDispatchOpen: boolean;
+  /** Collapsible skills section inside the assistant panel. */
+  aiPanelSkillsOpen: boolean;
 };
+
+export const AI_PANEL_WIDTH_MIN = 280;
+export const AI_PANEL_WIDTH_MAX = 640;
+export const AI_PANEL_WIDTH_DEFAULT = 380;
+
+export function clampAiPanelWidth(width: number): number {
+  return Math.min(AI_PANEL_WIDTH_MAX, Math.max(AI_PANEL_WIDTH_MIN, Math.round(width)));
+}
 
 export const BOTTOM_PANEL_HEIGHT_MIN = 160;
 export const BOTTOM_PANEL_HEIGHT_MAX = 720;
@@ -155,6 +173,11 @@ const DEFAULTS: WorkspacePreferences = {
   explorerMode: false,
   explorerOpenTabs: [],
   explorerActiveTab: null,
+  aiPanelOpen: false,
+  aiPanelWidth: AI_PANEL_WIDTH_DEFAULT,
+  aiPanelTerminalOpen: true,
+  aiPanelDispatchOpen: false,
+  aiPanelSkillsOpen: false,
 };
 
 export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
@@ -253,6 +276,25 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
       );
     } else {
       delete parsed.editorPanePrefsByScope;
+    }
+    if (typeof (parsed as { aiPanelOpen?: boolean }).aiPanelOpen !== "boolean") {
+      delete (parsed as { aiPanelOpen?: boolean }).aiPanelOpen;
+    }
+    if (typeof (parsed as { aiPanelWidth?: number }).aiPanelWidth === "number") {
+      (parsed as { aiPanelWidth?: number }).aiPanelWidth = clampAiPanelWidth(
+        (parsed as { aiPanelWidth?: number }).aiPanelWidth!,
+      );
+    } else {
+      delete (parsed as { aiPanelWidth?: number }).aiPanelWidth;
+    }
+    if (typeof (parsed as { aiPanelTerminalOpen?: boolean }).aiPanelTerminalOpen !== "boolean") {
+      delete (parsed as { aiPanelTerminalOpen?: boolean }).aiPanelTerminalOpen;
+    }
+    if (typeof (parsed as { aiPanelDispatchOpen?: boolean }).aiPanelDispatchOpen !== "boolean") {
+      delete (parsed as { aiPanelDispatchOpen?: boolean }).aiPanelDispatchOpen;
+    }
+    if (typeof (parsed as { aiPanelSkillsOpen?: boolean }).aiPanelSkillsOpen !== "boolean") {
+      delete (parsed as { aiPanelSkillsOpen?: boolean }).aiPanelSkillsOpen;
     }
     return parsed;
   } catch {

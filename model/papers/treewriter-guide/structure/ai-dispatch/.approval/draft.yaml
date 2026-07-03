@@ -6,7 +6,7 @@ approved_by: "yakavetsiv"
 approvers: 
   - "yakavetsiv"
 edited_by: null
-edited_at: null
-ai_assisted: false
-ai_provider: null
-status: "approved"
+edited_at: "2026-07-02T19:50:09.082Z"
+ai_assisted: true
+ai_provider: "claude"
+status: "drafted"

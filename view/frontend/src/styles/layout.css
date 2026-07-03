@@ -1179,6 +1179,19 @@
   background: hsl(var(--terminal-bg));
 }
 
+/*
+ * Used by the assistant panel's collapsible Terminal section, whose height
+ * comes from an explicit Tailwind class (h-72 / hidden) rather than a
+ * flex:1 grow inside a fixed-height ancestor like .terminal-host's — the
+ * section itself sizes to content, so flex:1 here would collapse to 0.
+ */
+.assistant-terminal-host {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: hsl(var(--terminal-bg));
+}
+
 .terminal-mount {
   position: absolute;
   inset: 0;
@@ -1186,18 +1199,21 @@
   overflow: hidden;
 }
 
-.terminal-host .xterm {
+.terminal-host .xterm,
+.assistant-terminal-host .xterm {
   height: 100% !important;
   width: 100% !important;
   padding: 0;
 }
 
-.terminal-host .xterm-viewport {
+.terminal-host .xterm-viewport,
+.assistant-terminal-host .xterm-viewport {
   overflow: hidden !important;
   border-radius: 4px;
 }
 
-.terminal-host .xterm-screen {
+.terminal-host .xterm-screen,
+.assistant-terminal-host .xterm-screen {
   width: 100% !important;
 }
 

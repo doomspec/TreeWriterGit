@@ -14,8 +14,8 @@ type UseDocumentEditorOptions = {
   targetPath: string;
   loadedContent: string;
   setLoadedContent: (content: string) => void;
-  approvedBaseline: string;
-  setApprovedBaseline: (baseline: string) => void;
+  approvedBaseline: string | null;
+  setApprovedBaseline: (baseline: string | null) => void;
   saveContent: (content: string, pendingSource: import("@/lib/draftApproval").DraftPendingSource | null) => Promise<void>;
   reloadAfterDiscard?: () => Promise<string>;
   onError?: (message: string) => void;

@@ -34,6 +34,7 @@ import { usePaperComments } from "@/lib/hooks/usePaperComments";
 import {
   loadWorkspacePreferences,
   mergeWorkspaceDefaults,
+  clampAiPanelWidth,
   clampAssetPreviewSplit,
   clampDualPaneNotesSplit,
   type DualPaneActive,
@@ -83,6 +84,12 @@ export type WorkspaceContextValue = {
   /** Close an Explorer tab; activates a neighbor if the closed tab was active. */
   closeExplorerTab: (path: string) => void;
   setExplorerActiveTab: (path: string | null) => void;
+  /**
+   * Reconcile open tabs after a filesystem rename/delete. `to === null` removes
+   * the path (and anything under it); otherwise the prefix is rewritten so tabs
+   * for a moved file/folder keep pointing at the new location.
+   */
+  applyExplorerPathChange: (from: string, to: string | null) => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -150,6 +157,14 @@ export function WorkspaceProvider({
   }, []);
   const [sidebarWidth, setSidebarWidth] = useState(savedPrefs.sidebarWidth);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(savedPrefs.bottomPanelHeight);
+  const [aiPanelOpen, setAiPanelOpen] = useState(savedPrefs.aiPanelOpen);
+  const [aiPanelWidth, setAiPanelWidthState] = useState(savedPrefs.aiPanelWidth);
+  const setAiPanelWidth = useCallback((width: number) => {
+    setAiPanelWidthState(clampAiPanelWidth(width));
+  }, []);
+  const [aiPanelTerminalOpen, setAiPanelTerminalOpen] = useState(savedPrefs.aiPanelTerminalOpen);
+  const [aiPanelDispatchOpen, setAiPanelDispatchOpen] = useState(savedPrefs.aiPanelDispatchOpen);
+  const [aiPanelSkillsOpen, setAiPanelSkillsOpen] = useState(savedPrefs.aiPanelSkillsOpen);
   const [graphScope, setGraphScope] = useState<GraphScope>(savedPrefs.graphScope);
   const [createPrompt, setCreatePrompt] = useState<{ kind: NodeKind } | null>(null);
   const [lastPaperPath, setLastPaperPath] = useState<string | null>(() => {
@@ -427,6 +442,11 @@ export function WorkspaceProvider({
     explorerMode,
     explorerOpenTabs,
     explorerActiveTab,
+    aiPanelOpen,
+    aiPanelWidth,
+    aiPanelTerminalOpen,
+    aiPanelDispatchOpen,
+    aiPanelSkillsOpen,
   });
 
   const showSectionViewBack = Boolean(activeFile && isPaperSection && !isUnit && !isPaperRoot);
@@ -530,6 +550,30 @@ export function WorkspaceProvider({
     });
   }, []);
 
+  const applyExplorerPathChange = useCallback((from: string, to: string | null) => {
+    const underFrom = (tab: string) => tab === from || tab.startsWith(`${from}/`);
+    const rewrite = (tab: string) =>
+      to === null ? null : tab === from ? to : `${to}${tab.slice(from.length)}`;
+    setExplorerOpenTabs((tabs) => {
+      let changed = false;
+      const next: string[] = [];
+      for (const tab of tabs) {
+        if (!underFrom(tab)) {
+          next.push(tab);
+          continue;
+        }
+        changed = true;
+        const mapped = rewrite(tab);
+        if (mapped && !next.includes(mapped)) next.push(mapped);
+      }
+      return changed ? next : tabs;
+    });
+    setExplorerActiveTab((active) => {
+      if (active == null || !underFrom(active)) return active;
+      return rewrite(active);
+    });
+  }, []);
+
   const value = useMemo<WorkspaceContextValue>(
     () => ({
       appView,
@@ -544,6 +588,7 @@ export function WorkspaceProvider({
       openExplorerTab,
       closeExplorerTab,
       setExplorerActiveTab,
+      applyExplorerPathChange,
     }),
     [
       appView,
@@ -554,6 +599,7 @@ export function WorkspaceProvider({
       explorerActiveTab,
       openExplorerTab,
       closeExplorerTab,
+      applyExplorerPathChange,
     ],
   );
 
@@ -577,9 +623,24 @@ export function WorkspaceProvider({
       setBottomPanelHeight,
       agentPanelOpen,
       setAgentPanelOpen,
+      aiPanelOpen,
+      setAiPanelOpen,
+      aiPanelWidth,
+      setAiPanelWidth,
+      aiPanelTerminalOpen,
+      setAiPanelTerminalOpen,
+      aiPanelDispatchOpen,
+      setAiPanelDispatchOpen,
+      aiPanelSkillsOpen,
+      setAiPanelSkillsOpen,
     }),
     [
       agentPanelOpen,
+      aiPanelOpen,
+      aiPanelWidth,
+      aiPanelTerminalOpen,
+      aiPanelDispatchOpen,
+      aiPanelSkillsOpen,
       assetPreviewSplit,
       bottomPanelHeight,
       dualPaneActive,
@@ -588,6 +649,7 @@ export function WorkspaceProvider({
       dualPaneNotesSplitPercent,
       editorLayout,
       setAgentPanelOpen,
+      setAiPanelWidth,
       setAssetPreviewSplit,
       setBottomPanelHeight,
       setDualPaneActive,

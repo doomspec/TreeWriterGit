@@ -1,4 +1,5 @@
-import { ApiError, getApiBaseUrl, request } from "@/lib/apiClient";
+import { ApiError, getApiBaseUrl, request, requestArrayBuffer } from "@/lib/apiClient";
+import { markSelfSave } from "@/lib/recentSelfSaves";
 import type { ModelNode } from "@/lib/modelTree";
 import type {
   ContributionMode,
@@ -91,6 +92,13 @@ export function createFile(path: string, content = "") {
   return request<{ ok: true; path: string }>("/api/model/file", {
     method: "POST",
     body: JSON.stringify({ path, content })
+  });
+}
+
+export function createFolder(parent: string, name: string) {
+  return request<{ ok: true; path: string }>("/api/model/folder", {
+    method: "POST",
+    body: JSON.stringify({ parent, name }),
   });
 }
 
@@ -206,6 +214,8 @@ export function createManuscript(body: {
   templateId?: string;
   journal?: string;
   authors: string[];
+  affiliations?: string[];
+  authorAffiliations?: number[][];
   slug?: string;
   targetWords?: number;
   sectionOrder?: string[];
@@ -246,6 +256,8 @@ export function updateManuscript(body: {
   slug: string;
   title: string;
   authors: string[];
+  affiliations?: string[];
+  authorAffiliations?: number[][];
   journal?: string;
   templateId?: string;
   targetWords?: number;
@@ -367,6 +379,19 @@ export async function fetchModelFile(path: string): Promise<{ content: string }>
   return request<{ content: string }>(`/api/model/file?path=${encodeURIComponent(path)}`);
 }
 
+/** URL for a binary file (image/pdf/xlsx) served as-is by /api/model/asset — use as an <img>/<embed> src. */
+export function modelAssetUrl(path: string): string {
+  return `${getApiBaseUrl()}/api/model/asset?path=${encodeURIComponent(path)}`;
+}
+
+export async function fetchModelAssetBytes(path: string): Promise<ArrayBuffer> {
+  return requestArrayBuffer(`/api/model/asset?path=${encodeURIComponent(path)}`);
+}
+
+export async function fetchDocxPreview(path: string): Promise<{ markdown: string }> {
+  return request<{ markdown: string }>(`/api/model/docx-preview?path=${encodeURIComponent(path)}`);
+}
+
 export type SaveModelFileOptions = {
   editedBy?: string | null;
   aiAssisted?: boolean;
@@ -382,6 +407,10 @@ export async function saveModelFile(
   if (options?.editedBy !== undefined) body.editedBy = options.editedBy;
   if (options?.aiAssisted !== undefined) body.aiAssisted = options.aiAssisted;
   if (options?.aiProvider !== undefined) body.aiProvider = options.aiProvider;
+  // Mark before the request so the model-changed broadcast — which can arrive
+  // before this await resolves — is recognized as our own and doesn't bounce
+  // back to reload the file we just wrote (see recentSelfSaves / the flicker fix).
+  markSelfSave(path);
   try {
     await request("/api/model/file", {
       method: "PUT",

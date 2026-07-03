@@ -91,6 +91,10 @@ export function registerPapersRoutes(app: Express, deps: ServerDeps) {
       templateId: templateId || undefined,
       docType,
       authors: Array.isArray(body.authors) ? (body.authors as string[]) : [],
+      affiliations: Array.isArray(body.affiliations) ? (body.affiliations as string[]) : undefined,
+      authorAffiliations: Array.isArray(body.authorAffiliations)
+        ? (body.authorAffiliations as number[][])
+        : undefined,
       slug: body.slug ? String(body.slug) : undefined,
       targetWords: typeof body.targetWords === "number" ? body.targetWords : undefined,
       sectionOrder: Array.isArray(body.sectionOrder) ? (body.sectionOrder as string[]) : undefined,
@@ -162,6 +166,10 @@ export function registerPapersRoutes(app: Express, deps: ServerDeps) {
         journal: body.journal ? String(body.journal) : undefined,
         templateId: body.templateId ? String(body.templateId) : undefined,
         authors: Array.isArray(body.authors) ? (body.authors as string[]) : [],
+        affiliations: Array.isArray(body.affiliations) ? (body.affiliations as string[]) : undefined,
+        authorAffiliations: Array.isArray(body.authorAffiliations)
+          ? (body.authorAffiliations as number[][])
+          : undefined,
         targetWords: typeof body.targetWords === "number" ? body.targetWords : undefined,
         sectionOrder: Array.isArray(body.sectionOrder) ? (body.sectionOrder as string[]) : undefined,
         status: body.status ? String(body.status) : undefined,

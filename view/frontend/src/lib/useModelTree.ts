@@ -9,6 +9,7 @@ import {
   subtreeRootForChange,
 } from "@/lib/modelTreeMerge";
 import { isApiTemporarilyOffline } from "@/lib/apiClient";
+import { wasRecentlySelfSaved } from "@/lib/recentSelfSaves";
 import { closeWebSocket } from "@/lib/websocket";
 import { fetchModelTree, type FetchModelTreeOptions } from "@/modelApi";
 
@@ -212,7 +213,14 @@ export function useModelTree(options: UseModelTreeOptions = {}) {
     const scheduleReload = (payload: ModelEventPayload) => {
       window.clearTimeout(reloadTimer);
       const kind = payload.kind ?? inferEventKind(payload.path);
-      if (payload.path) bumpPath(payload.path);
+      // A content event for a file THIS client just saved is an echo of our own
+      // write — skip the path-version bump so the editor doesn't re-run its
+      // file-load effect against content it already has (avoids the type→save→
+      // broadcast→reload flicker loop). External writes aren't self-marked, so
+      // they still bump and refresh the open editor.
+      if (payload.path && !(kind === "content" && wasRecentlySelfSaved(payload.path))) {
+        bumpPath(payload.path);
+      }
       if (kind === "content") return;
 
       const eventVersion = payload.treeVersion;

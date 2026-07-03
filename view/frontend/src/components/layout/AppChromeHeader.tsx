@@ -4,6 +4,7 @@ import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { TreeWriterBrand } from "@/components/layout/TreeWriterBrand";
+import { WorkspaceModeMenu } from "@/components/layout/WorkspaceModeMenu";
 import { WorkspaceChromeActions } from "@/components/layout/WorkspaceChromeActions";
 import { PaperSearchField } from "@/components/paper/PaperSearchField";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,10 @@ export function AppChromeHeader({
   onBack,
   backTitle = "Back",
   homeTitle = "Home",
+  explorerMode = false,
+  onExplorerModeChange,
+  aiPanelOpen = false,
+  onToggleAiPanel,
 }: {
   appView: "workspace" | "settings" | "info";
   browsePath: string;
@@ -48,6 +53,10 @@ export function AppChromeHeader({
   onBack?: () => void;
   backTitle?: string;
   homeTitle?: string;
+  explorerMode?: boolean;
+  onExplorerModeChange?: (explorer: boolean) => void;
+  aiPanelOpen?: boolean;
+  onToggleAiPanel?: () => void;
 }) {
   const { active: readingFocusActive, extraChrome } = useReadingFocus();
 
@@ -59,8 +68,12 @@ export function AppChromeHeader({
       )}
     >
       <div className="app-chrome-header__lead flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3">
-        <TreeWriterBrand onHomeClick={onHomeClick} homeTitle={homeTitle} />
-        {appView === "workspace" ? (
+        {appView === "workspace" && onExplorerModeChange ? (
+          <WorkspaceModeMenu explorerMode={explorerMode} onChange={onExplorerModeChange} />
+        ) : (
+          <TreeWriterBrand onHomeClick={onHomeClick} homeTitle={homeTitle} />
+        )}
+        {appView === "workspace" && !explorerMode ? (
           <>
             <div className="hidden h-4 w-px shrink-0 bg-border md:block" aria-hidden="true" />
             {canBack && onBack ? (
@@ -99,17 +112,23 @@ export function AppChromeHeader({
               />
             ) : null}
           </>
-        ) : (
+        ) : appView !== "workspace" ? (
           <>
             <div className="hidden h-4 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
             <span className="truncate text-sm font-medium text-foreground">
               {appView === "settings" ? "Settings" : "Guide"}
             </span>
           </>
-        )}
+        ) : null}
       </div>
 
-      {appView === "workspace" ? <WorkspaceChromeActions onRefreshModel={onRefreshModel} /> : null}
+      {appView === "workspace" && !explorerMode ? (
+        <WorkspaceChromeActions
+          onRefreshModel={onRefreshModel}
+          aiPanelOpen={aiPanelOpen}
+          onToggleAiPanel={onToggleAiPanel}
+        />
+      ) : null}
     </header>
   );
 }

@@ -31,6 +31,11 @@ export type WorkspacePreferencesSnapshot = {
   explorerMode: boolean;
   explorerOpenTabs: string[];
   explorerActiveTab: string | null;
+  aiPanelOpen: boolean;
+  aiPanelWidth: number;
+  aiPanelTerminalOpen: boolean;
+  aiPanelDispatchOpen: boolean;
+  aiPanelSkillsOpen: boolean;
 };
 
 /** Debounced persistence for workspace layout and navigation preferences. */
@@ -62,5 +67,10 @@ export function useWorkspacePreferencesPersistence(snapshot: WorkspacePreference
     snapshot.explorerMode,
     snapshot.explorerOpenTabs,
     snapshot.explorerActiveTab,
+    snapshot.aiPanelOpen,
+    snapshot.aiPanelWidth,
+    snapshot.aiPanelTerminalOpen,
+    snapshot.aiPanelDispatchOpen,
+    snapshot.aiPanelSkillsOpen,
   ]);
 }

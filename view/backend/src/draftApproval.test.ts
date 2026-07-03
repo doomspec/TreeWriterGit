@@ -35,6 +35,22 @@ afterEach(async () => {
 });
 
 describe("draftApproval", () => {
+  it("a brand-new unit's still-empty draft.md is not treated as pending approval", async () => {
+    // Regression: collectPendingApprovalPaths used to flag ANY never-approved
+    // manuscript as pending regardless of content, so a bulk "approve pending
+    // children" sweep could bake an empty skeleton in as the approved
+    // baseline before the author wrote anything — which then silently
+    // masked all later edits from the review rail (empty approved baseline
+    // vs. no approved baseline being indistinguishable downstream).
+    // draft.md starts genuinely empty for a fresh unit (unlike outline.md,
+    // which ships with real skeleton placeholder text and is correctly still
+    // "pending" — nothing has actually replaced that boilerplate yet).
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/unit-a")).toBe(true);
+
+    const paths = await collectPendingApprovalPaths(modelRoot, "papers/demo");
+    expect(paths).not.toContain("papers/demo/unit-a/draft.md");
+  });
+
   it("autosave marks unit drafted when draft diverges from approved", async () => {
     const draftRel = "papers/demo/unit-a/draft.md";
     await writeFile(path.join(modelRoot, draftRel), "Working text.\n", "utf8");
@@ -89,6 +105,18 @@ describe("draftApproval", () => {
     await handleDraftFileSaved(modelRoot, draftRel, { editedBy: "octocat", aiAssisted: true });
     await discardDraftTarget(modelRoot, draftRel);
     expect(await readFile(path.join(modelRoot, draftRel), "utf8")).toBe("Approved text.\n");
+    const meta = await readDraftEditMeta(modelRoot, "papers/demo/unit-a");
+    expect(meta.aiAssisted).toBe(false);
+    expect(meta.editedBy).toBeNull();
+  });
+
+  it("discard on a never-approved draft reverts to empty instead of erroring", async () => {
+    const draftRel = "papers/demo/unit-a/draft.md";
+    await writeFile(path.join(modelRoot, draftRel), "Fresh AI text, never approved.\n", "utf8");
+    await handleDraftFileSaved(modelRoot, draftRel, { editedBy: "codex", aiAssisted: true });
+    await discardDraftTarget(modelRoot, draftRel);
+    expect(await readFile(path.join(modelRoot, draftRel), "utf8")).toBe("");
+    expect(await draftsMatchApproved(modelRoot, "papers/demo/unit-a")).toBe(true);
     const meta = await readDraftEditMeta(modelRoot, "papers/demo/unit-a");
     expect(meta.aiAssisted).toBe(false);
     expect(meta.editedBy).toBeNull();

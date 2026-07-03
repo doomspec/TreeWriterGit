@@ -45,6 +45,7 @@ export {
 } from "./model/materialize.js";
 export {
   createFile,
+  createFolder,
   createNode,
   deleteNode,
   moveNode,

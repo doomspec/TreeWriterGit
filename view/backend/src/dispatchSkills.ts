@@ -150,6 +150,83 @@ export async function saveDispatchSkill(
   };
 }
 
+export async function readDispatchSkillContent(repoRoot: string, filename: string): Promise<string> {
+  const safeName = sanitizeSkillFilename(filename);
+  return readFile(path.join(skillsDirectory(repoRoot), safeName), "utf8");
+}
+
+export async function updateDispatchSkillContent(
+  repoRoot: string,
+  filename: string,
+  content: string,
+): Promise<DispatchSkillInfo> {
+  const safeName = sanitizeSkillFilename(filename);
+  const abs = path.join(skillsDirectory(repoRoot), safeName);
+  if (!existsSync(abs)) throw new Error(`Skill not found: ${safeName}`);
+
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes === 0) throw new Error("Skill file is empty");
+  if (bytes > MAX_SKILL_BYTES) {
+    throw new Error(`Skill file too large (max ${Math.round(MAX_SKILL_BYTES / 1024)}KB)`);
+  }
+  await writeFile(abs, content, "utf8");
+
+  const enabled = await loadDispatchSkillsEnabled(repoRoot);
+  return {
+    filename: safeName,
+    title: skillTitle(content, safeName),
+    size: bytes,
+    enabled: isSkillEnabled(safeName, enabled),
+  };
+}
+
+/** Renames a skill file in place, preserving its enabled/disabled state under the new name. */
+export async function renameDispatchSkill(
+  repoRoot: string,
+  filename: string,
+  newFilename: string,
+): Promise<DispatchSkillInfo> {
+  const safeOld = sanitizeSkillFilename(filename);
+  const dir = skillsDirectory(repoRoot);
+  const oldAbs = path.join(dir, safeOld);
+  if (!existsSync(oldAbs)) throw new Error(`Skill not found: ${safeOld}`);
+
+  const safeNew = sanitizeSkillFilename(newFilename);
+  if (safeNew === safeOld) {
+    const content = await readFile(oldAbs, "utf8");
+    const enabled = await loadDispatchSkillsEnabled(repoRoot);
+    return {
+      filename: safeOld,
+      title: skillTitle(content, safeOld),
+      size: Buffer.byteLength(content, "utf8"),
+      enabled: isSkillEnabled(safeOld, enabled),
+    };
+  }
+  if (existsSync(path.join(dir, safeNew))) {
+    throw new Error(`A skill named ${safeNew} already exists`);
+  }
+
+  const content = await readFile(oldAbs, "utf8");
+  await writeFile(path.join(dir, safeNew), content, "utf8");
+  await unlink(oldAbs);
+
+  const enabled = await loadDispatchSkillsEnabled(repoRoot);
+  const wasEnabled = isSkillEnabled(safeOld, enabled);
+  if (enabled !== null && enabled.includes(safeOld)) {
+    await saveDispatchSkillsEnabled(repoRoot, [
+      ...enabled.filter((name) => name !== safeOld),
+      safeNew,
+    ]);
+  }
+
+  return {
+    filename: safeNew,
+    title: skillTitle(content, safeNew),
+    size: Buffer.byteLength(content, "utf8"),
+    enabled: wasEnabled,
+  };
+}
+
 export async function deleteDispatchSkill(repoRoot: string, filename: string): Promise<void> {
   const safeName = sanitizeSkillFilename(filename);
   const abs = path.join(skillsDirectory(repoRoot), safeName);

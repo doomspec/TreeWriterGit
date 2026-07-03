@@ -222,8 +222,14 @@ export function MarkdownEditor({
   const previewMeta = useMemo(() => parsePreviewBody(content), [content]);
   const previewBody = previewMeta.title ? previewMeta.body : previewParts.body;
   const debouncedPreviewBody = useDebouncedValue(previewBody, 250);
-  const approvedPreviewMeta = useMemo(() => parsePreviewBody(approvedBaseline), [approvedBaseline]);
-  const approvedPreviewParts = useMemo(() => splitForPreviewEdit(approvedBaseline), [approvedBaseline]);
+  const approvedPreviewMeta = useMemo(
+    () => parsePreviewBody(approvedBaseline ?? ""),
+    [approvedBaseline],
+  );
+  const approvedPreviewParts = useMemo(
+    () => splitForPreviewEdit(approvedBaseline ?? ""),
+    [approvedBaseline],
+  );
   const approvedPreviewBody = approvedPreviewMeta.title
     ? approvedPreviewMeta.body
     : approvedPreviewParts.body;

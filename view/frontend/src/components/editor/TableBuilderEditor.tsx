@@ -96,7 +96,7 @@ export function TableBuilderEditor({
 }) {
   const [data, setData] = useState<ParsedTableDraft>(() => initTableDraft(2, 2, tableTitle));
   const [loaded, setLoaded] = useState("");
-  const [approvedBaseline, setApprovedBaseline] = useState("");
+  const [approvedBaseline, setApprovedBaseline] = useState<string | null>(null);
   const [editMeta, setEditMeta] = useState({
     editedBy: null as string | null,
     aiAssisted: false,
@@ -172,7 +172,10 @@ export function TableBuilderEditor({
     let cancelled = false;
     void loadDraftApprovalState(filePath).then(({ content: baseline, meta }) => {
       if (!cancelled) {
-        setApprovedBaseline(baseline);
+        // meta.approvedAt distinguishes "approved with empty content" from
+        // "never approved" — both would otherwise read as "" (see
+        // effectiveDiffBaseline in draftDiff.ts).
+        setApprovedBaseline(meta.approvedAt !== null ? baseline : null);
         setEditMeta({ editedBy: meta.editedBy, aiAssisted: meta.aiAssisted, aiProvider: meta.aiProvider });
       }
     });

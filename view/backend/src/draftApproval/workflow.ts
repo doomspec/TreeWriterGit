@@ -217,11 +217,9 @@ async function discardManuscriptFile(modelRoot: string, fileRel: string): Promis
   const kind = manuscriptKindFromFilePath(fileRel);
   const unitRel = unitDirFromManuscriptFile(fileRel, kind);
   const approvedRel = resolveApprovedManuscriptRel(modelRoot, unitRel, kind);
-  if (!approvedRel) {
-    throw new ModelFsError(`No approved ${kind} to restore`, 404);
-  }
-  const approvedAbs = path.join(modelRoot, approvedRel);
-  const content = await readFile(approvedAbs, "utf8");
+  // Never approved before — nothing to restore to; discarding an unapproved
+  // edit reverts it to the empty skeleton state instead of erroring.
+  const content = approvedRel ? await readFile(path.join(modelRoot, approvedRel), "utf8") : "";
   await writeFile(path.join(modelRoot, fileRel), content, "utf8");
   const previous = await readManuscriptApprovalMeta(modelRoot, unitRel, kind);
   const record = buildDiscardedMetaRecord(previous);

@@ -278,6 +278,7 @@ export function MarkdownToolbar({
   paperPath = null,
   filePath = "",
   refreshVersion = 0,
+  hideComments = false,
   onFormat,
   onToggleComments,
   onInsertInlineNote,
@@ -295,8 +296,10 @@ export function MarkdownToolbar({
   paperPath?: string | null;
   filePath?: string;
   refreshVersion?: number;
+  /** Hide the Comment/Note buttons for surfaces with no review/comment workflow (e.g. Explorer's plain files). */
+  hideComments?: boolean;
   onFormat: (action: MarkdownFormatAction) => void;
-  onToggleComments: () => void;
+  onToggleComments?: () => void;
   onInsertInlineNote?: () => void;
   onInsertHighlight?: (color: TextHighlightColorId) => void;
   onInsertSnippet?: (snippet: string) => void;
@@ -305,7 +308,7 @@ export function MarkdownToolbar({
 }) {
   const visibleItems = TOOLBAR_ITEMS.filter(
     (item) => !renderedMode || item.showInRendered !== false,
-  );
+  ).filter((item) => !hideComments || (item.action !== "comment" && item.action !== "inlineNote"));
   const commentItem = visibleItems.find((item) => item.action === "comment");
   const formatItems = visibleItems.filter(
     (item) => item.action !== "comment" && item.action !== "inlineNote",

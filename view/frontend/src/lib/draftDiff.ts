@@ -200,14 +200,25 @@ export function hasPendingDiff(baseline: string, current: string): boolean {
   return baseline !== current;
 }
 
-/** Baseline for diff display: approved snapshot, or last saved content when never approved. */
-export function effectiveDiffBaseline(approvedBaseline: string, loadedContent: string): string {
-  return approvedBaseline.length > 0 ? approvedBaseline : loadedContent;
+/**
+ * Baseline for diff display: the approved snapshot, or last-loaded content when
+ * never approved. `approvedBaseline` is `null` specifically when no approval
+ * record exists yet — distinct from `""`, which means the unit WAS approved and
+ * its approved snapshot happens to be empty. Conflating the two (e.g. via a
+ * `.length > 0` check) makes a still-empty approved snapshot fall back to the
+ * live loaded content as its own baseline, silently hiding any later edit as
+ * "already approved" — the bug behind reported missing review highlighting.
+ */
+export function effectiveDiffBaseline(
+  approvedBaseline: string | null,
+  loadedContent: string,
+): string {
+  return approvedBaseline !== null ? approvedBaseline : loadedContent;
 }
 
 /** True when the editor content differs from the effective approval baseline. */
 export function hasPendingApprovalDiff(
-  approvedBaseline: string,
+  approvedBaseline: string | null,
   loadedContent: string,
   current: string,
 ): boolean {
@@ -216,7 +227,7 @@ export function hasPendingApprovalDiff(
 }
 
 export function pendingChangesRows(
-  approvedBaseline: string,
+  approvedBaseline: string | null,
   loadedContent: string,
   current: string,
 ): PendingLineHighlight[] {
@@ -234,7 +245,7 @@ export function countPendingChanges(baseline: string, current: string): { insert
 }
 
 export function countPendingDisplayChanges(
-  approvedBaseline: string,
+  approvedBaseline: string | null,
   loadedContent: string,
   current: string,
 ): { changedLines: number; changedWords: number } {

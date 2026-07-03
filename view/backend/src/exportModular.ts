@@ -396,12 +396,30 @@ export async function exportModularPaper(
   if (natureTemplate && exportStyle?.templateBundle) {
     await copyJournalTemplateBundle(modelRoot, exportStyle.templateBundle, bundleDir);
     const roles = classifyNatureSectionSlugs(sectionSlugs);
-    const author = typeof paperData.author === "string" ? paperData.author : undefined;
+    const legacyAuthor = typeof paperData.author === "string" ? paperData.author : undefined;
+    const authors = Array.isArray(paperData.authors)
+      ? paperData.authors.map((a) => String(a).trim()).filter(Boolean)
+      : [];
+    const affiliations = Array.isArray(paperData.affiliations)
+      ? paperData.affiliations.map((a) => String(a).trim()).filter(Boolean)
+      : [];
+    const authorAffiliations = Array.isArray(paperData.author_affiliations)
+      ? (paperData.author_affiliations as unknown[]).map((entry) =>
+          Array.isArray(entry)
+            ? entry
+                .map((n) => Number(n))
+                .filter((n) => Number.isInteger(n) && n >= 1 && n <= affiliations.length)
+            : [],
+        )
+      : [];
     await writeFile(
       mainTexPath,
       buildNatureMainTexDocument({
         title: paperTitle,
-        author,
+        author: legacyAuthor,
+        authors,
+        affiliations,
+        authorAffiliations,
         abstractSection: roles.abstract,
         bodySections: roles.body,
         methodsSection: roles.methods,

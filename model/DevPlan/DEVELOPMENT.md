@@ -52,7 +52,7 @@ TreeWriterGit/
 │   └── frontend/src/           ← React app
 ├── .treewriter.json            ← AI provider registry
 ├── .treewriter-exports/        ← pandoc output (gitignored)
-└── .treewriter-prompt.txt      ← dispatch prompt scratch (SHOULD be gitignored — §12.21)
+└── model/.treewriter-prompts/  ← per-session dispatch prompts (gitignored — §12.4)
 ```
 
 ---
@@ -118,17 +118,22 @@ Order is editorial, **separate from filesystem**. Paper uses `section_order`; co
 
 ## 5. Backend module map (`view/backend/src/`)
 
-| File | Responsibility | Key exports |
-|------|----------------|-------------|
-| `server.ts` | Express app, 23 routes, 2 WS servers, git-sync loop, `fs.watch` broadcast, PTY spawn | — |
-| `modelFs.ts` | File CRUD + node create/delete/move/reorder; `child_order` maintenance; path safety; lazy file materialization | `resolveModelPath`, `createNode`, `deleteNode`, `moveNode`, `reorderChildren`, `createFile`, `materializeOutline`, `materializeDraft`, `indexSkeleton`, `outlineDocSkeleton`, `ModelFsError` |
-| `agentDispatch.ts` | AI provider config + prompt builder + shell-command builder | `loadProviders`, `buildPreview`, `DispatchAction` |
-| `sessions.ts` | Dispatch-session ledger under `{unit}/.sessions/{stamp}.md` | `listSessions`, `createSession`, `updateSessionStatus` |
-| `compose.ts` | Build composed section views (stitched child summaries + drafts) for read | `composeSectionView`, `parseOutlineSummary`, `displayChildTitle` |
-| `export.ts` | Depth-first `draft.md` assembly → pandoc → `.tex`/PDF; `.bib` from lit notes; PDF-engine fallback | `exportPaper`, `buildCombinedMarkdown`, `buildBibliography`, `extractCiteKeys`, `detectPdfEngine`, `resolveExportDownload` |
-| `papers.ts` | Paper scaffold from journal template; list + per-status roll-up | `scaffoldPaper`, `listPapers`, `getPaperDetail`, `loadJournalTemplate`, `listJournalTemplates`, `slugify` |
-| `graph.ts` | Walk `.md`, parse wikilinks from INDEX `links:` + `## Outline` section; structural `child_order` edges; resolve targets; emit nodes/edges + `missing:` nodes | `buildGraph`, `parseWikilinks`, `parseOutlineContentLinks`, `parseChildOrder`, `resolveTarget` |
-| `pty_bridge.py` | Fork real PTY for the shell; relay stdin/stdout; fd-3 JSON control channel → `set_winsize` + `SIGWINCH` | — |
+| Module | Responsibility | Key exports |
+|--------|----------------|-------------|
+| `server.ts` | Thin bootstrap; delegates to `appFactory` | — |
+| `appFactory.ts` | Express app, route registration, WS servers, git-sync loop, `fs.watch` | `createServer`, `createApp` |
+| `modelFs.ts` | File CRUD + node create/delete/move/reorder; path safety; lazy materialization | `resolveModelPath`, `createNode`, `ModelFsError`, … |
+| **`agentDispatch/`** | AI provider config, prompt templates, context gathering, command builder, subprocess exec | `loadProviders`, `buildPreview`, `runDispatch`, `DispatchAction` |
+| **`draftApproval/`** | Approved baselines (`*.approved.md`), edit meta, approve/discard workflow | `approveDraftTarget`, `collectPendingApprovalPaths`, `readEditMetaForFile` |
+| **`export/`** | Markdown assembly, bibliography, pandoc export | `exportPaper`, `buildCombinedMarkdown`, `extractCiteKeys`, `detectPdfEngine` |
+| **`routes/model/`** | Model HTTP sub-registrars (CRUD, trash, approval, discovery, assets-read) | `registerModelRoutes` |
+| `sessions.ts` + `sessionWiki.ts` | Dispatch-session ledger under `{paper}/notes/sessions/` | `listSessions`, `createSession`, `updateSessionStatus` |
+| `compose.ts` | Composed section views (stitched child summaries + drafts) | `composeSectionView`, `parseOutlineSummary` |
+| `papers.ts` | Paper scaffold from journal template; list + roll-up | `scaffoldPaper`, `loadJournalTemplate` |
+| `graph.ts` | Wikilink graph + structural edges | `buildGraph`, `parseWikilinks` |
+| `exportEmbeds.ts`, `exportModular.ts`, `exportDocx.ts` | Figure/equation embeds, modular Overleaf zip, DOCX | — |
+
+Legacy top-level facades (`agentDispatch.ts`, `draftApproval.ts`, `export.ts`, `routes/model.ts`) re-export from packages above — existing imports unchanged.
 
 **Invariants devs must respect**
 - **Never mutate `parsed.data`** from gray-matter (cache aliasing) — always spread into a fresh object (`patchChildOrder` does this).
@@ -142,7 +147,7 @@ Order is editorial, **separate from filesystem**. Paper uses `section_order`; co
 | Method | Path | Body / Query | Purpose |
 |--------|------|--------------|---------|
 | GET | `/health` | — | status + gitSync |
-| GET | `/api/model/tree` | — | full model tree |
+| GET | `/api/model/tree` | `?path=&depth=` | model tree; scoped subtree + optional depth (`hasChildren` stubs when `depth=0`); directory nodes include `childOrder` from INDEX; server caches by `treeVersion` |
 | GET | `/api/model/file` | `?path=` | read file |
 | PUT | `/api/model/file` | `{path, content}` | overwrite file (autosave) |
 | POST | `/api/model/file` | `{path, content?}` | create file (409 if exists) |
@@ -151,6 +156,7 @@ Order is editorial, **separate from filesystem**. Paper uses `section_order`; co
 | POST | `/api/model/move` | `{from, to}` | rename/move |
 | POST | `/api/model/reorder` | `{parent, child_order[]}` | rewrite order |
 | GET | `/api/model/graph` | `?root=` | wikilink graph |
+| GET | `/api/model/search` | `?q=&root=&limit=` | FTS5 line search via `.treewriter/index.sqlite` (mtime incremental sync; invalidated on model-changed) |
 | GET | `/api/model/section-compose` | `?path=` | stitched section outline+draft |
 | GET | `/api/agent/providers` | — | AI provider registry |
 | POST | `/api/agent/preview` | `{unitPath, action, provider, customPrompt?}` | build prompt + shell command (no exec) |
@@ -174,7 +180,7 @@ Errors: thrown `ModelFsError` carries an HTTP status (400/404/409/503); final ha
 Two channels, both upgraded on the same HTTP server ([server.ts:627](../../view/backend/src/server.ts)):
 
 - **`/terminal`** — spawns `python3 pty_bridge.py <modelRoot> <shell> …` with `stdio:["pipe","pipe","pipe","pipe"]`. fd-3 = control channel. Client msgs: `{type:"input",data}` → stdin; `{type:"resize",cols,rows}` → fd-3 JSON → `set_winsize(master)` + `SIGWINCH`. Terminal cwd = `modelRoot`.
-- **`/model-events`** — server pushes `{type:"model-changed",path}` on every mutation and on debounced `fs.watch` (100 ms). Frontend debounces 150 ms then reloads tree + git status + bumps `refreshVersion`.
+- **`/model-events`** — server pushes `{type:"model-changed", path, kind, treeVersion}` on mutations and debounced `fs.watch` (~250 ms). Frontend debounces (400 ms; 2 s when editor dirty): **content** events bump per-path version only (editors reload via `pathVersion`, not global `refreshVersion`); **structure** events patch the affected subtree via `GET /api/model/tree?path=`. If `treeVersion` gaps (missed WS events), client falls back to shallow full reload (`depth=1`). Initial boot uses `?depth=1`; active paper subtrees prefetch on navigation. Explorer/panels read `childOrder` from tree nodes instead of N+1 INDEX fetches when subtrees are loaded. Backend also invalidates the derived SQLite search index (`.treewriter/index.sqlite`) on model-changed events; markdown files remain the source of truth.
 
 ---
 
@@ -229,10 +235,22 @@ Layout: CSS grid `workspace-grid` (sidebar | workspace | right-panel); right pan
 ### 9.1 AI dispatch loop (core value prop)
 1. User navigates to a unit → `currentPath` set → DispatchPanel shows it.
 2. User picks provider (`.treewriter.json`) + action (draft / revise / expand / cite-check / refresh-index / sync-outline / custom).
-3. **Preview** → `POST /api/agent/preview` → `buildPreview` reads `outline.md` (idea) + `draft.md` (if revise/expand/cite-check) + up to 5 linked units' context, fills the action template, writes prompt to `.treewriter-prompt.txt`, returns `{prompt, command, outputPath}`. The command references the prompt via `"$(cat ../.treewriter-prompt.txt)"`.
-4. **Run** → command written to `/terminal` WS as `{type:"input"}`. User watches the AI run live. AI writes `draft.md` (or stdout redirect for `writesFiles:false` providers).
+3. **Preview** → `POST /api/agent/preview` → `buildPreview` assembles a per-session prompt file under `model/.treewriter-prompts/{id}.txt` and returns `{prompt, command, outputPath}`.
+4. **Run** → command sent to `/terminal` WS. AI writes `draft.md` (or stdout redirect for `writesFiles:false` providers).
 5. Session recorded (`POST /api/sessions`, status `dispatched`). `fs.watch` → `model-changed` → card refreshes.
-6. User marks session **complete** / **skipped** (manual today — §12.11). Status flag on the *unit* does NOT auto-advance (§12.3).
+6. User marks session **complete** / **skipped**. Status on the unit may auto-advance on dispatch complete (M8).
+
+#### Dispatch context (three layers — no project MCP)
+
+| Layer | When loaded | Source |
+|-------|-------------|--------|
+| **1. Prompt assembly** | Every dispatch preview | `readDispatchUnitContext`: outline, draft, INDEX links, cited literature/assets; optional checklist paths from UI |
+| **2. Auto prefetch** | Default dispatch (no manual checklist) | `contextPrefetch`: sibling unit outlines + FTS hits in same paper (SQLite index) |
+| **3. On-demand CLI** | Agent invokes when needed | `node scripts/tw-context.mjs search\|read\|tree\|compose` — documented in `.treewriter-skills/treewriter-context-cli.md` and appended to every dispatch prompt |
+
+**Skills** (`.treewriter-skills/`, enabled in `.treewriter.json`) append writing/structure rules to the prompt only during dispatch — zero always-on context cost vs project MCP.
+
+**Prefer:** enrich layers 1–2 + CLI skill. **Avoid:** committed `.mcp.json` for dispatch (permanent tool-schema tax in every Claude Code session).
 
 ### 9.2 Session storage
 `{unit}/.sessions/{ISO-stamp}.md`, frontmatter `{at, provider, action, command, status, notes?}`. Avoids re-running the same AI work; surfaces unresolved `dispatched` sessions as a warning.

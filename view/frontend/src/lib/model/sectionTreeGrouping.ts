@@ -33,9 +33,13 @@ export function groupSectionTreeRows(
       }
       if (units.length > 0) {
         rows.push({ type: "units-under-subsection", subsection: item, units });
-        index = next;
-        continue;
       }
+      // Always advance past the subsection (and any grouped units). Without an
+      // unconditional continue here, a childless subsection (units.length === 0)
+      // fell through to the push below and rendered as two identical rows —
+      // the reported "duplicated subsection" on a freshly created one.
+      index = next;
+      continue;
     }
 
     rows.push({ type: "item", item });

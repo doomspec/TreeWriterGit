@@ -17,12 +17,16 @@ describe("figures asset helpers", () => {
   it("allows supported asset extensions", () => {
     expect(isAllowedAssetPath("papers/x/preview.png")).toBe(true);
     expect(isAllowedAssetPath("papers/x/source.mmd")).toBe(true);
+    expect(isAllowedAssetPath("explorer/data.xlsx")).toBe(true);
     expect(isAllowedAssetPath("papers/x/draft.md")).toBe(false);
   });
 
   it("maps content types", () => {
     expect(assetContentType("x.png")).toBe("image/png");
     expect(assetContentType("x.mmd")).toContain("text/plain");
+    expect(assetContentType("data.xlsx")).toBe(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
   });
 
   it("detects image upload extensions", () => {

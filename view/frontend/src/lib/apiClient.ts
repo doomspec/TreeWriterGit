@@ -101,3 +101,24 @@ export async function requestText(path: string, init?: RequestInit): Promise<str
   }
   return response.text();
 }
+
+export async function requestArrayBuffer(path: string, init?: RequestInit): Promise<ArrayBuffer> {
+  if (isApiTemporarilyOffline()) {
+    throw offlineApiError();
+  }
+
+  const apiBaseUrl = getApiBaseUrl();
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, init);
+  } catch {
+    markApiOffline();
+    throw offlineApiError();
+  }
+
+  markApiOnline();
+  if (!response.ok) {
+    throw new ApiError(`Request failed (${response.status})`, response.status);
+  }
+  return response.arrayBuffer();
+}

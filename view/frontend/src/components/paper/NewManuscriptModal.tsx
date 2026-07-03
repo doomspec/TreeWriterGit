@@ -3,6 +3,7 @@ import { ChevronDown, ChevronLeft, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
+import { AuthorsAffiliationsEditor } from "@/components/paper/AuthorsAffiliationsEditor";
 import {
   applyTemplateSettings,
   buildCreateManuscriptPayload,
@@ -54,7 +55,9 @@ export function NewManuscriptModal({
   const [templates, setTemplates] = useState<ManuscriptTemplate[]>([DEFAULT_PAPER_TEMPLATE]);
   const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_PAPER_TEMPLATE.templateId);
   const [title, setTitle] = useState("");
-  const [authors, setAuthors] = useState("");
+  const [authors, setAuthors] = useState<string[]>([]);
+  const [affiliations, setAffiliations] = useState<string[]>([]);
+  const [authorAffiliations, setAuthorAffiliations] = useState<number[][]>([]);
   const [slug, setSlug] = useState("");
   const [targetWords, setTargetWords] = useState(String(DEFAULT_PAPER_TEMPLATE.targetWords));
   const [sectionOrderText, setSectionOrderText] = useState(
@@ -115,7 +118,9 @@ export function NewManuscriptModal({
         if (cancelled) return;
         setDocType(paper.docType ?? "paper");
         setTitle(paper.title);
-        setAuthors(paper.authors.join(", "));
+        setAuthors(paper.authors);
+        setAffiliations(paper.affiliations ?? []);
+        setAuthorAffiliations(paper.authorAffiliations ?? []);
         setSlug(paper.slug);
         setTargetWords(String(paper.targetWords));
         setSectionOrderText(paper.sectionOrder.join("\n"));
@@ -161,13 +166,17 @@ export function NewManuscriptModal({
     setSubmitting(true);
     try {
       if (isEdit) {
+        const cleanAuthors = authors.map((a) => a.trim()).filter(Boolean);
+        const cleanAffiliations = affiliations.map((a) => a.trim()).filter(Boolean);
         const result = await updateManuscript({
           slug: editSlug ?? slug.trim(),
           title: title.trim(),
-          authors: authors
-            .split(",")
-            .map((a) => a.trim())
-            .filter(Boolean),
+          authors: cleanAuthors,
+          affiliations: cleanAffiliations,
+          authorAffiliations:
+            cleanAffiliations.length > 0 && authorAffiliations.some((a) => a.length > 0)
+              ? authorAffiliations
+              : undefined,
           journal: docType === "paper" ? selectedTemplate?.journal ?? selectedTemplate?.label : undefined,
           templateId: selectedTemplateId,
           targetWords: Number(targetWords),
@@ -192,6 +201,8 @@ export function NewManuscriptModal({
         templateId: selectedTemplateId,
         journal: selectedTemplate?.journal ?? selectedTemplate?.label,
         authors,
+        affiliations,
+        authorAffiliations,
         slug,
         targetWords,
         sectionOrderText,
@@ -384,14 +395,16 @@ export function NewManuscriptModal({
                   </label>
                 ) : null}
 
-                <label className="block text-xs">
-                  <span className="mb-1 block font-medium">Authors (comma-separated)</span>
-                  <input
-                    className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm"
-                    value={authors}
-                    onChange={(e) => setAuthors(e.target.value)}
+                <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+                  <AuthorsAffiliationsEditor
+                    value={{ authors, affiliations, authorAffiliations }}
+                    onChange={(next) => {
+                      setAuthors(next.authors);
+                      setAffiliations(next.affiliations);
+                      setAuthorAffiliations(next.authorAffiliations);
+                    }}
                   />
-                </label>
+                </div>
 
                 <label className="block text-xs">
                   <span className="mb-1 block font-medium">Tags (comma-separated, optional)</span>

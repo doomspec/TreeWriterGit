@@ -125,7 +125,7 @@ export function ComposedDraftEditor({
   );
 
   const [loadedContent, setLoadedContent] = useState("");
-  const [approvedBaseline, setApprovedBaseline] = useState("");
+  const [approvedBaseline, setApprovedBaseline] = useState<string | null>(null);
   const [editMeta, setEditMeta] = useState<DraftEditMeta>({
     editedBy: null,
     editedAt: null,

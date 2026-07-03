@@ -13,7 +13,7 @@ edited_by: null
 edited_at: '2026-07-01T19:43:20.531Z'
 ai_assisted: false
 ai_provider: null
-approved_by: yakavetsiv
-approved_at: '2026-07-01T02:53:06.861Z'
+approved_by: null
+approved_at: '2026-07-02T15:38:47.845Z'
 ---
 

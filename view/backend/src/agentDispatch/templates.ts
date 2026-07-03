@@ -7,9 +7,24 @@ export type DispatchAction =
   | "refresh-index"
   | "sync-outline"
   | "summarize-outline"
-  | "generate-figure";
+  | "generate-figure"
+  | "draft-from-notes"
+  | "outline-from-notes"
+  | "notes-from-draft"
+  | "notes-from-outline";
 
-// Template variables: {idea}, {draft}, {context}, {outputPath}, {outlinePath}, {customPrompt}
+/** Actions that write into unit-scoped scratch notes (temp-notes.md) rather than the manuscript. */
+export const NOTES_TARGET_ACTIONS = new Set<DispatchAction>(["notes-from-draft", "notes-from-outline"]);
+
+/** Actions that write into outline.md rather than draft.md. */
+export const OUTLINE_TARGET_ACTIONS = new Set<DispatchAction>([
+  "refresh-index",
+  "sync-outline",
+  "summarize-outline",
+  "outline-from-notes",
+]);
+
+// Template variables: {idea}, {draft}, {notes}, {context}, {outputPath}, {outlinePath}, {customPrompt}
 export const TEMPLATES: Record<DispatchAction, string> = {
   draft: `Write a complete, publication-quality paragraph for the following section of a scientific paper.
 
@@ -120,6 +135,47 @@ CURRENT CAPTION (draft.md):
 {context}
 
 Write Mermaid diagram source to {figureSourcePath}. Use clear node labels suitable for a publication figure. Prefer flowchart TD or LR unless another diagram type fits better. Optionally update the caption in {captionPath} if needed.`,
+
+  "draft-from-notes": `Write a complete, publication-quality paragraph for the following section of a scientific paper, using the author's working notes below as the primary source material.
+
+SECTION OVERVIEW (outline.md):
+{idea}
+
+AUTHOR'S NOTES (temp-notes.md — primary source for this draft):
+{notes}
+
+{context}
+
+Write the manuscript paragraph directly to file {outputPath}. Overwrite any existing content. Convert the notes' claims and ideas into formal academic prose. No preamble or meta-commentary — output only the paragraph text that will appear in the final manuscript.`,
+
+  "outline-from-notes": `Update the section overview (outline.md) using the author's working notes as the primary source.
+
+CURRENT OVERVIEW:
+{idea}
+
+AUTHOR'S NOTES (temp-notes.md — primary source for this outline):
+{notes}
+
+Write an updated outline.md to {outlinePath}.
+
+FORMAT (strict):
+- Keep \`# Title\` as the first line.
+- Use \`Overview:\` followed by a concise bullet list (4–6 bullets max, one line each) capturing the claims and ideas from the notes.
+- Do not write narrative paragraphs or meta-commentary.`,
+
+  "notes-from-draft": `Distill the current draft paragraph into a short scratchpad note capturing its key claims and ideas, for the author's own future reference — not for publication.
+
+CURRENT DRAFT:
+{draft}
+
+Write the notes directly to file {outputPath}. Overwrite any existing content. Use terse bullet points, not prose. This is a private scratchpad — no citation formatting needed.`,
+
+  "notes-from-outline": `Distill the current section overview into a short scratchpad note capturing its key points, for the author's own future reference — not for publication.
+
+CURRENT OVERVIEW:
+{idea}
+
+Write the notes directly to file {outputPath}. Overwrite any existing content. Use terse bullet points, not prose. This is a private scratchpad, not manuscript text.`,
 };
 
 export function actionNeedsDraft(action: DispatchAction): boolean {
@@ -128,6 +184,14 @@ export function actionNeedsDraft(action: DispatchAction): boolean {
     action !== "custom" &&
     action !== "refresh-index" &&
     action !== "summarize-outline" &&
-    action !== "generate-figure"
+    action !== "generate-figure" &&
+    action !== "draft-from-notes" &&
+    action !== "outline-from-notes" &&
+    action !== "notes-from-outline"
   );
+}
+
+/** Actions whose template references the author's scratch notes (temp-notes.md). */
+export function actionNeedsNotes(action: DispatchAction): boolean {
+  return action === "draft-from-notes" || action === "outline-from-notes";
 }

@@ -14,10 +14,13 @@ import {
   listManuscripts,
   listPapers,
   loadJournalTemplate,
+  normalizeAffiliations,
+  normalizeAuthorAffiliations,
   normalizeSectionOrder,
   scaffoldManuscript,
   scaffoldPaper,
   slugify,
+  updateManuscript,
   updatePaper,
 } from "./papers.js";
 import { ModelFsError } from "./modelFs.js";
@@ -493,5 +496,75 @@ describe("scaffoldManuscript grant + filters", () => {
     const papers = await listManuscripts(modelRoot);
     const legacy = papers.find((p) => p.slug === "legacy-paper");
     expect(legacy?.docType).toBe("paper");
+  });
+});
+
+describe("author affiliations", () => {
+  it("normalizeAffiliations trims and drops empties", () => {
+    expect(normalizeAffiliations(["  Dept A ", "", "  ", "Lab B"])).toEqual(["Dept A", "Lab B"]);
+    expect(normalizeAffiliations(undefined)).toEqual([]);
+    expect(normalizeAffiliations("not an array")).toEqual([]);
+  });
+
+  it("normalizeAuthorAffiliations clamps to author/affiliation counts and dedupes/sorts", () => {
+    // 2 authors, 2 affiliations
+    expect(normalizeAuthorAffiliations([[2, 1, 1], [3], []], 2, 2)).toEqual([[1, 2], []]);
+    // extra author entries beyond authorCount are dropped
+    expect(normalizeAuthorAffiliations([[1], [1], [1]], 2, 1)).toEqual([[1], [1]]);
+    // out-of-range indices removed
+    expect(normalizeAuthorAffiliations([[0, 5, 2]], 1, 3)).toEqual([[2]]);
+    expect(normalizeAuthorAffiliations(undefined, 2, 2)).toEqual([]);
+  });
+
+  it("scaffoldManuscript persists affiliations + author_affiliations and getPaperDetail reads them back", async () => {
+    await writeTemplate("nature", {
+      journal: "Nature",
+      target_words: 3000,
+      section_order: ["introduction", "results"],
+    });
+    const { slug } = await scaffoldManuscript(modelRoot, {
+      title: "Aff Paper",
+      journal: "Nature",
+      authors: ["Ada Lovelace", "Alan Turing"],
+      affiliations: ["Cambridge", "Bletchley"],
+      authorAffiliations: [[1], [1, 2]],
+    });
+    const detail = await getPaperDetail(modelRoot, slug);
+    expect(detail.authors).toEqual(["Ada Lovelace", "Alan Turing"]);
+    expect(detail.affiliations).toEqual(["Cambridge", "Bletchley"]);
+    expect(detail.authorAffiliations).toEqual([[1], [1, 2]]);
+  });
+
+  it("updateManuscript can add and later clear affiliations", async () => {
+    await writeTemplate("nature", {
+      journal: "Nature",
+      target_words: 3000,
+      section_order: ["introduction", "results"],
+    });
+    const { slug } = await scaffoldManuscript(modelRoot, {
+      title: "Clear Paper",
+      journal: "Nature",
+      authors: ["Ada Lovelace"],
+    });
+    await updateManuscript(modelRoot, {
+      slug,
+      title: "Clear Paper",
+      authors: ["Ada Lovelace"],
+      affiliations: ["Cambridge"],
+      authorAffiliations: [[1]],
+    });
+    let detail = await getPaperDetail(modelRoot, slug);
+    expect(detail.affiliations).toEqual(["Cambridge"]);
+    expect(detail.authorAffiliations).toEqual([[1]]);
+
+    await updateManuscript(modelRoot, {
+      slug,
+      title: "Clear Paper",
+      authors: ["Ada Lovelace"],
+      affiliations: [],
+    });
+    detail = await getPaperDetail(modelRoot, slug);
+    expect(detail.affiliations).toEqual([]);
+    expect(detail.authorAffiliations).toEqual([]);
   });
 });

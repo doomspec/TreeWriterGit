@@ -148,7 +148,14 @@ export async function manuscriptMatchesApproved(
   const manuscriptAbs = path.join(modelRoot, manuscriptFileRel(unitRel, kind));
   if (!existsSync(manuscriptAbs)) return true;
   const approvedRel = resolveApprovedManuscriptRel(modelRoot, unitRel, kind);
-  if (!approvedRel) return false;
+  if (!approvedRel) {
+    // Never approved. A brand-new, still-empty/skeleton manuscript has nothing
+    // to review yet — don't flag it "pending" (which would let a bulk
+    // "approve pending children" sweep bake in an empty snapshot as the
+    // approved baseline before the author has written anything).
+    const current = await readFile(manuscriptAbs, "utf8");
+    return current.trim().length === 0;
+  }
 
   const current = await readFile(manuscriptAbs, "utf8");
   const meta = await readManuscriptApprovalMeta(modelRoot, unitRel, kind);

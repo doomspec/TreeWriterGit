@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bot, Download, GitBranch, Monitor, Plug, RefreshCw, RotateCcw, User } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  Download,
+  GitBranch,
+  Info,
+  Keyboard,
+  Monitor,
+  Plug,
+  RefreshCw,
+  RotateCcw,
+  User,
+} from "lucide-react";
 
 import { KeyboardShortcutsSection } from "@/components/settings/KeyboardShortcutsSection";
+import { DispatchIntegrationPanel } from "@/components/dispatch/DispatchIntegrationPanel";
 import { Button } from "@/components/ui/button";
 import { ThemePreferenceSelect } from "@/components/ui/ThemeToggle";
 import {
@@ -37,6 +50,29 @@ import { saveLastAgentProvider } from "@/lib/lastAgentProvider";
 import { getGitHubHandle, getUserName, setGitHubHandle, setUserName } from "@/lib/userIdentity";
 import { resetAppState } from "@/lib/resetAppState";
 import { cn } from "@/lib/utils";
+
+type SettingsTabId =
+  | "appearance"
+  | "git-sync"
+  | "export"
+  | "ai-harness"
+  | "ai-integration"
+  | "profile"
+  | "shortcuts"
+  | "troubleshooting"
+  | "extensions";
+
+const SETTINGS_TABS: { id: SettingsTabId; label: string; icon: typeof GitBranch }[] = [
+  { id: "appearance", label: "Appearance", icon: Monitor },
+  { id: "git-sync", label: "Git sync", icon: GitBranch },
+  { id: "export", label: "Export", icon: Download },
+  { id: "ai-harness", label: "AI harness", icon: Bot },
+  { id: "ai-integration", label: "AI integration", icon: Info },
+  { id: "profile", label: "Profile", icon: User },
+  { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
+  { id: "troubleshooting", label: "Troubleshooting", icon: RotateCcw },
+  { id: "extensions", label: "Extensions", icon: Plug },
+];
 
 function SettingsSection({
   title,
@@ -136,7 +172,7 @@ export function SettingsPage({
   const [exportSettings, setExportSettings] = useState<ExportSettings | null>(null);
   const [zoteroLocal, setZoteroLocal] = useState<ZoteroLocalSettings | null>(null);
   const [zoteroStatus, setZoteroStatus] = useState<ZoteroLocalStatus | null>(null);
-  const [settingsTab, setSettingsTab] = useState<"general" | "extensions">("general");
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
   const [agents, setAgents] = useState<AgentSettings | null>(null);
   const [authorName, setAuthorName] = useState(() => getUserName());
   const [githubHandle, setGithubHandleState] = useState(() => getGitHubHandle());
@@ -337,39 +373,61 @@ export function SettingsPage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-workspace">
-      <div className="border-b border-border bg-card px-4 py-3">
-        <div className="mx-auto flex max-w-3xl items-center gap-3">
-          <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={onBack}>
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-            Back
-          </Button>
-          <h1 className="text-sm font-semibold">Settings</h1>
-        </div>
-        <div className="mx-auto mt-3 flex max-w-3xl gap-1 px-4">
-          {(["general", "extensions"] as const).map((tab) => (
+      <div className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-4 py-3">
+        <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={onBack}>
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+          Back
+        </Button>
+        <h1 className="text-sm font-semibold">Settings</h1>
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        <nav className="flex w-44 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-card px-2 py-3">
+          {SETTINGS_TABS.map(({ id, label, icon: Icon }) => (
             <button
-              key={tab}
+              key={id}
               type="button"
               className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium capitalize",
-                settingsTab === tab
+                "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium",
+                settingsTab === id
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
-              onClick={() => setSettingsTab(tab)}
+              onClick={() => setSettingsTab(id)}
             >
-              {tab}
+              <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {label}
             </button>
           ))}
-        </div>
-      </div>
+        </nav>
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-6">
-        <div className="mx-auto max-w-3xl space-y-4">
-          {loading ? (
+        {loading ? (
+          <div className="flex-1 px-4 py-6">
             <p className="text-sm text-muted-foreground">Loading settings…</p>
-          ) : settingsTab === "extensions" ? (
-            <>
+          </div>
+        ) : settingsTab === "ai-integration" ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 border-b border-border px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Info className="h-4 w-4 text-primary" aria-hidden="true" />
+                <h2 className="text-sm font-semibold">AI integration reference</h2>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Copy-paste text for wiring an external agent to this repo: the system prompt,
+                dispatch guide, and tw-context CLI quick reference.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1 p-4">
+              <div className="h-full rounded-md border border-border">
+                <DispatchIntegrationPanel currentPath="" hideCurrentPathHint />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-6">
+            <div className="mx-auto max-w-3xl space-y-4">
+              {settingsTab === "extensions" ? (
+                <>
               <SettingsSection title="Zotero Local" icon={Plug}>
                 <SettingRow
                   label="Enable local Zotero"
@@ -410,9 +468,9 @@ export function SettingsPage({
                   )}
                 </div>
               </SettingsSection>
-            </>
-          ) : (
-            <>
+                </>
+              ) : null}
+              {settingsTab === "appearance" ? (
               <SettingsSection title="Appearance" icon={Monitor}>
                 <SettingRow
                   label="Color theme"
@@ -460,7 +518,8 @@ export function SettingsPage({
                   </div>
                 </SettingRow>
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "git-sync" ? (
               <SettingsSection title="Git sync" icon={GitBranch}>
                 <SettingRow
                   label="Automatic sync"
@@ -584,7 +643,8 @@ export function SettingsPage({
                   ) : null}
                 </div>
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "export" ? (
               <SettingsSection title="Export" icon={Download}>
                 <SettingRow
                   label="Automatic export"
@@ -680,7 +740,8 @@ export function SettingsPage({
                   ) : null}
                 </div>
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "ai-harness" ? (
               <SettingsSection title="AI harness" icon={Bot}>
                 <SettingRow
                   label="Default provider"
@@ -717,7 +778,8 @@ export function SettingsPage({
                   </div>
                 ) : null}
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "profile" ? (
               <SettingsSection title="Profile" icon={User}>
                 <SettingRow
                   label="Author name"
@@ -756,7 +818,8 @@ export function SettingsPage({
                   </div>
                 </SettingRow>
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "troubleshooting" ? (
               <SettingsSection title="Troubleshooting" icon={RotateCcw}>
                 <SettingRow
                   label="Reset app state"
@@ -778,11 +841,11 @@ export function SettingsPage({
                   </Button>
                 </SettingRow>
               </SettingsSection>
-
-              <KeyboardShortcutsSection />
-            </>
-          )}
-        </div>
+              ) : null}
+              {settingsTab === "shortcuts" ? <KeyboardShortcutsSection /> : null}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

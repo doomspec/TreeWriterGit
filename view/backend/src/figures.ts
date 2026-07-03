@@ -25,6 +25,7 @@ export const ASSET_EXTENSIONS = new Set([
   ".gif",
   ".webp",
   ".pdf",
+  ".xlsx",
 ]);
 
 export type FigureMetadata = {
@@ -70,6 +71,8 @@ export function assetContentType(relativePath: string): string {
       return "image/webp";
     case ".pdf":
       return "application/pdf";
+    case ".xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     case ".mmd":
     case ".tex":
       return "text/plain; charset=utf-8";

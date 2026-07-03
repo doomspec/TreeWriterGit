@@ -17,11 +17,11 @@ type UseEditorFileSyncOptions = {
   requiresApproval: boolean;
   isDirtyRef: React.MutableRefObject<boolean>;
   loadedContentRef: React.MutableRefObject<string>;
-  approvedBaselineRef: React.MutableRefObject<string>;
+  approvedBaselineRef: React.MutableRefObject<string | null>;
   dispatchSnapshotRef: React.MutableRefObject<string | null>;
   resetHistory: (value: string) => void;
   setLoadedContent: (content: string) => void;
-  setApprovedBaseline: (baseline: string) => void;
+  setApprovedBaseline: (baseline: string | null) => void;
   setEditMeta: React.Dispatch<React.SetStateAction<import("@/lib/draftApproval").DraftEditMeta>>;
   setPendingSource: React.Dispatch<React.SetStateAction<DraftPendingSource | null>>;
   setSaveState: React.Dispatch<React.SetStateAction<SaveState>>;
@@ -52,14 +52,18 @@ export function useEditorFileSync({
   useEffect(() => {
     let cancelled = false;
     if (!requiresApproval) {
-      setApprovedBaseline("");
+      setApprovedBaseline(null);
       return () => {
         cancelled = true;
       };
     }
     void loadDraftApprovalState(filePath).then(({ content: baseline, meta }) => {
       if (!cancelled) {
-        setApprovedBaseline(baseline);
+        // meta.approvedAt is the only reliable signal that an approval record
+        // exists — the content itself can legitimately be "" when something
+        // was approved while still empty, which must NOT be treated the same
+        // as "never approved" (see effectiveDiffBaseline in draftDiff.ts).
+        setApprovedBaseline(meta.approvedAt !== null ? baseline : null);
         setEditMeta(meta);
         if (meta.aiAssisted) {
           setPendingSource((prev) => (prev === "human" ? prev : "ai"));
@@ -107,14 +111,23 @@ export function useEditorFileSync({
         }
 
         const normalized = repairEditorMacroSyntax(diskContent);
+        // Freeze the pre-change content as the diff floor the first time an
+        // external (non-self) edit lands on a never-approved unit — otherwise
+        // loadedContent below chases the incoming content and the pending
+        // diff (loadedContent vs current) collapses to "no change" before
+        // anyone gets to see it (the reported missing-highlight bug for
+        // section-sync-authored and other externally-written child edits).
+        const priorLoaded = loadedContentRef.current;
         resetHistory(normalized);
         setLoadedContent(normalized);
         if (requiresApproval && snapshot !== null && diskContent !== snapshot) {
           setPendingSource("ai");
+          if (approvedBaselineRef.current === null) setApprovedBaseline(priorLoaded);
           void loadDraftApprovalState(filePath).then(({ meta }) => {
             if (!cancelled) setEditMeta(meta);
           });
         } else if (requiresApproval && diskContent !== baseline) {
+          if (approvedBaselineRef.current === null) setApprovedBaseline(priorLoaded);
           void loadDraftApprovalState(filePath).then(({ meta }) => {
             if (!cancelled) {
               setEditMeta(meta);
@@ -150,6 +163,7 @@ export function useEditorFileSync({
     onError,
     requiresApproval,
     resetHistory,
+    setApprovedBaseline,
     setEditMeta,
     setLoadedContent,
     setLoadError,

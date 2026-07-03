@@ -44,6 +44,53 @@ describe("buildNatureMainTexDocument", () => {
     expect(mainTex).toContain("\\beginedfigures");
     expect(mainTex).toContain("\\input{sections/supplementary-information}");
   });
+
+  it("renders structured authors with superscript affiliation numbers and affiliation items", () => {
+    const mainTex = buildNatureMainTexDocument({
+      title: "Demo Paper",
+      authors: ["Ada Lovelace", "Alan Turing"],
+      affiliations: ["Dept of Computing, Cambridge", "Bletchley Park"],
+      authorAffiliations: [[1], [1, 2]],
+      bodySections: ["introduction"],
+    });
+    expect(mainTex).toContain("\\author{Ada Lovelace$^{1}$, Alan Turing$^{1,2}$}");
+    expect(mainTex).toContain("\\item Dept of Computing, Cambridge");
+    expect(mainTex).toContain("\\item Bletchley Park");
+    expect(mainTex).not.toContain("Author names TBD");
+    expect(mainTex).not.toContain("Affiliation TBD");
+  });
+
+  it("lists authors without superscripts when no affiliation mapping is given", () => {
+    const mainTex = buildNatureMainTexDocument({
+      title: "Demo",
+      authors: ["Ada Lovelace", "Alan Turing"],
+      bodySections: ["introduction"],
+    });
+    expect(mainTex).toContain("\\author{Ada Lovelace, Alan Turing}");
+    // No affiliations provided → placeholder item remains, but names still render.
+    expect(mainTex).toContain("\\item Affiliation TBD");
+  });
+
+  it("falls back to legacy author string / TBD placeholders when no authors are provided", () => {
+    const mainTex = buildNatureMainTexDocument({
+      title: "Demo",
+      author: "Legacy Author",
+      bodySections: ["introduction"],
+    });
+    expect(mainTex).toContain("\\author{Legacy Author}");
+  });
+
+  it("escapes LaTeX-special characters in author and affiliation text", () => {
+    const mainTex = buildNatureMainTexDocument({
+      title: "Demo",
+      authors: ["A & B_Lab"],
+      affiliations: ["Dept #3 & Co"],
+      authorAffiliations: [[1]],
+      bodySections: ["introduction"],
+    });
+    expect(mainTex).toContain("A \\& B\\_Lab");
+    expect(mainTex).toContain("\\item Dept \\#3 \\& Co");
+  });
 });
 
 describe("usesNatureLatexTemplate", () => {

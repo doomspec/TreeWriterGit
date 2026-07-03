@@ -7,9 +7,13 @@ const InfoPage = lazy(() =>
   import("@/components/help/InfoPage").then((m) => ({ default: m.InfoPage })),
 );
 import { AppChromeHeader } from "@/components/layout/AppChromeHeader";
-import { BottomPanel, type DispatchPaneTab } from "@/components/layout/BottomPanel";
+import type { DispatchPaneTab } from "@/components/dispatch/DispatchWorkspace";
 import { WorkspaceSidebarShell } from "@/components/layout/WorkspaceSidebarShell";
 import { WorkspaceRouter } from "@/components/workspace/WorkspaceRouter";
+import { ExplorerWorkspace } from "@/components/explorer/ExplorerWorkspace";
+import { SkillEditorWorkspace } from "@/components/editor/SkillEditorWorkspace";
+import { AiAssistantPanel } from "@/components/assistant/AiAssistantPanel";
+import { AiAssistantSplit } from "@/components/assistant/AiAssistantSplit";
 import { SidebarPanelRegistry } from "@/components/workspace/sidebar/SidebarPanelRegistry";
 import { ErrorToast } from "@/components/layout/ErrorToast";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
@@ -142,6 +146,7 @@ function AppShell({
   const [requestedDispatchTab, setRequestedDispatchTab] = useState<DispatchPaneTab | undefined>(
     undefined,
   );
+  const [editingSkillFilename, setEditingSkillFilename] = useState<string | null>(null);
 
   const {
     terminalHostRef,
@@ -150,31 +155,37 @@ function AppShell({
     sendToTerminalWhenReady,
     refitTerminal,
     reconnectTerminal,
+    subscribeOutput,
+    getTerminalSessionId,
+    getLastInputLine,
   } = useTerminalSession({
-    enabled: layout.agentPanelOpen,
+    enabled: layout.aiPanelOpen,
     refitTriggers: useMemo(
       () => [
         nav.sidebarTab,
         nav.currentPath,
         nav.activeFile,
-        layout.agentPanelOpen,
+        layout.aiPanelOpen,
+        layout.aiPanelWidth,
+        layout.aiPanelTerminalOpen,
         layout.sidebarWidth,
-        layout.bottomPanelHeight,
       ],
       [
         nav.sidebarTab,
         nav.currentPath,
         nav.activeFile,
-        layout.agentPanelOpen,
+        layout.aiPanelOpen,
+        layout.aiPanelWidth,
+        layout.aiPanelTerminalOpen,
         layout.sidebarWidth,
-        layout.bottomPanelHeight,
       ],
     ),
   });
 
   const openAgentPanel = useCallback(() => {
     setAgentPanelFocus("terminal");
-    layout.setAgentPanelOpen(true);
+    layout.setAiPanelOpen(true);
+    layout.setAiPanelTerminalOpen(true);
     refitTerminal();
   }, [layout, refitTerminal]);
 
@@ -182,7 +193,8 @@ function AppShell({
     (intent: Parameters<typeof nav.setDispatchIntent>[0]) => {
       setAgentPanelFocus("dispatch");
       setRequestedDispatchTab("run");
-      layout.setAgentPanelOpen(true);
+      layout.setAiPanelOpen(true);
+      layout.setAiPanelDispatchOpen(true);
       nav.setDispatchIntent(intent);
       refitTerminal();
     },
@@ -190,36 +202,30 @@ function AppShell({
   );
 
   const openTerminalPanel = useCallback(() => {
-    if (layout.agentPanelOpen && agentPanelFocus === "terminal") {
-      layout.setAgentPanelOpen(false);
+    if (layout.aiPanelOpen && agentPanelFocus === "terminal") {
+      layout.setAiPanelOpen(false);
       setAgentPanelFocus(null);
       return;
     }
     setAgentPanelFocus("terminal");
     setRequestedDispatchTab(undefined);
-    layout.setAgentPanelOpen(true);
+    layout.setAiPanelOpen(true);
+    layout.setAiPanelTerminalOpen(true);
     refitTerminal();
   }, [agentPanelFocus, layout, refitTerminal]);
 
   const openDispatchPanel = useCallback(() => {
-    if (layout.agentPanelOpen && agentPanelFocus === "dispatch") {
-      layout.setAgentPanelOpen(false);
+    if (layout.aiPanelOpen && agentPanelFocus === "dispatch") {
+      layout.setAiPanelOpen(false);
       setAgentPanelFocus(null);
       return;
     }
     setAgentPanelFocus("dispatch");
     setRequestedDispatchTab("run");
-    layout.setAgentPanelOpen(true);
+    layout.setAiPanelOpen(true);
+    layout.setAiPanelDispatchOpen(true);
     refitTerminal();
   }, [agentPanelFocus, layout, refitTerminal]);
-
-  const handleAgentPanelOpenChange = useCallback(
-    (open: boolean) => {
-      layout.setAgentPanelOpen(open);
-      if (!open) setAgentPanelFocus(null);
-    },
-    [layout],
-  );
 
   const agentDispatchPanelValue = useMemo(
     () => ({ openDispatch: openAgentDispatch }),
@@ -318,6 +324,7 @@ function AppShell({
           className={cn(
             "flex h-screen flex-col overflow-hidden bg-background text-foreground",
             readingFocus.active && "reading-focus-mode",
+            ws.explorerMode && "explorer-theme",
           )}
         >
           <AppChromeHeader
@@ -338,7 +345,12 @@ function AppShell({
             canBack={canFocusBack}
             onBack={handleFocusBack}
             backTitle={focusBackTitle}
+            explorerMode={ws.explorerMode}
+            onExplorerModeChange={ws.setExplorerMode}
+            aiPanelOpen={layout.aiPanelOpen}
+            onToggleAiPanel={() => layout.setAiPanelOpen((open) => !open)}
           />
+          {ws.explorerMode ? null : (
           <AppCommands
             appView={ws.appView}
             sidebarTab={nav.sidebarTab}
@@ -360,7 +372,7 @@ function AppShell({
             onBack={nav.backToSectionView}
             onCreateChild={createChild}
             onRefreshModel={reloadActiveModel}
-            onToggleBottomPanel={() => layout.setAgentPanelOpen((open) => !open)}
+            onToggleBottomPanel={() => layout.setAiPanelOpen((open) => !open)}
             onToggleReadingFocus={readingFocus.toggle}
             onSetEditorLayout={layout.setEditorLayout}
             onGitSync={() => void runGitSync()}
@@ -371,8 +383,55 @@ function AppShell({
             onOpenMainBib={handleOpenMainBib}
             onShowUnverifiedReferences={handleShowUnverifiedReferences}
           />
+          )}
 
-          {ws.appView === "settings" ? (
+          {ws.appView === "workspace" && ws.explorerMode ? (
+            <AiAssistantSplit
+              open={layout.aiPanelOpen}
+              width={layout.aiPanelWidth}
+              onWidthChange={layout.setAiPanelWidth}
+              panel={
+                <AiAssistantPanel
+                  onClose={() => layout.setAiPanelOpen(false)}
+                  currentPath={ws.explorerActiveTab ?? ""}
+                  refreshVersion={nav.refreshVersion}
+                  isUnit={false}
+                  canFanOut={false}
+                  dispatchIntent={null}
+                  initialDispatchTab={requestedDispatchTab}
+                  onDispatchIntentConsumed={nav.clearDispatchIntent}
+                  onSendToTerminal={sendToTerminal}
+                  onError={ws.setError}
+                  onReconnect={reconnectTerminal}
+                  onLayoutChange={refitTerminal}
+                  terminalHostRef={terminalHostRef}
+                  connectionState={connectionState}
+                  terminalOpen={layout.aiPanelTerminalOpen}
+                  onTerminalOpenChange={layout.setAiPanelTerminalOpen}
+                  subscribeOutput={subscribeOutput}
+                  getTerminalSessionId={getTerminalSessionId}
+                  getLastInputLine={getLastInputLine}
+                  dispatchOpen={layout.aiPanelDispatchOpen}
+                  onDispatchOpenChange={layout.setAiPanelDispatchOpen}
+                  skillsOpen={layout.aiPanelSkillsOpen}
+                  onSkillsOpenChange={layout.setAiPanelSkillsOpen}
+                  onEditSkill={setEditingSkillFilename}
+                />
+              }
+            >
+              {editingSkillFilename ? (
+                <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace">
+                  <SkillEditorWorkspace
+                    filename={editingSkillFilename}
+                    onClose={() => setEditingSkillFilename(null)}
+                    onError={ws.setError}
+                  />
+                </section>
+              ) : (
+                <ExplorerWorkspace />
+              )}
+            </AiAssistantSplit>
+          ) : ws.appView === "settings" ? (
             <Suspense fallback={<LoadingSkeleton className="p-6" lines={6} />}>
               <SettingsPage
                 onBack={() => ws.setAppView("workspace")}
@@ -431,7 +490,7 @@ function AppShell({
                     readingFocusActive={readingFocus.active}
                     graphAvailable={Boolean(nav.graphFetchRoot)}
                     sidebarWidth={layout.sidebarWidth}
-                    agentPanelOpen={layout.agentPanelOpen}
+                    agentPanelOpen={layout.aiPanelOpen}
                     agentPanelFocus={agentPanelFocus}
                     appView={ws.appView}
                     gitSync={gitSync}
@@ -478,34 +537,58 @@ function AppShell({
                     }
                   />
                   <div className="workspace-main__main flex min-h-0 min-w-0 flex-col">
-                  <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace">
-                    <WorkspaceRouter
-                      onError={ws.setError}
-                      onSendToTerminal={sendToTerminal}
-                      onBeforeDispatch={openAgentPanel}
-                      onDispatchComplete={reloadActiveModel}
-                    />
-                  </section>
-                  <BottomPanel
-                    open={layout.agentPanelOpen}
-                    onOpenChange={handleAgentPanelOpenChange}
-                    currentPath={nav.browsePath}
-                    refreshVersion={nav.refreshVersion}
-                    height={layout.bottomPanelHeight}
-                    onHeightChange={layout.setBottomPanelHeight}
-                    isUnit={nav.isUnit}
-                    canFanOut={nav.isPaperSection && !nav.isUnit}
-                    dispatchIntent={nav.dispatchIntent}
-                    initialDispatchTab={
-                      requestedDispatchTab ?? (nav.dispatchIntent ? "run" : undefined)
+                  <AiAssistantSplit
+                    open={layout.aiPanelOpen}
+                    width={layout.aiPanelWidth}
+                    onWidthChange={layout.setAiPanelWidth}
+                    panel={
+                      <AiAssistantPanel
+                        onClose={() => layout.setAiPanelOpen(false)}
+                        currentPath={nav.browsePath}
+                        refreshVersion={nav.refreshVersion}
+                        isUnit={nav.isUnit}
+                        canFanOut={nav.isPaperSection && !nav.isUnit}
+                        dispatchIntent={nav.dispatchIntent}
+                        initialDispatchTab={
+                          requestedDispatchTab ?? (nav.dispatchIntent ? "run" : undefined)
+                        }
+                        onDispatchIntentConsumed={nav.clearDispatchIntent}
+                        onSendToTerminal={sendToTerminal}
+                        onError={ws.setError}
+                        onReconnect={reconnectTerminal}
+                        onLayoutChange={refitTerminal}
+                        terminalHostRef={terminalHostRef}
+                        connectionState={connectionState}
+                        terminalOpen={layout.aiPanelTerminalOpen}
+                        onTerminalOpenChange={layout.setAiPanelTerminalOpen}
+                        subscribeOutput={subscribeOutput}
+                        getTerminalSessionId={getTerminalSessionId}
+                        getLastInputLine={getLastInputLine}
+                        dispatchOpen={layout.aiPanelDispatchOpen}
+                        onDispatchOpenChange={layout.setAiPanelDispatchOpen}
+                        skillsOpen={layout.aiPanelSkillsOpen}
+                        onSkillsOpenChange={layout.setAiPanelSkillsOpen}
+                        onEditSkill={setEditingSkillFilename}
+                      />
                     }
-                    onDispatchIntentConsumed={nav.clearDispatchIntent}
-                    onSendToTerminal={sendToTerminal}
-                    onError={ws.setError}
-                    onReconnect={reconnectTerminal}
-                    onLayoutChange={refitTerminal}
-                    terminalHostRef={terminalHostRef}
-                  />
+                  >
+                  <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace">
+                    {editingSkillFilename ? (
+                      <SkillEditorWorkspace
+                        filename={editingSkillFilename}
+                        onClose={() => setEditingSkillFilename(null)}
+                        onError={ws.setError}
+                      />
+                    ) : (
+                      <WorkspaceRouter
+                        onError={ws.setError}
+                        onSendToTerminal={sendToTerminal}
+                        onBeforeDispatch={openAgentPanel}
+                        onDispatchComplete={reloadActiveModel}
+                      />
+                    )}
+                  </section>
+                  </AiAssistantSplit>
                   </div>
                 </div>
               </div>

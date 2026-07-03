@@ -11,6 +11,7 @@ import {
 import { materializeMainBib, MAIN_BIB_FILE } from "../../bibLibrary.js";
 import {
   createFile,
+  createFolder,
   createNode,
   deleteNode,
   materializeDraft,
@@ -165,6 +166,17 @@ export function registerModelCrudRoutes(app: Express, deps: ServerDeps): void {
           deps.broadcastModelEvent({ type: "model-changed", path: sidePath });
         }
       }
+      response.status(201).json({ ok: true, path: created });
+    }),
+  );
+
+  app.post(
+    "/api/model/folder",
+    asyncHandler(async (request, response) => {
+      const parent = String(request.body?.parent ?? "");
+      const name = String(request.body?.name ?? "");
+      const created = await createFolder(deps.modelRoot, parent, name);
+      deps.broadcastModelEvent({ type: "model-changed", path: created });
       response.status(201).json({ ok: true, path: created });
     }),
   );

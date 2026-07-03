@@ -83,16 +83,27 @@ composed_at_commit: null
 
 **Implementation:** export script reads `section_order` array, assembles in that order.
 
-## TD-6: Comments stored outside model content files
+## TD-6: Inline comments co-located with manuscript
 
-**Decision:** Comments stored in `model/.comments/{file}.comments.json`, not embedded in Markdown.
+**Decision:** Review comments are stored as inline `<comment id="…" author="…">text</comment>` tags in the manuscript file. Legacy JSON sidecars under `.comments/` are read as a fallback only.
 
 **Rationale:**
-- Embedding comments in Markdown (e.g. HTML comments `<!-- comment -->`) pollutes the text that AI reads
-- AI agents should read clean content, not comment noise
-- Comments are metadata, not content
+- One-file philosophy: draft content, review notes, and author `\author{}` macros live together
+- Comments are stripped before AI dispatch and DOCX export (same pipeline as author notes), so agents still read clean text
+- Line-anchored JSON sidecars drift when text moves; inline tags stay attached to spans
 
-**Alternative considered:** a separate `comments/` branch. Rejected — too complex for a small team.
+**Migration:** `node scripts/migrate-comments-inline.mjs` converts legacy `.comments.json` sidecars.
+
+## TD-6b: Approval provenance in `.approval/` folders
+
+**Decision:** Approved baselines and metadata live in `{unit}/.approval/` (`draft.approved.md`, `draft.yaml`), not in INDEX frontmatter alone.
+
+**Rationale:**
+- Keeps `draft.md` body-only while storing content hash, git commit, and approver list
+- Hash-based pending detection ignores comment-only edits
+- INDEX `status` remains cached for export gating during transition
+
+**Migration:** `node scripts/migrate-approval-layout.mjs` moves legacy `draft.approved.md` files.
 
 ## TD-7: No auth for v1
 
@@ -110,7 +121,8 @@ composed_at_commit: null
 | Tool | Purpose | Install |
 |------|---------|---------|
 | pandoc | MD → LaTeX/PDF conversion | `brew install pandoc` |
-| xelatex | LaTeX → PDF | `brew install --cask mactex` |
+| tectonic | LaTeX → PDF (preferred) | `brew install tectonic` |
+| xelatex / pdflatex / lualatex | LaTeX → PDF (alternative) | `brew install --cask mactex` |
 | overleaf-sync (optional) | Overleaf API sync | `pip install overleaf-sync` |
 | claude CLI | AI agent runner | Already installed |
 | pnpm | Package manager | Already installed |

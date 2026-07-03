@@ -4,6 +4,7 @@ import { Columns2, Eye, FileCode2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BibEntrySourcePane } from "@/components/editor/BibEntrySourcePane";
 import { BibFilePreview } from "@/components/editor/BibFilePreview";
+import { EditorAiActionsMenu } from "@/components/editor/EditorAiActionsMenu";
 import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
 import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
@@ -293,6 +294,17 @@ function LeafUnitEditor({
           onBeforeDispatch={onBeforeDispatch}
           onDispatchComplete={onDispatchComplete}
           paperPath={paperPath}
+          headerExtra={
+            !isFigure && !isEquation ? (
+              <EditorAiActionsMenu
+                pane="outline"
+                actions={[
+                  { action: "sync-outline", label: "Outline from draft" },
+                  { action: "outline-from-notes" },
+                ]}
+              />
+            ) : undefined
+          }
         />
       </DualPanePane>
     ),
@@ -300,6 +312,7 @@ function LeafUnitEditor({
       activePane,
       isPaperEditor,
       isFigure,
+      isEquation,
       linkContextPath,
       onActivePaneChange,
       onBeforeDispatch,
@@ -343,6 +356,21 @@ function LeafUnitEditor({
           onContentChange={isFigure || isEquation ? handleDraftContentChange : undefined}
           paperPath={paperPath}
           showReadingFocusBar={activePane === "draft"}
+          headerExtra={
+            !isFigure && !isEquation ? (
+              <EditorAiActionsMenu
+                pane="draft"
+                actions={[
+                  { action: "draft", label: "Draft from outline" },
+                  { action: "draft-from-notes" },
+                  { action: "revise", label: "Refine" },
+                  // "custom" ignores autoPreview and just opens the prompt box (see
+                  // DispatchPanel.executeAction) — true here means one click, not two.
+                  { action: "custom", label: "Apply skill…" },
+                ]}
+              />
+            ) : undefined
+          }
         />
       </DualPanePane>
     ),
@@ -388,6 +416,15 @@ function LeafUnitEditor({
             paperPath={paperPath}
             enableDispatch={false}
             showReadingFocusBar={activePane === "notes"}
+            headerExtra={
+              <EditorAiActionsMenu
+                pane="notes"
+                actions={[
+                  { action: "notes-from-draft" },
+                  { action: "notes-from-outline" },
+                ]}
+              />
+            }
           />
         </DualPanePane>
       ) : undefined,

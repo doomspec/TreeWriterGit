@@ -74,7 +74,7 @@ export function PendingChangesDiff({
   comfortable = false,
   className,
 }: {
-  approvedBaseline: string;
+  approvedBaseline: string | null;
   loadedContent: string;
   current: string;
   comfortable?: boolean;
@@ -105,7 +105,7 @@ export function PendingChangesDiff({
 }
 
 export function usePendingChangesSummary(
-  approvedBaseline: string,
+  approvedBaseline: string | null,
   loadedContent: string,
   current: string,
 ): { summary: string; hasChanges: boolean } {

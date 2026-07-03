@@ -44,6 +44,8 @@ export interface UpdateManuscriptInput {
   slug: string;
   title: string;
   authors: string[];
+  affiliations?: string[];
+  authorAffiliations?: number[][];
   journal?: string;
   templateId?: string;
   targetWords?: number;
@@ -66,6 +68,8 @@ export type UpdatePaperInput = UpdateManuscriptInput & { journal: string };
 export interface ScaffoldManuscriptInput {
   title: string;
   authors: string[];
+  affiliations?: string[];
+  authorAffiliations?: number[][];
   slug?: string;
   docType?: DocumentType;
   templateId?: string;
@@ -138,6 +142,33 @@ export function normalizeSectionOrder(names: string[]): string[] {
     seen.add(section);
   }
   return sections;
+}
+
+/** Trimmed, non-empty affiliation lines. */
+export function normalizeAffiliations(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => String(entry).trim()).filter(Boolean);
+}
+
+/**
+ * Per-author affiliation index lists (1-based), clamped to the actual number of
+ * affiliations and authors. Parallel to `authors`; entries out of range or for
+ * absent affiliations are dropped so the LaTeX title block never references a
+ * missing \item.
+ */
+export function normalizeAuthorAffiliations(
+  raw: unknown,
+  authorCount: number,
+  affiliationCount: number,
+): number[][] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, authorCount).map((entry) => {
+    if (!Array.isArray(entry)) return [];
+    const valid = entry
+      .map((n) => Number(n))
+      .filter((n) => Number.isInteger(n) && n >= 1 && n <= affiliationCount);
+    return [...new Set(valid)].sort((a, b) => a - b);
+  });
 }
 
 function bumpCounts(counts: UnitStatusCounts, status: UnitStatus): void {
@@ -324,6 +355,18 @@ export async function scaffoldManuscript(
     tags,
     project,
   };
+  const scaffoldAffiliations = normalizeAffiliations(input.affiliations);
+  if (scaffoldAffiliations.length > 0) {
+    paperFrontmatter.affiliations = scaffoldAffiliations;
+    const authorAff = normalizeAuthorAffiliations(
+      input.authorAffiliations,
+      input.authors.length,
+      scaffoldAffiliations.length,
+    );
+    if (authorAff.some((entry) => entry.length > 0)) {
+      paperFrontmatter.author_affiliations = authorAff;
+    }
+  }
   if (docType === "paper" && (template.journal || input.journal)) {
     paperFrontmatter.journal = template.journal ?? input.journal;
     paperFrontmatter.overleaf_repo_path = overleafRepoPath;
@@ -478,6 +521,27 @@ export async function updateManuscript(
         : data.overleaf_repo_path ?? null;
   }
 
+  if (input.affiliations !== undefined) {
+    const affiliations = normalizeAffiliations(input.affiliations);
+    if (affiliations.length > 0) {
+      nextFrontmatter.affiliations = affiliations;
+      const authorAff = normalizeAuthorAffiliations(
+        input.authorAffiliations,
+        input.authors.length,
+        affiliations.length,
+      );
+      if (authorAff.some((entry) => entry.length > 0)) {
+        nextFrontmatter.author_affiliations = authorAff;
+      } else {
+        delete nextFrontmatter.author_affiliations;
+      }
+    } else {
+      // Cleared — drop both so stale mappings don't linger from the `...data` spread.
+      delete nextFrontmatter.affiliations;
+      delete nextFrontmatter.author_affiliations;
+    }
+  }
+
   if (input.funder !== undefined) nextFrontmatter.funder = input.funder?.trim() || null;
   if (input.program !== undefined) nextFrontmatter.program = input.program?.trim() || null;
   if (input.deadline !== undefined) nextFrontmatter.deadline = input.deadline?.trim() || null;
@@ -581,6 +645,12 @@ export async function getManuscriptDetail(modelRoot: string, slug: string): Prom
   const parsed = matter(await readFile(indexPath, "utf8"));
   const data = parsed.data as Record<string, unknown>;
   const authors = Array.isArray(data.authors) ? (data.authors as string[]) : [];
+  const affiliations = normalizeAffiliations(data.affiliations);
+  const authorAffiliations = normalizeAuthorAffiliations(
+    data.author_affiliations,
+    authors.length,
+    affiliations.length,
+  );
   const targetWords = Number(data.target_words ?? 5000);
   const sectionOrder = paperSectionOrder(data);
   const overleafRepoPath = data.overleaf_repo_path ? String(data.overleaf_repo_path) : null;
@@ -604,6 +674,8 @@ export async function getManuscriptDetail(modelRoot: string, slug: string): Prom
     ...summary,
     templateId: data.template_id ? String(data.template_id) : null,
     authors,
+    affiliations,
+    authorAffiliations,
     targetWords,
     sectionOrder,
     overleafRepoPath,

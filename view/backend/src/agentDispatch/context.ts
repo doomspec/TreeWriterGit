@@ -10,6 +10,7 @@ import { buildManuscriptManifestBlock } from "../model/manuscriptKind.js";
 import { paperLiteratureDir } from "../paperAssets.js";
 import { gatherAutomaticContextPrefetch } from "./contextPrefetch.js";
 import { actionNeedsDraft, type DispatchAction } from "./templates.js";
+import { TEMP_NOTES_DOC } from "../draftApproval/paths.js";
 
 export interface ContextCandidate {
   path: string;
@@ -525,6 +526,16 @@ export async function readDispatchUnitContext(
 export async function readDraftForDispatch(modelRoot: string, unitPath: string): Promise<string> {
   try {
     return await readFile(path.join(modelRoot, unitPath, "draft.md"), "utf8");
+  } catch {
+    return "";
+  }
+}
+
+/** temp-notes.md is a private scratchpad — ships empty, so blank means "no notes yet". */
+export async function readNotesForDispatch(modelRoot: string, unitPath: string): Promise<string> {
+  try {
+    const content = await readFile(path.join(modelRoot, unitPath, TEMP_NOTES_DOC), "utf8");
+    return content.trim();
   } catch {
     return "";
   }

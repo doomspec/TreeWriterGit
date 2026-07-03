@@ -1,3 +1,102 @@
 {
-  "items": []
+  "items": [
+    {
+      "id": "90e11218-bc04-49ea-b0be-8bffe4c85b7b",
+      "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/bioinks",
+      "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/bioinks",
+      "originalParent": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox",
+      "label": "Bioinks",
+      "deletedAt": "2026-07-03T00:48:17.906Z",
+      "bundle": [
+        {
+          "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/bioinks",
+          "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/bioinks"
+        }
+      ]
+    },
+    {
+      "id": "5717eff0-0a73-4ca4-b1d2-bab0771cb9ec",
+      "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox-copy",
+      "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox-copy",
+      "originalParent": "papers/dyi_bioprinting",
+      "label": "2 The Diy Biofabrication Toolbox Copy",
+      "deletedAt": "2026-07-02T22:22:18.362Z",
+      "bundle": [
+        {
+          "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox-copy",
+          "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox-copy"
+        }
+      ]
+    },
+    {
+      "id": "096a9353-abd5-4435-8938-3e24d19a14f4",
+      "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/biofabrication",
+      "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/biofabrication",
+      "originalParent": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox",
+      "label": "Biofabrication",
+      "deletedAt": "2026-07-02T22:22:09.412Z",
+      "bundle": [
+        {
+          "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/biofabrication",
+          "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/biofabrication"
+        }
+      ]
+    },
+    {
+      "id": "0efad5a7-126a-4414-99a0-7bdf1201a2fd",
+      "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/2-1-biofabrication",
+      "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/2-1-biofabrication",
+      "originalParent": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox",
+      "label": "2 1 Biofabrication",
+      "deletedAt": "2026-07-02T15:40:40.636Z",
+      "bundle": [
+        {
+          "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/2-1-biofabrication",
+          "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/2-1-biofabrication"
+        }
+      ]
+    },
+    {
+      "id": "ba3346c8-c3d3-4112-aeed-5874538d90c4",
+      "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/2-2-microfabrication-microfluidics-and-bioreacto",
+      "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/2-2-microfabrication-microfluidics-and-bioreacto",
+      "originalParent": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox",
+      "label": "2 2 Microfabrication Microfluidics And Bioreacto",
+      "deletedAt": "2026-07-02T15:39:50.804Z",
+      "bundle": [
+        {
+          "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/2-2-microfabrication-microfluidics-and-bioreacto",
+          "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/2-2-microfabrication-microfluidics-and-bioreacto"
+        }
+      ]
+    },
+    {
+      "id": "6a65e921-9abe-4961-aabc-318a25820c28",
+      "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/2-1-biofabrication-platforms",
+      "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/2-1-biofabrication-platforms",
+      "originalParent": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox",
+      "label": "2 1 Biofabrication Platforms",
+      "deletedAt": "2026-07-02T15:39:45.195Z",
+      "bundle": [
+        {
+          "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/2-1-biofabrication-platforms",
+          "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/2-1-biofabrication-platforms"
+        }
+      ]
+    },
+    {
+      "id": "f4a7211d-53cb-4a68-82d6-bf64eeecf898",
+      "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/asd",
+      "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/asd",
+      "originalParent": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox",
+      "label": "Asd",
+      "deletedAt": "2026-07-02T15:15:59.492Z",
+      "bundle": [
+        {
+          "originalPath": "papers/dyi_bioprinting/2-the-diy-biofabrication-toolbox/asd",
+          "trashPath": "papers/dyi_bioprinting/.trash/2-the-diy-biofabrication-toolbox/asd"
+        }
+      ]
+    }
+  ]
 }

@@ -10,6 +10,7 @@ import {
   collectUnitPaths,
   readDispatchUnitContext,
   readDraftForDispatch,
+  readNotesForDispatch,
   validateContextPaths,
 } from "./context.js";
 import { buildDispatchContextCliBlock } from "./contextPrefetch.js";
@@ -20,7 +21,15 @@ import {
   TTY_STDOUT_COMMANDS,
   type AiProvider,
 } from "./providers.js";
-import { actionNeedsDraft, TEMPLATES, type DispatchAction } from "./templates.js";
+import {
+  actionNeedsDraft,
+  actionNeedsNotes,
+  NOTES_TARGET_ACTIONS,
+  OUTLINE_TARGET_ACTIONS,
+  TEMPLATES,
+  type DispatchAction,
+} from "./templates.js";
+import { TEMP_NOTES_DOC } from "../draftApproval/paths.js";
 
 export interface PreviewResult {
   prompt: string;
@@ -102,24 +111,29 @@ export async function buildPreview(
       : contextPaths;
 
   const outlineRelPath = `${unitPath}/outline.md`;
+  const notesRelPath = `${unitPath}/${TEMP_NOTES_DOC}`;
   const indexData = await readIndexData(modelRoot, unitPath);
   const figureSourceRel = `${unitPath}/${String(indexData.figure_source ?? "source.mmd")}`;
   const outputRelPath =
-    action === "refresh-index" || action === "sync-outline" || action === "summarize-outline"
-      ? outlineRelPath
-      : action === "generate-figure"
-        ? figureSourceRel
-        : `${unitPath}/draft.md`;
+    action === "generate-figure"
+      ? figureSourceRel
+      : OUTLINE_TARGET_ACTIONS.has(action)
+        ? outlineRelPath
+        : NOTES_TARGET_ACTIONS.has(action)
+          ? notesRelPath
+          : `${unitPath}/draft.md`;
 
   const { idea, context } = await readDispatchUnitContext(modelRoot, unitPath, action, safeContextPaths);
   const needsDraft = actionNeedsDraft(action);
   const draft = needsDraft
     ? stripInlineComments(stripInlineNotes(await readDraftForDispatch(modelRoot, unitPath)))
     : "";
+  const notes = actionNeedsNotes(action) ? await readNotesForDispatch(modelRoot, unitPath) : "";
 
   let prompt = TEMPLATES[action]
     .replace("{idea}", idea || "(no overview defined)")
     .replace("{draft}", draft || "(no draft yet)")
+    .replace("{notes}", notes || "(no notes yet)")
     .replace("{context}", context)
     .replace("{outputPath}", outputRelPath)
     .replace("{outlinePath}", outlineRelPath)

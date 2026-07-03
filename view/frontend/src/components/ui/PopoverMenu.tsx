@@ -102,7 +102,11 @@ export function PopoverMenu({
               ref={menuRef}
               role="menu"
               className={cn(
-                "fixed z-overlay min-w-[12rem] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg",
+                // Above the app chrome header (z-[60]) and sidebar sticky
+                // panel header (z-[55]) — a portal-rendered dropdown must
+                // never render under either, but stays below full-screen
+                // modals/command palette (z-[100]+).
+                "fixed z-[90] min-w-[12rem] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg",
                 menuClassName,
               )}
               style={{ top: position.top, left: position.left }}

@@ -60,8 +60,8 @@ export function useDraftAutosave({
   content: string;
   loadedContent: string;
   setLoadedContent: (value: string) => void;
-  approvedBaseline: string;
-  setApprovedBaseline: (value: string) => void;
+  approvedBaseline: string | null;
+  setApprovedBaseline: (value: string | null) => void;
   saveContent: (content: string, pendingSource: DraftPendingSource | null) => Promise<void>;
   reloadAfterDiscard?: () => Promise<string>;
   onError?: (message: string) => void;

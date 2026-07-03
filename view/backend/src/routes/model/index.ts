@@ -4,6 +4,7 @@ import { registerModelApprovalRoutes } from "./approval.js";
 import { registerModelAssetsReadRoutes } from "./assets-read.js";
 import { registerModelCrudRoutes } from "./crud.js";
 import { registerModelDiscoveryRoutes } from "./discovery.js";
+import { registerModelDocxPreviewRoutes } from "./docx-preview.js";
 import { registerModelTrashRoutes } from "./trash.js";
 import type { ServerDeps } from "../types.js";
 
@@ -13,4 +14,5 @@ export function registerModelRoutes(app: Express, deps: ServerDeps): void {
   registerModelTrashRoutes(app, deps);
   registerModelApprovalRoutes(app, deps);
   registerModelAssetsReadRoutes(app, deps);
+  registerModelDocxPreviewRoutes(app, deps);
 }

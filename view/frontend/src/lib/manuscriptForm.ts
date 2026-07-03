@@ -60,7 +60,9 @@ export function buildCreateManuscriptPayload(input: {
   docType: DocumentType;
   templateId: string;
   journal?: string;
-  authors: string;
+  authors: string[];
+  affiliations?: string[];
+  authorAffiliations?: number[][];
   slug: string;
   targetWords: string;
   sectionOrderText: string;
@@ -75,10 +77,8 @@ export function buildCreateManuscriptPayload(input: {
   contributionMode: "" | "kernel" | "repository";
   agentSummary: string;
 }) {
-  const authorList = input.authors
-    .split(",")
-    .map((a) => a.trim())
-    .filter(Boolean);
+  const authorList = input.authors.map((a) => a.trim()).filter(Boolean);
+  const affiliationList = (input.affiliations ?? []).map((a) => a.trim()).filter(Boolean);
   const tagList = input.tags
     .split(",")
     .map((t) => t.trim())
@@ -89,6 +89,11 @@ export function buildCreateManuscriptPayload(input: {
     templateId: input.templateId,
     journal: input.docType === "paper" ? input.journal?.trim() : undefined,
     authors: authorList,
+    affiliations: affiliationList.length > 0 ? affiliationList : undefined,
+    authorAffiliations:
+      affiliationList.length > 0 && input.authorAffiliations?.some((a) => a.length > 0)
+        ? input.authorAffiliations
+        : undefined,
     slug: input.slug.trim() || undefined,
     targetWords: Number(input.targetWords),
     sectionOrder: parseSectionOrder(input.sectionOrderText),

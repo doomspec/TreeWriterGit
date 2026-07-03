@@ -390,3 +390,69 @@ describe("buildPreview", () => {
     expect(result.outputPath).toBe("orphan/unit/draft.md");
   });
 });
+
+describe("buildPreview — cross-pane generation actions (draft/outline/notes)", () => {
+  const provider = {
+    name: "Claude Code",
+    command: "claude",
+    args: ["-p", "{prompt}"],
+    writesFiles: true,
+  };
+
+  async function makeUnitWithNotes(unitPath: string, notes: string) {
+    const abs = path.join(modelRoot, unitPath);
+    await mkdir(abs, { recursive: true });
+    await writeFile(
+      path.join(abs, "INDEX.md"),
+      "---\nkind: unit\nstatus: outline\nlinks: []\n---\n",
+      "utf8",
+    );
+    await writeFile(path.join(abs, "outline.md"), "# Title\n\nOld overview.\n", "utf8");
+    await writeFile(path.join(abs, "draft.md"), "Old draft paragraph.\n", "utf8");
+    await writeFile(path.join(abs, "temp-notes.md"), notes, "utf8");
+  }
+
+  it("draft-from-notes: targets draft.md, includes notes, and gets manuscript markup", async () => {
+    await makeUnitWithNotes("papers/demo/unit-a", "- Cells double every 24h\n- Method: flow cytometry");
+    const result = await buildPreview(modelRoot, repoRoot, "papers/demo/unit-a", "draft-from-notes", provider);
+    expect(result.outputPath).toBe("papers/demo/unit-a/draft.md");
+    expect(result.prompt).toContain("Cells double every 24h");
+    expect(result.prompt).toContain("primary source for this draft");
+    expect(result.prompt).toContain("MANUSCRIPT MARKUP");
+  });
+
+  it("outline-from-notes: targets outline.md and omits manuscript markup", async () => {
+    await makeUnitWithNotes("papers/demo/unit-a", "- Key claim one\n- Key claim two");
+    const result = await buildPreview(modelRoot, repoRoot, "papers/demo/unit-a", "outline-from-notes", provider);
+    expect(result.outputPath).toBe("papers/demo/unit-a/outline.md");
+    expect(result.prompt).toContain("Key claim one");
+    expect(result.prompt).not.toContain("MANUSCRIPT MARKUP");
+  });
+
+  it("notes-from-draft: targets temp-notes.md and includes the current draft", async () => {
+    await makeUnitWithNotes("papers/demo/unit-a", "");
+    const result = await buildPreview(modelRoot, repoRoot, "papers/demo/unit-a", "notes-from-draft", provider);
+    expect(result.outputPath).toBe("papers/demo/unit-a/temp-notes.md");
+    expect(result.prompt).toContain("Old draft paragraph.");
+    expect(result.prompt).not.toContain("MANUSCRIPT MARKUP");
+  });
+
+  it("notes-from-outline: targets temp-notes.md and includes the current outline", async () => {
+    await makeUnitWithNotes("papers/demo/unit-a", "");
+    const result = await buildPreview(modelRoot, repoRoot, "papers/demo/unit-a", "notes-from-outline", provider);
+    expect(result.outputPath).toBe("papers/demo/unit-a/temp-notes.md");
+    expect(result.prompt).toContain("Old overview.");
+  });
+
+  it("draft-from-notes falls back to a placeholder when notes are empty", async () => {
+    await makeUnitWithNotes("papers/demo/unit-a", "");
+    const result = await buildPreview(modelRoot, repoRoot, "papers/demo/unit-a", "draft-from-notes", provider);
+    expect(result.prompt).toContain("(no notes yet)");
+  });
+
+  it("actions that don't need notes never read temp-notes.md into the prompt", async () => {
+    await makeUnitWithNotes("papers/demo/unit-a", "Secret scratchpad content.");
+    const result = await buildPreview(modelRoot, repoRoot, "papers/demo/unit-a", "draft", provider);
+    expect(result.prompt).not.toContain("Secret scratchpad content.");
+  });
+});

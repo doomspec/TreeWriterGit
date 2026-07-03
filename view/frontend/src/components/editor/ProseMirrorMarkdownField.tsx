@@ -55,8 +55,14 @@ type Props = {
   linksClickable?: boolean;
   /** Fires with the format actions active at the caret/selection. */
   onActiveFormatsChange?: (actions: string[]) => void;
-  /** Approved-baseline markdown; when showPendingDiff is on, edits since it are highlighted inline. */
-  approvedBaseline?: string;
+  /**
+   * Approved-baseline markdown; when showPendingDiff is on, edits since it are
+   * highlighted inline. `null`/omitted means no approval record exists yet —
+   * distinct from `""`, which means something WAS approved while still empty.
+   * A truthy check here would treat both the same and silently suppress
+   * highlighting for a still-empty-but-approved unit's later edits.
+   */
+  approvedBaseline?: string | null;
   showPendingDiff?: boolean;
   refreshVersion?: number;
 };
@@ -88,7 +94,7 @@ export function ProseMirrorMarkdownField({
   linkContextPath = "",
   linksClickable = false,
   onActiveFormatsChange,
-  approvedBaseline = "",
+  approvedBaseline = null,
   showPendingDiff = false,
   refreshVersion = 0,
 }: Props) {
@@ -212,7 +218,7 @@ export function ProseMirrorMarkdownField({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    setPendingDiffBaseline(view, showPendingDiff && approvedBaseline ? approvedBaseline : null);
+    setPendingDiffBaseline(view, showPendingDiff && approvedBaseline !== null ? approvedBaseline : null);
   }, [approvedBaseline, showPendingDiff]);
 
   // External value changes (file reload, AI edit) replace the doc.

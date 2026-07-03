@@ -36,6 +36,25 @@ export async function deleteDispatchSkill(filename: string): Promise<DispatchSki
   return data.skills;
 }
 
+export async function fetchDispatchSkillContent(filename: string): Promise<string> {
+  const data = await request<{ content: string }>(
+    `/api/agent/skills/${encodeURIComponent(filename)}`,
+  );
+  return data.content;
+}
+
+/** Update a skill's content and/or rename it in place. */
+export async function updateDispatchSkill(
+  filename: string,
+  changes: { content?: string; newFilename?: string },
+): Promise<DispatchSkill[]> {
+  const data = await request<{ skills: DispatchSkill[] }>(
+    `/api/agent/skills/${encodeURIComponent(filename)}`,
+    { method: "PATCH", body: JSON.stringify(changes) },
+  );
+  return data.skills;
+}
+
 export function readMarkdownFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

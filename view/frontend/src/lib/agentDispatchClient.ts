@@ -14,7 +14,11 @@ export type AgentDispatchAction =
   | "refresh-index"
   | "sync-outline"
   | "summarize-outline"
-  | "generate-figure";
+  | "generate-figure"
+  | "draft-from-notes"
+  | "outline-from-notes"
+  | "notes-from-draft"
+  | "notes-from-outline";
 
 export type DispatchProgressState = {
   phase: "idle" | "running" | "done" | "error";
@@ -539,6 +543,14 @@ export function dispatchActionLabel(action: AgentDispatchAction): string {
       return "Summarize outline from children";
     case "generate-figure":
       return "Generate Mermaid figure";
+    case "draft-from-notes":
+      return "Draft from notes";
+    case "outline-from-notes":
+      return "Outline from notes";
+    case "notes-from-draft":
+      return "Notes from draft";
+    case "notes-from-outline":
+      return "Notes from outline";
     default:
       return action;
   }
@@ -565,6 +577,14 @@ export function dispatchHotActionLabel(action: AgentDispatchAction): string {
       return "Custom";
     case "generate-figure":
       return "Make figure";
+    case "draft-from-notes":
+      return "Draft from notes";
+    case "outline-from-notes":
+      return "Outline from notes";
+    case "notes-from-draft":
+      return "Notes from draft";
+    case "notes-from-outline":
+      return "Notes from outline";
     default:
       return action;
   }

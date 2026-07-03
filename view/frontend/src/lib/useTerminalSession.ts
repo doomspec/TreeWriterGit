@@ -44,6 +44,9 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
   const reconnectAttemptRef = useRef(0);
   const resumeBufferRef = useRef(false);
   const connectRef = useRef<(() => void) | null>(null);
+  const outputListenersRef = useRef<Set<(chunk: string) => void>>(new Set());
+  const lastInputLineRef = useRef("");
+  const workingLineRef = useRef("");
 
   const [connectionState, setConnectionState] = useState<TerminalConnectionState>(
     enabled ? "connecting" : "idle",
@@ -164,6 +167,7 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
           return;
         }
         terminal.write(event.data);
+        for (const listener of outputListenersRef.current) listener(event.data);
       });
 
       nextSocket.addEventListener("close", () => {
@@ -197,6 +201,16 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
       dataDisposable = terminal.onData((data) => {
         if (socket?.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ type: "input", data }));
+        }
+        // Track the most recently completed typed line (for chat provider
+        // auto-guess) — cheap best-effort, not a full line-editing model.
+        if (data === "\r" || data === "\n") {
+          workingLineRef.current = "";
+        } else if (data === "" || data === "\b") {
+          workingLineRef.current = workingLineRef.current.slice(0, -1);
+        } else if (data.length === 1 && data.charCodeAt(0) >= 0x20) {
+          workingLineRef.current += data;
+          lastInputLineRef.current = workingLineRef.current;
         }
       });
 
@@ -257,6 +271,19 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
     }
   }, []);
 
+  /** Subscribe to raw output chunks (same data written to xterm). Returns an unsubscribe fn. */
+  const subscribeOutput = useCallback((listener: (chunk: string) => void) => {
+    outputListenersRef.current.add(listener);
+    return () => {
+      outputListenersRef.current.delete(listener);
+    };
+  }, []);
+
+  /** Best-effort last line the user typed (for chat provider auto-guess). */
+  const getLastInputLine = useCallback(() => lastInputLineRef.current, []);
+
+  const getTerminalSessionId = useCallback(() => loadTerminalSessionId(), []);
+
   const waitForTerminalReady = useCallback((timeoutMs = 8000) => {
     return new Promise<void>((resolve, reject) => {
       const started = Date.now();
@@ -304,5 +331,8 @@ export function useTerminalSession(options: UseTerminalSessionOptions = {}) {
     waitForTerminalReady,
     refitTerminal,
     reconnectTerminal,
+    subscribeOutput,
+    getLastInputLine,
+    getTerminalSessionId,
   };
 }

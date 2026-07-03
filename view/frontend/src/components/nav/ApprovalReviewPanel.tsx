@@ -187,6 +187,7 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
   const [filter, setFilter] = useState<ReviewFilter>("all");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const filterOptions = useMemo(() => {
     const authors = groups.filter((group) => !group.isAi);
@@ -222,6 +223,7 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
   const runForItem = useCallback(
     async (item: PendingReviewItem, action: "approve" | "discard") => {
       setBusy(true);
+      setError(null);
       try {
         if (action === "approve") await approveDraftAtPath(item.path);
         else await discardDraftAtPath(item.path);
@@ -233,6 +235,8 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
           }),
         );
         await reload();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setBusy(false);
       }
@@ -243,6 +247,7 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
   const runForGroup = useCallback(
     async (group: PendingReviewAuthorGroup, action: "approve" | "discard") => {
       setBusy(true);
+      setError(null);
       try {
         for (const item of group.items) {
           if (action === "approve") await approveDraftAtPath(item.path);
@@ -256,6 +261,8 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
           }),
         );
         await reload();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setBusy(false);
       }
@@ -306,6 +313,12 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
           </div>
         ) : null}
       </div>
+
+      {error ? (
+        <div className="shrink-0 border-b border-border bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+          {error}
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {totalCount === 0 ? (

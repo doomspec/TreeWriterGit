@@ -25,7 +25,7 @@ export function PendingApprovalChip({
   editedBy?: string | null;
   aiAssisted?: boolean;
   aiProvider?: string | null;
-  approvedBaseline: string;
+  approvedBaseline: string | null;
   loadedContent: string;
   current: string;
   onApprove: () => void;

@@ -44,7 +44,7 @@ describe("manuscriptForm", () => {
       title: "Grant",
       docType: "grant",
       templateId: "nsf-research-proposal",
-      authors: "PI",
+      authors: ["PI"],
       slug: "",
       targetWords: "5000",
       sectionOrderText: "specific-aims",
@@ -64,6 +64,62 @@ describe("manuscriptForm", () => {
     expect(payload.funder).toBe("NSF");
     expect(payload.tags).toEqual(["nsf", "2026"]);
     expect(payload.contributionMode).toBe("kernel");
+    expect(payload.authors).toEqual(["PI"]);
+  });
+
+  it("buildCreateManuscriptPayload carries affiliations and per-author mapping", () => {
+    const payload = buildCreateManuscriptPayload({
+      title: "Paper",
+      docType: "paper",
+      templateId: "nature",
+      journal: "Nature",
+      authors: ["Ada", "Alan"],
+      affiliations: ["Cambridge", "Bletchley"],
+      authorAffiliations: [[1], [1, 2]],
+      slug: "",
+      targetWords: "3000",
+      sectionOrderText: "introduction",
+      status: "Planning",
+      overleafRepoPath: "",
+      funder: "",
+      program: "",
+      deadline: "",
+      audience: "",
+      tags: "",
+      project: "",
+      contributionMode: "",
+      agentSummary: "",
+    });
+    expect(payload.authors).toEqual(["Ada", "Alan"]);
+    expect(payload.affiliations).toEqual(["Cambridge", "Bletchley"]);
+    expect(payload.authorAffiliations).toEqual([[1], [1, 2]]);
+  });
+
+  it("buildCreateManuscriptPayload omits affiliations when none are given", () => {
+    const payload = buildCreateManuscriptPayload({
+      title: "Paper",
+      docType: "paper",
+      templateId: "nature",
+      journal: "Nature",
+      authors: ["Ada"],
+      affiliations: [],
+      authorAffiliations: [],
+      slug: "",
+      targetWords: "3000",
+      sectionOrderText: "introduction",
+      status: "Planning",
+      overleafRepoPath: "",
+      funder: "",
+      program: "",
+      deadline: "",
+      audience: "",
+      tags: "",
+      project: "",
+      contributionMode: "",
+      agentSummary: "",
+    });
+    expect(payload.affiliations).toBeUndefined();
+    expect(payload.authorAffiliations).toBeUndefined();
   });
 
   it("structurePreviewFolders lists sections notes and assets", () => {

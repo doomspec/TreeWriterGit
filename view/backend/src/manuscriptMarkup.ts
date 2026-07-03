@@ -17,7 +17,7 @@ Tables and in-text cross-references — wikilink:
 Do not use LaTeX \\cite{}, \\fig{}, \\table{}, or \\eq{} in draft.md; those are editor autocomplete shortcuts only.
 When revising existing text, preserve [@…] citations and convert any \\cite{…} you encounter to [@…] form.`;
 
-const DRAFT_MARKUP_ACTIONS = new Set(["draft", "revise", "expand", "cite-check"]);
+const DRAFT_MARKUP_ACTIONS = new Set(["draft", "revise", "expand", "cite-check", "draft-from-notes"]);
 
 export function shouldIncludeManuscriptMarkup(
   action: string,

@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 const STORAGE_KEY = "treewriter.editorTextZoom.v2";
 
 /** Base body scale baked into CSS; 100% zoom uses this size (formerly the 85% zoom step). */
-export const EDITOR_TEXT_BASE_SCALE = 0.85;
+export const EDITOR_TEXT_BASE_SCALE = 0.92;
 
 /** Relative text scale for markdown reading / preview panes. */
 export const EDITOR_TEXT_ZOOM_MIN = 0.85;

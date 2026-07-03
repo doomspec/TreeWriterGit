@@ -1,0 +1,3 @@
+In the following sections, we outline a democratized path into tissue engineering built around open-source and DIY biofabrication tools, shared protocols, and accessible technical knowledge. Rather than focusing on a single device class, we consider the broader toolbox required to design, build, and operate tissue-engineering workflows.
+
+We organize recent developments into three complementary technological domains: bioinks and biofabrication platforms, microfabrication and microfluidic systems, and modular laboratory automation, including low-cost liquid-handling tools. Together, these domains show how accessible tissue engineering is emerging through interoperable hardware, reproducible methods, and community-driven design.

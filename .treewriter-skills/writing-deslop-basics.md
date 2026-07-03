@@ -1,6 +1,6 @@
 ---
 name: writing-deslop-basics
-description: Basic prose cleanup for TreeWriter drafts. Remove AI writing patterns — em dashes, filler phrases, formulaic structures, and hype — so manuscript text reads like careful human scientific writing.
+description: Deslop / de-AI a TreeWriter draft — strip AI writing tells (em dashes, filler, formulaic structures, hype) so prose reads like careful human scientific writing. Use on any draft.md drafting, revision, or expansion. For structural/story-level work use scientific-writing-framework.
 ---
 
 # Writing Deslop Basics (Scientific Drafts)

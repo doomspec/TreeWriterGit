@@ -53,17 +53,73 @@ function latexInput(relativePath: string): string {
   return `\\input{${relativePath.replace(/\\/g, "/")}}`;
 }
 
+/** LaTeX-escape author/affiliation free text (title uses its own escaper). */
+function escapeLatexInline(text: string): string {
+  return text.replace(/([#%&_{}])/g, "\\$1");
+}
+
+/**
+ * Build the `\author{...}` body and the `\begin{affiliations}` items from
+ * structured metadata. Authors get superscript affiliation numbers when a
+ * per-author mapping is present. Falls back to a legacy single `author` string
+ * / TBD placeholders so older papers still export.
+ */
+function buildAuthorBlock(input: {
+  authors?: string[];
+  affiliations?: string[];
+  authorAffiliations?: number[][];
+  legacyAuthor?: string;
+}): { authorLine: string; affiliationItems: string[] } {
+  const authors = (input.authors ?? []).map((a) => a.trim()).filter(Boolean);
+  const affiliations = (input.affiliations ?? []).map((a) => a.trim()).filter(Boolean);
+
+  if (authors.length === 0) {
+    const legacy = input.legacyAuthor?.trim();
+    return {
+      authorLine: legacy || "Author names TBD",
+      affiliationItems:
+        affiliations.length > 0
+          ? affiliations.map(escapeLatexInline)
+          : ["Affiliation TBD — edit main.tex or add author metadata to the paper INDEX."],
+    };
+  }
+
+  const authorLine = authors
+    .map((name, index) => {
+      const marks = input.authorAffiliations?.[index] ?? [];
+      const escaped = escapeLatexInline(name);
+      return marks.length > 0 ? `${escaped}$^{${marks.join(",")}}$` : escaped;
+    })
+    .join(", ");
+
+  const affiliationItems =
+    affiliations.length > 0
+      ? affiliations.map(escapeLatexInline)
+      : ["Affiliation TBD — edit main.tex or add author metadata to the paper INDEX."];
+
+  return { authorLine, affiliationItems };
+}
+
 /** Build main.tex following sedimentorc/nature-template structure. */
 export function buildNatureMainTexDocument(input: {
   title: string;
+  /** @deprecated legacy single-string author; prefer `authors`. */
   author?: string;
+  authors?: string[];
+  affiliations?: string[];
+  authorAffiliations?: number[][];
   abstractSection?: string;
   bodySections: string[];
   methodsSection?: string;
   supplementarySection?: string;
   bibBaseName?: string;
 }): string {
-  const author = input.author?.trim() || "Author names TBD";
+  const { authorLine, affiliationItems } = buildAuthorBlock({
+    authors: input.authors,
+    affiliations: input.affiliations,
+    authorAffiliations: input.authorAffiliations,
+    legacyAuthor: input.author,
+  });
   const bibBase = input.bibBaseName?.trim() || "references";
   const lines: string[] = [
     "% Nature preprint layout — sedimentorc/nature-template",
@@ -75,14 +131,14 @@ export function buildNatureMainTexDocument(input: {
     "",
     `\\title{${escapeLatexTitle(input.title)}}`,
     "",
-    `\\author{${author}}`,
+    `\\author{${authorLine}}`,
     "",
     "\\begin{document}",
     "",
     "\\maketitle",
     "",
     "\\begin{affiliations}",
-    "\\item Affiliation TBD — edit main.tex or add author metadata to the paper INDEX.",
+    ...affiliationItems.map((item) => `\\item ${item}`),
     "\\end{affiliations}",
     "",
   ];

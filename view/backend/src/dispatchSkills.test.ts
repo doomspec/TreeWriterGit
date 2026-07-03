@@ -7,9 +7,12 @@ import { buildPreview } from "./agentDispatch.js";
 import {
   gatherDispatchSkillBlock,
   listDispatchSkills,
+  readDispatchSkillContent,
+  renameDispatchSkill,
   sanitizeSkillFilename,
   saveDispatchSkill,
   saveDispatchSkillsEnabled,
+  updateDispatchSkillContent,
 } from "./dispatchSkills.js";
 
 let repoRoot: string;
@@ -102,5 +105,49 @@ describe("dispatchSkills", () => {
     expect(skillIndex).toBeGreaterThan(-1);
     expect(markupIndex).toBeGreaterThan(skillIndex);
     expect(result.prompt).toContain("Never use passive voice in abstracts.");
+  });
+
+  it("reads back a skill's content", async () => {
+    await saveDispatchSkill(repoRoot, "style.md", "# Scientific tone\n\nUse active voice.");
+    expect(await readDispatchSkillContent(repoRoot, "style.md")).toBe(
+      "# Scientific tone\n\nUse active voice.",
+    );
+  });
+
+  it("updates a skill's content in place, preserving its filename and enabled state", async () => {
+    await saveDispatchSkill(repoRoot, "style.md", "# Scientific tone\n\nUse active voice.");
+    await saveDispatchSkillsEnabled(repoRoot, []);
+
+    const updated = await updateDispatchSkillContent(repoRoot, "style.md", "# Scientific Tone v2\n\nBe concise.");
+    expect(updated.filename).toBe("style.md");
+    expect(updated.title).toBe("Scientific Tone v2");
+    expect(updated.enabled).toBe(false);
+    expect(await readDispatchSkillContent(repoRoot, "style.md")).toBe(
+      "# Scientific Tone v2\n\nBe concise.",
+    );
+  });
+
+  it("renames a skill, preserving content and its place in the enabled list", async () => {
+    await saveDispatchSkill(repoRoot, "old-name.md", "# Old Name\n\nBody.");
+    await saveDispatchSkillsEnabled(repoRoot, ["old-name.md"]);
+
+    const renamed = await renameDispatchSkill(repoRoot, "old-name.md", "New Name.md");
+    expect(renamed.filename).toBe("new-name.md");
+    expect(renamed.enabled).toBe(true);
+    expect(await readDispatchSkillContent(repoRoot, "new-name.md")).toBe("# Old Name\n\nBody.");
+
+    const skills = await listDispatchSkills(repoRoot);
+    expect(skills.map((s) => s.filename)).toEqual(["new-name.md"]);
+  });
+
+  it("refuses to rename onto an existing skill", async () => {
+    await saveDispatchSkill(repoRoot, "a.md", "# A\n");
+    await saveDispatchSkill(repoRoot, "b.md", "# B\n");
+    await expect(renameDispatchSkill(repoRoot, "a.md", "b.md")).rejects.toThrow(/already exists/);
+  });
+
+  it("update/rename throw when the skill doesn't exist", async () => {
+    await expect(updateDispatchSkillContent(repoRoot, "ghost.md", "# X\n")).rejects.toThrow(/not found/);
+    await expect(renameDispatchSkill(repoRoot, "ghost.md", "real.md")).rejects.toThrow(/not found/);
   });
 });

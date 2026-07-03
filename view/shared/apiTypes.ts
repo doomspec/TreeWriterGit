@@ -78,6 +78,10 @@ export type PendingReviewItem = {
 export type ManuscriptDetail = ManuscriptSummary & {
   templateId: string | null;
   authors: string[];
+  /** Affiliation lines, in order; numbered by position (1-based) in the LaTeX title block. */
+  affiliations: string[];
+  /** Parallel to `authors`: each author's 1-based affiliation indices (empty = no superscript). */
+  authorAffiliations: number[][];
   targetWords: number;
   sectionOrder: string[];
   overleafRepoPath: string | null;

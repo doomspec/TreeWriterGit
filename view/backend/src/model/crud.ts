@@ -37,6 +37,25 @@ export async function createFile(
   return relativePath;
 }
 
+/** Create an empty directory under `parentRel`. Used by the Explorer (IDE) tree. */
+export async function createFolder(
+  modelRoot: string,
+  parentRel: string,
+  name: string,
+): Promise<string> {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.includes("/") || trimmed === "." || trimmed === "..") {
+    throw new ModelFsError("Invalid folder name", 400);
+  }
+  const rel = parentRel ? `${parentRel}/${trimmed}` : trimmed;
+  const abs = resolveModelPath(modelRoot, rel);
+  if (existsSync(abs)) {
+    throw new ModelFsError(`Already exists: ${rel}`, 409);
+  }
+  await mkdir(abs, { recursive: true });
+  return rel;
+}
+
 /** Create a container (section/subsection) or unit node, updating the parent INDEX child_order. */
 export async function createNode(
   modelRoot: string,

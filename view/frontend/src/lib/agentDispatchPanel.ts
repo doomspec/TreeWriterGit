@@ -4,7 +4,7 @@ import type { AgentDispatchAction } from "@/lib/agentDispatchClient";
 
 export type AgentDispatchIntent = {
   action: AgentDispatchAction;
-  pane?: "outline" | "draft";
+  pane?: "outline" | "draft" | "notes";
   /** Generate a command preview when the panel opens. */
   autoPreview?: boolean;
 };
