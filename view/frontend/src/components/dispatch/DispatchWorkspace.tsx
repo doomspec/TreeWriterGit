@@ -1,14 +1,12 @@
-import { Bot, Clock, Info, Sparkles } from "lucide-react";
+import { Bot, Clock } from "lucide-react";
 
 import { DispatchHistoryList } from "@/components/dispatch/DispatchHistoryList";
-import { DispatchIntegrationPanel } from "@/components/dispatch/DispatchIntegrationPanel";
 import { DispatchPanel } from "@/components/dispatch/DispatchPanel";
-import { DispatchSkillsPanel } from "@/components/dispatch/DispatchSkillsPanel";
 import type { AgentDispatchIntent } from "@/lib/agentDispatchPanel";
 import type { AgentSessionFile } from "@/lib/agentDispatchClient";
 import { cn } from "@/lib/utils";
 
-export type DispatchPaneTab = "run" | "history" | "integration" | "skills";
+export type DispatchPaneTab = "run" | "history";
 
 const DISPATCH_TABS: {
   id: DispatchPaneTab;
@@ -17,8 +15,6 @@ const DISPATCH_TABS: {
 }[] = [
   { id: "run", label: "Dispatch", icon: Bot },
   { id: "history", label: "History", icon: Clock },
-  { id: "skills", label: "Skills", icon: Sparkles },
-  { id: "integration", label: "Integration", icon: Info },
 ];
 
 export function DispatchWorkspace({
@@ -39,10 +35,7 @@ export function DispatchWorkspace({
   selectedSessionFilename,
   onSelectSession,
   onMarkStatus,
-  previewPrompt,
-  previewCommand,
   skillsVersion,
-  onSkillsChanged,
 }: {
   activeTab: DispatchPaneTab;
   onTabChange: (tab: DispatchPaneTab) => void;
@@ -61,10 +54,7 @@ export function DispatchWorkspace({
   selectedSessionFilename?: string | null;
   onSelectSession?: (session: AgentSessionFile | null) => void;
   onMarkStatus?: (session: AgentSessionFile, status: AgentSessionFile["status"]) => void;
-  previewPrompt?: string | null;
-  previewCommand?: string | null;
   skillsVersion?: number;
-  onSkillsChanged?: () => void;
 }) {
   return (
     <div className="dispatch-workspace flex min-h-0 min-w-0 flex-1 flex-col">
@@ -133,32 +123,6 @@ export function DispatchWorkspace({
             selectedFilename={selectedSessionFilename}
             onSelect={onSelectSession}
             onMarkStatus={onMarkStatus}
-          />
-        </div>
-
-        <div
-          className={cn(
-            "absolute inset-0 flex min-h-0 flex-col",
-            activeTab !== "skills" && "pointer-events-none invisible",
-          )}
-          role="tabpanel"
-          aria-hidden={activeTab !== "skills"}
-        >
-          <DispatchSkillsPanel onError={onError} onSkillsChanged={onSkillsChanged} />
-        </div>
-
-        <div
-          className={cn(
-            "absolute inset-0 flex min-h-0 flex-col",
-            activeTab !== "integration" && "pointer-events-none invisible",
-          )}
-          role="tabpanel"
-          aria-hidden={activeTab !== "integration"}
-        >
-          <DispatchIntegrationPanel
-            currentPath={currentPath}
-            previewPrompt={previewPrompt}
-            previewCommand={previewCommand}
           />
         </div>
       </div>

@@ -27,14 +27,14 @@ export type SessionWikiRecord = SessionWikiEntry & {
 const SESSION_BLOCK_RE =
   /<!-- tw-session\n([\s\S]*?)\n-->\n\n([\s\S]*?)(?=\n---\n|\n<!-- tw-session\n|$)/g;
 
-function wikiRootFromUnitPath(unitPath: string): string {
+export function wikiRootFromUnitPath(unitPath: string): string {
   const paper = paperRootFromPath(unitPath);
   if (paper) return paper;
   const first = unitPath.split("/").filter(Boolean)[0];
   return first ?? unitPath;
 }
 
-function normalizeUnitPath(unitPath: string): string {
+export function normalizeUnitPath(unitPath: string): string {
   return unitPath.split(path.sep).join("/").replace(/^\/+|\/+$/g, "");
 }
 

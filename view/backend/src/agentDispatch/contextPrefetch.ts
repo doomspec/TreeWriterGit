@@ -5,6 +5,8 @@ import matter from "gray-matter";
 import { isUnitDir, orderedChildren, resolveChildPath } from "../modelFs.js";
 import { searchModel } from "../search.js";
 import type { DispatchAction } from "./templates.js";
+import type { ZoteroLocalConfig } from "../zoteroLocalConfig.js";
+import { loadZoteroLocalConfig } from "../zoteroLocalConfig.js";
 
 function parentPath(relPath: string): string {
   const normalized = relPath.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -158,23 +160,22 @@ export async function gatherAutomaticContextPrefetch(
   return blocks.join("\n\n");
 }
 
-/** Tell dispatch agents how to pull more context on demand (no MCP tax). */
-export function buildDispatchContextCliBlock(_repoRoot: string): string {
+/** Zotero-only runtime block — CLI quick-ref lives in treewriter-context-cli skill. */
+export async function buildDispatchContextCliBlock(repoRoot: string): Promise<string> {
+  let zoteroLocal: ZoteroLocalConfig = { enabled: false, baseUrl: "http://127.0.0.1:23119/api" };
+  try {
+    zoteroLocal = await loadZoteroLocalConfig(repoRoot);
+  } catch {
+    return "";
+  }
+
+  if (!zoteroLocal.enabled) return "";
+
   return [
-    "ON-DEMAND CONTEXT (use only if the sections above are insufficient):",
-    "Terminal cwd is model/ — paths in this task are relative to model/.",
-    "",
-    "Read-only lookup (from model/):",
-    "  node ../scripts/tw-context.mjs search \"keywords\" --root papers/{slug}",
-    "  node ../scripts/tw-context.mjs read papers/{slug}/section/unit/draft.md",
-    "  node ../scripts/tw-context.mjs tree papers/{slug} --depth 1",
-    "  node ../scripts/tw-context.mjs compose papers/{slug}/sections/{section}",
-    "",
-    "Bulk import (from repo root only):",
-    "  pnpm import-docx papers/{slug} /path/to/file.docx",
-    "  pnpm import-references papers/{slug} /path/to/refs.bib",
-    "",
-    "Search/compose need pnpm dev (localhost:4000); read/tree work offline.",
-    "Full guide: .treewriter-skills/treewriter-context-cli.md",
+    "ZOTERO LOCAL (Settings → Extensions → enabled):",
+    "  node ../scripts/tw-zotero.mjs search \"topic keywords\" --json",
+    "  node ../scripts/tw-zotero.mjs import --keys ITEMKEY1,ITEMKEY2 --json",
+    "  node ../scripts/tw-zotero.mjs snippet --keys cite_key1,cite_key2",
+    "Then add [@cite_key] to the target draft.md.",
   ].join("\n");
 }

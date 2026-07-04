@@ -10,6 +10,14 @@ import {
 } from "../modelFs.js";
 import { patchLeafIndex, readDraftEditMeta } from "./meta.js";
 import {
+  buildApprovedMetaRecord,
+  buildDiscardedMetaRecord,
+  indexPatchFromApprovalMeta,
+  readManuscriptApprovalMeta,
+  writeApprovalMetaYaml,
+} from "./approvalMeta.js";
+import { captureGitApprovalProvenance } from "./git.js";
+import {
   approvedManuscriptRel,
   draftsMatchApproved,
   isApprovalTrackedFilePath,
@@ -18,12 +26,13 @@ import {
   isDraftLeafDir,
   manuscriptKindFromFilePath,
   outlinesMatchApproved,
+  resolveApprovedManuscriptRel,
   type ManuscriptKind,
   unitDirFromDraftFile,
   unitDirFromManuscriptFile,
 } from "./paths.js";
 
-const PROPAGATION_SKIP = new Set(["notes", ".sessions", ".trash", "figures", "tables", "equations"]);
+const PROPAGATION_SKIP = new Set(["notes", ".sessions", ".trash", "figures", "tables", "equations", ".approval"]);
 const PENDING_WALK_SKIP = PROPAGATION_SKIP;
 
 async function isSectionContainerDir(modelRoot: string, relPath: string): Promise<boolean> {
@@ -132,39 +141,12 @@ export async function findPendingAiProviderUnder(
   return best?.provider ?? null;
 }
 
-function approvalIndexPatch(kind: ManuscriptKind, approvedBy?: string | null): Record<string, unknown> {
-  const prefix = kind === "outline" ? "outline_" : "";
-  const patch: Record<string, unknown> = {
-    [`${prefix}approved_at`]: new Date().toISOString(),
-  };
-  if (kind === "draft") {
-    patch.status = "approved";
-  }
-  if (approvedBy) {
-    patch[`${prefix}approved_by`] = approvedBy;
-  }
-  return patch;
-}
-
-function discardIndexPatch(kind: ManuscriptKind): Record<string, unknown> {
-  const prefix = kind === "outline" ? "outline_" : "";
-  const patch: Record<string, unknown> = {
-    [`${prefix}edited_by`]: null,
-    [`${prefix}edited_at`]: null,
-    [`${prefix}ai_assisted`]: false,
-    [`${prefix}ai_provider`]: null,
-  };
-  if (kind === "draft") {
-    patch.status = "approved";
-  }
-  return patch;
-}
-
 async function propagateApprovalToAncestors(
   modelRoot: string,
   unitRel: string,
   kind: ManuscriptKind,
   approvedBy?: string | null,
+  options?: { repoRoot?: string },
 ): Promise<string[]> {
   const updated: string[] = [];
   let sectionRel = path.posix.dirname(unitRel);
@@ -178,7 +160,10 @@ async function propagateApprovalToAncestors(
       const manuscriptRel = `${sectionRel}/${fileName}`;
       if (existsSync(path.join(modelRoot, manuscriptRel))) {
         updated.push(
-          ...(await approveManuscriptFile(modelRoot, manuscriptRel, approvedBy, { skipPropagate: true })),
+          ...(await approveManuscriptFile(modelRoot, manuscriptRel, approvedBy, {
+            skipPropagate: true,
+            repoRoot: options?.repoRoot,
+          })),
         );
       }
     }
@@ -193,7 +178,7 @@ async function approveManuscriptFile(
   modelRoot: string,
   fileRel: string,
   approvedBy?: string | null,
-  options?: { skipPropagate?: boolean },
+  options?: { skipPropagate?: boolean; repoRoot?: string },
 ): Promise<string[]> {
   const kind = manuscriptKindFromFilePath(fileRel);
   const unitRel = unitDirFromManuscriptFile(fileRel, kind);
@@ -205,11 +190,25 @@ async function approveManuscriptFile(
   const approvedRel = approvedManuscriptRel(unitRel, kind);
   await mkdir(path.dirname(path.join(modelRoot, approvedRel)), { recursive: true });
   await writeFile(path.join(modelRoot, approvedRel), content, "utf8");
+
+  const previous = await readManuscriptApprovalMeta(modelRoot, unitRel, kind);
+  const gitRoot = options?.repoRoot ?? path.dirname(modelRoot);
+  const git = await captureGitApprovalProvenance(gitRoot, fileRel, content);
+  const record = buildApprovedMetaRecord({
+    content,
+    kind,
+    approvedBy,
+    gitCommit: git.gitCommit,
+    gitFileBlob: git.gitFileBlob,
+    previous,
+  });
+
   const updated = [fileRel, approvedRel];
-  const indexPath = await patchLeafIndex(modelRoot, unitRel, approvalIndexPatch(kind, approvedBy));
+  updated.push(await writeApprovalMetaYaml(modelRoot, unitRel, kind, record));
+  const indexPath = await patchLeafIndex(modelRoot, unitRel, indexPatchFromApprovalMeta(kind, record));
   if (indexPath) updated.push(indexPath);
   if (!options?.skipPropagate) {
-    updated.push(...(await propagateApprovalToAncestors(modelRoot, unitRel, kind, approvedBy)));
+    updated.push(...(await propagateApprovalToAncestors(modelRoot, unitRel, kind, approvedBy, options)));
   }
   return updated;
 }
@@ -217,15 +216,16 @@ async function approveManuscriptFile(
 async function discardManuscriptFile(modelRoot: string, fileRel: string): Promise<string[]> {
   const kind = manuscriptKindFromFilePath(fileRel);
   const unitRel = unitDirFromManuscriptFile(fileRel, kind);
-  const approvedRel = approvedManuscriptRel(unitRel, kind);
-  const approvedAbs = path.join(modelRoot, approvedRel);
-  if (!existsSync(approvedAbs)) {
-    throw new ModelFsError(`No approved ${kind} to restore`, 404);
-  }
-  const content = await readFile(approvedAbs, "utf8");
+  const approvedRel = resolveApprovedManuscriptRel(modelRoot, unitRel, kind);
+  // Never approved before — nothing to restore to; discarding an unapproved
+  // edit reverts it to the empty skeleton state instead of erroring.
+  const content = approvedRel ? await readFile(path.join(modelRoot, approvedRel), "utf8") : "";
   await writeFile(path.join(modelRoot, fileRel), content, "utf8");
+  const previous = await readManuscriptApprovalMeta(modelRoot, unitRel, kind);
+  const record = buildDiscardedMetaRecord(previous);
   const updated = [fileRel];
-  const indexPath = await patchLeafIndex(modelRoot, unitRel, discardIndexPatch(kind));
+  updated.push(await writeApprovalMetaYaml(modelRoot, unitRel, kind, record));
+  const indexPath = await patchLeafIndex(modelRoot, unitRel, indexPatchFromApprovalMeta(kind, record));
   if (indexPath) updated.push(indexPath);
   return updated;
 }
@@ -261,6 +261,7 @@ export async function approvePendingChildrenTarget(
   modelRoot: string,
   sectionRel: string,
   approvedBy?: string | null,
+  options?: { repoRoot?: string },
 ): Promise<{ updated: string[] }> {
   const normalized = sectionRel.replace(/\\/g, "/").replace(/\/+$/, "");
   if (!normalized) throw new ModelFsError("Path required", 400);
@@ -269,7 +270,7 @@ export async function approvePendingChildrenTarget(
   const childPaths = pending.filter((fileRel) => isChildApprovalFilePath(normalized, fileRel));
   const updated: string[] = [];
   for (const fileRel of childPaths) {
-    const result = await approveDraftTarget(modelRoot, fileRel, approvedBy);
+    const result = await approveDraftTarget(modelRoot, fileRel, approvedBy, options);
     updated.push(...result.updated);
   }
   return { updated: [...new Set(updated)] };
@@ -279,16 +280,17 @@ export async function approveDraftTarget(
   modelRoot: string,
   targetPath: string,
   approvedBy?: string | null,
+  options?: { repoRoot?: string },
 ): Promise<{ updated: string[] }> {
   const normalized = targetPath.replace(/\\/g, "/").replace(/\/+$/, "");
   if (!normalized) throw new ModelFsError("Path required", 400);
 
   if (isApprovalTrackedFilePath(normalized)) {
-    return { updated: await approveManuscriptFile(modelRoot, normalized, approvedBy) };
+    return { updated: await approveManuscriptFile(modelRoot, normalized, approvedBy, options) };
   }
 
   const updated = await walkDraftLeaves(modelRoot, normalized, (draftRel) =>
-    approveManuscriptFile(modelRoot, draftRel, approvedBy),
+    approveManuscriptFile(modelRoot, draftRel, approvedBy, options),
   );
   return { updated: [...new Set(updated)] };
 }

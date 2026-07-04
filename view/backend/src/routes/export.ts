@@ -2,6 +2,7 @@ import type { Express } from "express";
 
 import { exportPaper, exportPaperBatch, resolveExportDownload } from "../export.js";
 import { importOverleafFeedback, connectOverleafProject, getOverleafStatus, pushToOverleaf } from "../overleaf.js";
+import { resolvePaperRel } from "../modelFs.js";
 import type { ExportValidationConfig } from "@treewriter/shared";
 import type { ServerDeps } from "./types.js";
 
@@ -36,7 +37,7 @@ export function registerExportRoutes(app: Express, deps: ServerDeps) {
         includeDrafts,
         validation: await exportValidationFromDeps(deps),
       });
-      deps.broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
+      deps.broadcastModelEvent({ type: "model-changed", path: `${resolvePaperRel(deps.modelRoot, paperSlug)}/INDEX.md` });
       response.json(result);
     } catch (error) {
       next(error);
@@ -68,7 +69,7 @@ export function registerExportRoutes(app: Express, deps: ServerDeps) {
         includeDrafts,
         validation: await exportValidationFromDeps(deps),
       });
-      deps.broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
+      deps.broadcastModelEvent({ type: "model-changed", path: `${resolvePaperRel(deps.modelRoot, paperSlug)}/INDEX.md` });
       response.json({ results });
     } catch (error) {
       next(error);
@@ -121,7 +122,7 @@ export function registerExportRoutes(app: Express, deps: ServerDeps) {
         gitUrl.trim(),
         token?.trim(),
       );
-      deps.broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
+      deps.broadcastModelEvent({ type: "model-changed", path: `${resolvePaperRel(deps.modelRoot, paperSlug)}/INDEX.md` });
       response.json(result);
     } catch (error) {
       next(error);
@@ -145,7 +146,7 @@ export function registerExportRoutes(app: Express, deps: ServerDeps) {
         includeDrafts === true,
         await exportValidationFromDeps(deps),
       );
-      deps.broadcastModelEvent({ type: "model-changed", path: `papers/${paperSlug.trim()}/INDEX.md` });
+      deps.broadcastModelEvent({ type: "model-changed", path: `${resolvePaperRel(deps.modelRoot, paperSlug)}/INDEX.md` });
       response.json(result);
     } catch (error) {
       next(error);
@@ -159,7 +160,7 @@ export function registerExportRoutes(app: Express, deps: ServerDeps) {
         response.status(400).json({ error: "paperSlug required" });
         return;
       }
-      const result = await importOverleafFeedback(deps.modelRoot, paperSlug.trim());
+      const result = await importOverleafFeedback(deps.modelRoot, deps.repoRoot, paperSlug.trim());
       if (result.paths.length) {
         for (const rel of result.paths) {
           deps.broadcastModelEvent({ type: "model-changed", path: rel });

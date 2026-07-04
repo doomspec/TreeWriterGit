@@ -19,6 +19,7 @@ import {
   orderedChildren,
   reorderChildren,
   resolveModelPath,
+  resolvePaperRel,
   shellQuote,
   toRelative
 } from "./modelFs.js";
@@ -62,6 +63,19 @@ describe("resolveModelPath", () => {
   it("round-trips through toRelative", () => {
     const abs = resolveModelPath(root, "a/b/c");
     expect(toRelative(root, abs)).toBe("a/b/c");
+  });
+});
+
+describe("resolvePaperRel", () => {
+  it("returns papers/{slug} for valid slugs", () => {
+    expect(resolvePaperRel(root, "my-paper")).toBe("papers/my-paper");
+  });
+
+  it("rejects traversal and separator injection in slugs", () => {
+    expect(() => resolvePaperRel(root, "../Philosophy")).toThrow(/Invalid paper slug/);
+    expect(() => resolvePaperRel(root, "foo/bar")).toThrow(/Invalid paper slug/);
+    expect(() => resolvePaperRel(root, "..")).toThrow(/Invalid paper slug/);
+    expect(() => resolvePaperRel(root, "")).toThrow(/Invalid paper slug/);
   });
 });
 

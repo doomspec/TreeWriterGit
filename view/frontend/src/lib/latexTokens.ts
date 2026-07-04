@@ -2,9 +2,11 @@
 
 export const LABEL_TOKEN_PREFIX = "§label:";
 export const REF_TOKEN_PREFIX = "§ref:";
+export const CITE_TOKEN_PREFIX = "§cite:";
 
 const LABEL_PATTERN = /\\label\{([^}]*)\}/g;
 const REF_PATTERN = /\\ref\{([^}]*)\}/g;
+const CITE_PATTERN = /\\cite\{([^}]*)\}/g;
 
 function escapeTokenKey(key: string): string {
   return String(key).replace(/`/g, "'");
@@ -16,6 +18,10 @@ export function encodeLabelToken(key: string): string {
 
 export function encodeRefToken(key: string): string {
   return `\`${REF_TOKEN_PREFIX}${escapeTokenKey(key)}§\``;
+}
+
+export function encodeCiteToken(key: string): string {
+  return `\`${CITE_TOKEN_PREFIX}${escapeTokenKey(key)}§\``;
 }
 
 export function parseLabelCodeSpan(value: string): string | null {
@@ -30,6 +36,12 @@ export function parseRefCodeSpan(value: string): string | null {
   return trimmed.slice(REF_TOKEN_PREFIX.length, -1);
 }
 
+export function parseCiteCodeSpan(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith(CITE_TOKEN_PREFIX) || !trimmed.endsWith("§")) return null;
+  return trimmed.slice(CITE_TOKEN_PREFIX.length, -1);
+}
+
 export function preprocessLabelTokensForMarkdown(markdown: string): string {
   return markdown.replace(LABEL_PATTERN, (_full, key: string) => encodeLabelToken(key));
 }
@@ -38,8 +50,17 @@ export function preprocessRefTokensForMarkdown(markdown: string): string {
   return markdown.replace(REF_PATTERN, (_full, key: string) => encodeRefToken(key));
 }
 
+export function preprocessCiteTokensForMarkdown(markdown: string): string {
+  return markdown.replace(CITE_PATTERN, (_full, raw: string) => {
+    const firstKey = raw.split(/[,;]/)[0]?.trim() ?? "";
+    return firstKey ? encodeCiteToken(firstKey) : _full;
+  });
+}
+
 export function preprocessLatexTokensForMarkdown(markdown: string): string {
-  return preprocessRefTokensForMarkdown(preprocessLabelTokensForMarkdown(markdown));
+  return preprocessCiteTokensForMarkdown(
+    preprocessRefTokensForMarkdown(preprocessLabelTokensForMarkdown(markdown)),
+  );
 }
 
 export function restoreLabelTokensFromMarkdown(markdown: string): string {

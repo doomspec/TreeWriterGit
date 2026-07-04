@@ -190,13 +190,38 @@
   }
 
   .ui-pane-header {
-    @apply workspace-pane-header;
+    @apply workspace-pane-header justify-between;
     background-color: hsl(var(--reading-bg));
+  }
+
+  .ui-pane-header__label {
+    @apply ui-label min-w-0 shrink truncate;
+  }
+
+  .ui-pane-header__actions {
+    @apply flex shrink-0 items-center gap-1.5;
   }
 
   .sidebar-panel-header {
     @apply workspace-pane-header;
     background-color: hsl(var(--sidebar-bg));
+  }
+
+  /* Sidebar icon sizing — rail (Writer + Explorer left column) vs pane chrome */
+  .sidebar-rail-btn {
+    @apply h-7 w-7 shrink-0 p-0;
+  }
+
+  .sidebar-rail-icon {
+    @apply h-4 w-4 shrink-0;
+  }
+
+  .sidebar-pane-icon-btn {
+    @apply flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground;
+  }
+
+  .sidebar-pane-icon {
+    @apply h-3.5 w-3.5 shrink-0;
   }
 
   .bottom-panel-pane__header {
@@ -232,5 +257,49 @@
     background: hsl(var(--card));
     color: hsl(var(--card-foreground));
     box-shadow: var(--shadow-lg);
+  }
+
+  .explorer-tabs__strip {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--primary) / 0.45) hsl(var(--sidebar-bg));
+  }
+
+  .explorer-tabs__strip::-webkit-scrollbar {
+    height: 2px;
+  }
+
+  .explorer-tabs__strip::-webkit-scrollbar-track {
+    background: hsl(var(--sidebar-bg));
+  }
+
+  .explorer-tabs__strip::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: hsl(var(--primary) / 0.4);
+  }
+
+  .explorer-tabs__strip:hover::-webkit-scrollbar-thumb {
+    background: hsl(var(--primary) / 0.62);
+  }
+
+  .explorer-tabs__menu {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.25) hsl(var(--card));
+  }
+
+  .explorer-tabs__menu::-webkit-scrollbar {
+    width: 3px;
+  }
+
+  .explorer-tabs__menu::-webkit-scrollbar-track {
+    background: hsl(var(--card));
+  }
+
+  .explorer-tabs__menu::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: hsl(var(--muted-foreground) / 0.22);
+  }
+
+  .explorer-tabs__menu:hover::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.32);
   }
 }

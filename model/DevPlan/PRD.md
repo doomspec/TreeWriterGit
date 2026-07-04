@@ -297,7 +297,7 @@ This avoids a server-side job manager in v1. (A `/api/agent/dispatch` with PTY j
 
 ### F6 — LaTeX / PDF export (pandoc)
 
-**Why:** produce the Overleaf-facing artifact. See [[phase-3-overleaf]]. Requires `brew install pandoc` (+ MacTeX for PDF).
+**Why:** produce the Overleaf-facing artifact. See [[phase-3-overleaf]]. Requires `brew install pandoc` (+ `brew install tectonic` or MacTeX for PDF).
 
 **Endpoint:** `POST /api/export` `{ paperSlug, format: "latex"|"pdf", includeDrafts?: boolean }` →
 1. Depth-first walk: paper `INDEX.section_order` → each container's `child_order` → recurse. At each **unit**, take `draft.md`.
@@ -360,7 +360,7 @@ Total ≈ 18–24 working days for M1–M11.
 
 ## 6. Dependencies to Install
 - Frontend: `d3-force d3-selection d3-zoom` (F3).
-- System: `brew install pandoc` (F6); `brew install --cask mactex` only if PDF export needed.
+- System: `brew install pandoc` (F6); `brew install tectonic` for PDF export (or `brew install --cask mactex` as alternative).
 - Optional: `claude` / `codex` / `aider` on PATH (F4 — user-provided).
 - `.treewriter.json` at repo root (F4) — ship a default; code falls back to built-in Claude Code provider if absent.
 

@@ -20,7 +20,7 @@ export function buildAgentIntegrationPrompt(unitPath?: string): string {
 TreeWriter stores papers as a folder tree of markdown units. Each unit has:
 - \`outline.md\` — section intent and bullet outline
 - \`draft.md\` — manuscript paragraph (live working copy)
-- \`draft.approved.md\` — last approved version for export
+- \`.approval/draft.approved.md\` — last approved version for export
 
 ${pathLine}
 ${paperLine}
@@ -37,7 +37,9 @@ When TreeWriter runs AI dispatch, the prompt already includes outline, draft, li
 
 ${buildContextCliQuickRef(unitPath)}
 
-After dispatch finishes in the integrated terminal, the author marks the session complete in the history strip.`;
+Skills: \`.treewriter-skills/system/\` (TreeWriter runtime + action prompts, always loaded) and \`.treewriter-skills/user/\` (optional writing rules, toggled in Settings → Skills). Action prompts are editable with Reset to repo default.
+
+After dispatch finishes in the integrated terminal, session traces land under \`papers/{slug}/notes/sessions/\` (chat) or \`{unit}/.sessions/\` (dispatch).`;
 }
 
 export function buildDispatchGuideText(): string {
@@ -47,24 +49,27 @@ ${DISPATCH_CONTEXT_LAYERS_SUMMARY}
 
 Layer 1 — Prompt assembly (every preview)
   Unit outline + draft, INDEX links, cited literature/assets.
-  Optional: check files under "Unit context" in the Dispatch tab.
+  Optional: check files under "Unit context" in the Assistant panel.
 
 Layer 2 — Auto prefetch (default, no checklist)
   Sibling unit outlines + FTS search hits in the same paper.
 
 Layer 3 — On demand (agent runs in terminal)
-  node ../scripts/tw-context.mjs search|read|tree|compose  (cwd = model/)
+  node ../scripts/tw-context.mjs search|read|tree|compose|context|graph|sessions|health  (cwd = model/)
   pnpm import-docx / import-references  (repo root, bulk import)
-  Documented in .treewriter-skills/treewriter-context-cli.md
+  pnpm tw-zotero search|import|snippet  (when Settings → Extensions → Zotero enabled)
+  Documented in .treewriter-skills/system/treewriter-context-cli.md
 
 Workflow:
 1. Open a unit (or section for fan-out).
-2. Bottom panel → AI dispatch → choose provider and action → Preview (⌘⇧P) or Run (⌘⇧R).
+2. Assistant panel (sparkle icon, right split) → chat hot commands or dispatch actions → Preview or Run.
 3. Prompt writes to model/.treewriter-prompts/<session>.txt; terminal cwd = model/.
 4. Edit only the output path named in the prompt; author approves for export.
 
-Skills (.treewriter-skills/, enabled in .treewriter.json) append rules to each dispatch prompt only — not to every IDE session. Enable treewriter-context-cli.md first (AI usage + CLI).
+Skills:
+  system/ — treewriter-context-cli + structure-and-assets (always) + dispatch-{action}.md (per action)
+  user/ — optional writing rules; enable in Settings → Skills (.treewriter.json dispatchSkillsEnabled)
 
 Providers: .treewriter.json at repo root (aiProviders, defaultProvider).
-Keep pnpm dev running for FTS search and section compose via tw-context.`;
+Keep pnpm dev running for FTS search, section compose, and API-backed tw-context commands.`;
 }

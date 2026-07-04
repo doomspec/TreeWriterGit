@@ -1,15 +1,28 @@
-import type { PaperSummary } from "@/modelApi";
+import type { DocumentType, PaperSummary } from "@/modelApi";
 
-/** Onboarding paper slug — preferred default when opening Papers with no selection. */
+/** Onboarding paper slug — preferred default when opening Manuscripts with no selection. */
 export const DEFAULT_GUIDE_PAPER_SLUG = "treewriter-guide";
 
-export function preferDefaultPaperSlug(papers: PaperSummary[]): string | null {
+export function preferDefaultManuscriptSlug(
+  papers: PaperSummary[],
+  preferredDocType?: DocumentType,
+): string | null {
   if (papers.length === 0) return null;
+  if (preferredDocType) {
+    const typed = papers.find((p) => (p.docType ?? "paper") === preferredDocType);
+    if (typed) return typed.slug;
+  }
   const guide = papers.find((p) => p.slug === DEFAULT_GUIDE_PAPER_SLUG);
   return guide?.slug ?? papers[0]?.slug ?? null;
 }
 
-export function defaultPaperPath(papers: PaperSummary[]): string {
-  const slug = preferDefaultPaperSlug(papers);
+/** @deprecated Use preferDefaultManuscriptSlug */
+export const preferDefaultPaperSlug = preferDefaultManuscriptSlug;
+
+export function defaultManuscriptPath(papers: PaperSummary[], preferredDocType?: DocumentType): string {
+  const slug = preferDefaultManuscriptSlug(papers, preferredDocType);
   return slug ? `papers/${slug}` : "papers";
 }
+
+/** @deprecated Use defaultManuscriptPath */
+export const defaultPaperPath = defaultManuscriptPath;

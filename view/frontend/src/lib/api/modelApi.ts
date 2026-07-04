@@ -1,9 +1,17 @@
-import { ApiError, getApiBaseUrl, request } from "@/lib/apiClient";
+import { ApiError, getApiBaseUrl, request, requestArrayBuffer } from "@/lib/apiClient";
+import { markSelfSave } from "@/lib/recentSelfSaves";
 import type { ModelNode } from "@/lib/modelTree";
 import type {
+  AuthorEntry,
+  ContributionMode,
+  DocumentType,
   DraftEditMeta,
   ExportPaperResult,
+  ExportPrimaryFormat,
   GitSyncState,
+  ManuscriptDetail,
+  ManuscriptSummary,
+  ManuscriptTemplate,
   OverleafPushResult,
   OverleafStatus,
   PaperDetail,
@@ -12,13 +20,22 @@ import type {
   SectionRollup,
   UnitStatusCounts,
   DocxImportResult,
+  DocxImportPreview,
+  ContributorsRegistry,
+  ContributorsRegistryResponse,
 } from "@treewriter/shared";
 
 export { ApiError, getApiBaseUrl, request };
 export type {
+  ContributionMode,
+  DocumentType,
   DraftEditMeta,
   ExportPaperResult,
+  ExportPrimaryFormat,
   GitSyncState,
+  ManuscriptDetail,
+  ManuscriptSummary,
+  ManuscriptTemplate,
   OverleafPushResult,
   OverleafStatus,
   PaperDetail,
@@ -27,6 +44,7 @@ export type {
   SectionRollup,
   UnitStatusCounts,
   DocxImportResult,
+  DocxImportPreview,
 };
 
 export {
@@ -38,7 +56,7 @@ export {
   pushToOverleaf,
 } from "./exportApi";
 
-export { importDocxIntoPaper } from "./importApi";
+export { importDocxIntoPaper, previewDocxImport } from "./importApi";
 
 export {
   claimPresence,
@@ -56,10 +74,34 @@ export function createNode(parent: string, name: string, kind: NodeKind) {
   });
 }
 
+export function convertUnitToSubsection(unitPath: string) {
+  return request<{ ok: true; path: string; childPaths: string[] }>(
+    "/api/model/node/convert-subsection",
+    {
+      method: "POST",
+      body: JSON.stringify({ path: unitPath }),
+    },
+  );
+}
+
+export function duplicateNode(path: string) {
+  return request<{ ok: true; path: string; paths: string[] }>("/api/model/node/duplicate", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}
+
 export function createFile(path: string, content = "") {
   return request<{ ok: true; path: string }>("/api/model/file", {
     method: "POST",
     body: JSON.stringify({ path, content })
+  });
+}
+
+export function createFolder(parent: string, name: string) {
+  return request<{ ok: true; path: string }>("/api/model/folder", {
+    method: "POST",
+    body: JSON.stringify({ parent, name }),
   });
 }
 
@@ -107,6 +149,13 @@ export function purgeTrashedItem(paperPath: string, itemId: string) {
   );
 }
 
+export function purgeAllTrashedItems(paperPath: string) {
+  return request<{ ok: true; purgedCount: number }>(
+    `/api/model/trash/all?paper=${encodeURIComponent(paperPath)}`,
+    { method: "DELETE" },
+  );
+}
+
 export function moveNode(from: string, to: string) {
   return request<{ ok: true; from: string; to: string }>("/api/model/move", {
     method: "POST",
@@ -121,22 +170,77 @@ export function reorderChildren(parent: string, childOrder: string[]) {
   });
 }
 
-export interface JournalTemplate {
+export interface JournalTemplate extends ManuscriptTemplate {
   journal: string;
-  targetWords: number;
-  sectionOrder: string[];
 }
 
-export function fetchPapers() {
-  return request<{ papers: PaperSummary[] }>("/api/papers");
+export function fetchManuscripts(options?: { docType?: DocumentType; tag?: string }) {
+  const params = new URLSearchParams();
+  if (options?.docType) params.set("docType", options.docType);
+  if (options?.tag) params.set("tag", options.tag);
+  const query = params.toString();
+  return request<{ manuscripts: ManuscriptSummary[] }>(
+    `/api/manuscripts${query ? `?${query}` : ""}`,
+  );
+}
+
+export function fetchPapers(options?: { docType?: DocumentType; tag?: string }) {
+  const params = new URLSearchParams();
+  if (options?.docType) params.set("docType", options.docType);
+  if (options?.tag) params.set("tag", options.tag);
+  const query = params.toString();
+  return request<{ papers: PaperSummary[] }>(`/api/papers${query ? `?${query}` : ""}`);
+}
+
+export function fetchManuscriptDetail(slug: string) {
+  return request<{ manuscript: ManuscriptDetail }>(
+    `/api/manuscripts?slug=${encodeURIComponent(slug)}`,
+  );
 }
 
 export function fetchPaperDetail(slug: string) {
   return request<{ paper: PaperDetail }>(`/api/papers?slug=${encodeURIComponent(slug)}`);
 }
 
+export async function fetchContributorsRegistry(): Promise<ContributorsRegistry> {
+  const response = await request<ContributorsRegistryResponse>("/api/contributors");
+  return response.registry;
+}
+
+export function fetchManuscriptTemplates(docType?: DocumentType) {
+  const params = docType ? `?docType=${encodeURIComponent(docType)}` : "";
+  return request<{ templates: ManuscriptTemplate[] }>(`/api/manuscript/templates${params}`);
+}
+
 export function fetchJournalTemplates() {
   return request<{ journals: string[]; templates: JournalTemplate[] }>("/api/paper/templates");
+}
+
+export function createManuscript(body: {
+  title: string;
+  docType?: DocumentType;
+  templateId?: string;
+  journal?: string;
+  authors: AuthorEntry[];
+  affiliations?: string[];
+  slug?: string;
+  targetWords?: number;
+  sectionOrder?: string[];
+  status?: string;
+  overleafRepoPath?: string | null;
+  funder?: string;
+  program?: string;
+  deadline?: string;
+  audience?: string;
+  tags?: string[];
+  project?: string | null;
+  contributionMode?: ContributionMode;
+  agentSummary?: string;
+}) {
+  return request<{ ok: true; slug: string; path: string }>("/api/manuscript", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function createPaper(body: {
@@ -152,6 +256,32 @@ export function createPaper(body: {
   return request<{ ok: true; slug: string; path: string }>("/api/paper", {
     method: "POST",
     body: JSON.stringify(body)
+  });
+}
+
+export function updateManuscript(body: {
+  slug: string;
+  title: string;
+  authors: AuthorEntry[];
+  affiliations?: string[];
+  journal?: string;
+  templateId?: string;
+  targetWords?: number;
+  sectionOrder?: string[];
+  status?: string;
+  overleafRepoPath?: string | null;
+  funder?: string | null;
+  program?: string | null;
+  deadline?: string | null;
+  audience?: string | null;
+  tags?: string[];
+  project?: string | null;
+  contributionMode?: ContributionMode | null;
+  agentSummary?: string | null;
+}) {
+  return request<{ ok: true; slug: string; path: string }>("/api/manuscript", {
+    method: "PATCH",
+    body: JSON.stringify(body),
   });
 }
 
@@ -255,6 +385,19 @@ export async function fetchModelFile(path: string): Promise<{ content: string }>
   return request<{ content: string }>(`/api/model/file?path=${encodeURIComponent(path)}`);
 }
 
+/** URL for a binary file (image/pdf/xlsx) served as-is by /api/model/asset — use as an <img>/<embed> src. */
+export function modelAssetUrl(path: string): string {
+  return `${getApiBaseUrl()}/api/model/asset?path=${encodeURIComponent(path)}`;
+}
+
+export async function fetchModelAssetBytes(path: string): Promise<ArrayBuffer> {
+  return requestArrayBuffer(`/api/model/asset?path=${encodeURIComponent(path)}`);
+}
+
+export async function fetchDocxPreview(path: string): Promise<{ markdown: string }> {
+  return request<{ markdown: string }>(`/api/model/docx-preview?path=${encodeURIComponent(path)}`);
+}
+
 export type SaveModelFileOptions = {
   editedBy?: string | null;
   aiAssisted?: boolean;
@@ -270,6 +413,10 @@ export async function saveModelFile(
   if (options?.editedBy !== undefined) body.editedBy = options.editedBy;
   if (options?.aiAssisted !== undefined) body.aiAssisted = options.aiAssisted;
   if (options?.aiProvider !== undefined) body.aiProvider = options.aiProvider;
+  // Mark before the request so the model-changed broadcast — which can arrive
+  // before this await resolves — is recognized as our own and doesn't bounce
+  // back to reload the file we just wrote (see recentSelfSaves / the flicker fix).
+  markSelfSave(path);
   try {
     await request("/api/model/file", {
       method: "PUT",

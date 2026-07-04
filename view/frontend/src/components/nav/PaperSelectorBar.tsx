@@ -1,13 +1,42 @@
 import { useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 
+import { DocTypeFilterChips } from "@/components/nav/DocTypeFilterChips";
 import { PaperSelect, paperSlugFromPath } from "@/components/nav/PaperSelect";
-import { NewPaperModal } from "@/components/paper/NewPaperModal";
+import { DocxImportActionButton } from "@/components/paper/DocxImportActionButton";
+import { NewManuscriptModal } from "@/components/paper/NewManuscriptModal";
 import { ConfirmDialog } from "@/components/ui/NamePromptDialog";
 import { Button } from "@/components/ui/button";
 import { usePaperList } from "@/lib/usePaperList";
 import type { ModelNode } from "@/lib/modelTree";
-import { deletePaper } from "@/modelApi";
+import { deletePaper, type DocumentType } from "@/modelApi";
+
+function ManuscriptActionButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="sidebar-pane-icon-btn shrink-0 p-0"
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
+  );
+}
 
 export function PaperSelectorBar({
   tree,
@@ -17,6 +46,7 @@ export function PaperSelectorBar({
   onPaperCreated,
   onModelChanged,
   onError,
+  showImportAction = false,
 }: {
   tree: ModelNode[];
   currentPath: string;
@@ -25,12 +55,14 @@ export function PaperSelectorBar({
   onPaperCreated: (path: string) => void;
   onModelChanged?: () => void;
   onError: (message: string) => void;
+  showImportAction?: boolean;
 }) {
   const { papers, loading } = usePaperList(tree, refreshVersion, onError);
   const [showNewPaper, setShowNewPaper] = useState(false);
   const [editSlug, setEditSlug] = useState<string | null>(null);
   const [deleteSlug, setDeleteSlug] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [docTypeFilter, setDocTypeFilter] = useState<DocumentType | "all">("all");
   const selectedSlug = paperSlugFromPath(currentPath);
   const selectedPaper = papers.find((paper) => paper.slug === selectedSlug);
 
@@ -45,7 +77,6 @@ export function PaperSelectorBar({
   const handleDeleteConfirm = async () => {
     if (!deleteSlug) return;
     const slug = deleteSlug;
-    setDeleteSlug(null);
     setDeleting(true);
     try {
       await deletePaper(slug);
@@ -56,58 +87,50 @@ export function PaperSelectorBar({
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeleting(false);
+      setDeleteSlug(null);
     }
   };
 
   return (
     <>
-      <div className="flex items-center gap-1.5">
+      <div className="flex w-full flex-col gap-1">
+        <DocTypeFilterChips value={docTypeFilter} onChange={setDocTypeFilter} />
         <PaperSelect
           papers={papers}
           selectedSlug={selectedSlug}
           loading={loading}
-          className="min-w-0 flex-1"
+          docTypeFilter={docTypeFilter}
+          className="w-full"
           onChange={handlePaperChange}
         />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          title="Edit paper"
-          aria-label="Edit paper"
-          disabled={!selectedSlug || deleting}
-          onClick={() => selectedSlug && setEditSlug(selectedSlug)}
-        >
-          <Pencil className="h-4 w-4" aria-hidden="true" />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          title="Delete paper"
-          aria-label="Delete paper"
-          disabled={!selectedSlug || deleting}
-          onClick={() => selectedSlug && setDeleteSlug(selectedSlug)}
-        >
-          <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          title="New paper"
-          aria-label="New paper"
-          onClick={() => setShowNewPaper(true)}
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-        </Button>
+        <div className="flex justify-center">
+          <div className="flex items-center gap-0">
+            <ManuscriptActionButton
+              label="Edit manuscript"
+              disabled={!selectedSlug || deleting}
+              onClick={() => selectedSlug && setEditSlug(selectedSlug)}
+            >
+              <Pencil className="sidebar-pane-icon" aria-hidden="true" />
+            </ManuscriptActionButton>
+            <ManuscriptActionButton
+              label="Delete manuscript"
+              disabled={!selectedSlug || deleting}
+              onClick={() => selectedSlug && setDeleteSlug(selectedSlug)}
+            >
+              <Trash2 className="sidebar-pane-icon text-destructive" aria-hidden="true" />
+            </ManuscriptActionButton>
+            <ManuscriptActionButton label="New manuscript" onClick={() => setShowNewPaper(true)}>
+              <Plus className="sidebar-pane-icon" aria-hidden="true" />
+            </ManuscriptActionButton>
+            {showImportAction && selectedSlug ? (
+              <DocxImportActionButton iconOnly paperSlug={selectedSlug} className="sidebar-pane-icon-btn shrink-0 p-0" />
+            ) : null}
+          </div>
+        </div>
       </div>
 
       {showNewPaper ? (
-        <NewPaperModal
+        <NewManuscriptModal
           onClose={() => setShowNewPaper(false)}
           onCreated={(path) => {
             setShowNewPaper(false);
@@ -119,7 +142,7 @@ export function PaperSelectorBar({
       ) : null}
 
       {editSlug ? (
-        <NewPaperModal
+        <NewManuscriptModal
           editSlug={editSlug}
           onClose={() => setEditSlug(null)}
           onCreated={(path) => {
@@ -141,6 +164,7 @@ export function PaperSelectorBar({
         }
         confirmLabel={deleting ? "Deleting…" : "Delete paper"}
         destructive
+        loading={deleting}
         onConfirm={() => void handleDeleteConfirm()}
         onCancel={() => setDeleteSlug(null)}
       />

@@ -46,6 +46,25 @@ export function overleafCloneDir(repoRoot: string, paperSlug: string): string {
   return path.join(repoRoot, ".overleaf", paperSlug.trim());
 }
 
+/** Resolve and validate an Overleaf clone path — must live under repoRoot/.overleaf/{slug}. */
+export function resolveOverleafRepoPath(
+  repoRoot: string,
+  paperSlug: string,
+  configuredPath?: string | null,
+): string {
+  const allowed = path.resolve(overleafCloneDir(repoRoot, paperSlug));
+  const raw = configuredPath?.trim();
+  if (!raw) return allowed;
+  const resolved = path.resolve(raw);
+  if (resolved !== allowed) {
+    throw new ModelFsError(
+      `overleaf_repo_path must resolve to ${allowed} (got ${resolved})`,
+      400,
+    );
+  }
+  return resolved;
+}
+
 /** Normalize Overleaf Git Bridge URLs and bare project ids. */
 export function parseOverleafGitUrl(raw: string): { projectId: string; httpsCloneUrl: string } {
   let input = raw.trim().replace(/^git\s+clone\s+/i, "").trim();
@@ -117,6 +136,14 @@ async function ensureOverleafClone(
 ): Promise<"cloned" | "pulled" | "linked"> {
   const authUrl = cloneUrlWithToken(httpsCloneUrl, token);
   const gitDir = path.join(targetPath, ".git");
+  // Never let git block on an interactive credential prompt: without a token
+  // the remote returns 401 and git would otherwise wait on stdin forever
+  // (hangs the request / test). GIT_TERMINAL_PROMPT=0 makes it fail fast.
+  const nonInteractiveEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  // Bound the incremental pull: a network that stalls on connect (no route,
+  // dropped packets) would hang well past any prompt guard, so cap it and
+  // fall through to the "linked" path instead of hanging the request.
+  const PULL_TIMEOUT_MS = 8_000;
 
   if (existsSync(gitDir)) {
     try {
@@ -126,7 +153,10 @@ async function ensureOverleafClone(
       await execFileAsync("git", ["-C", targetPath, "remote", "add", "origin", authUrl]);
     }
     try {
-      await execFileAsync("git", ["-C", targetPath, "pull", "--ff-only"]);
+      await execFileAsync("git", ["-C", targetPath, "pull", "--ff-only"], {
+        env: nonInteractiveEnv,
+        timeout: PULL_TIMEOUT_MS,
+      });
       return "pulled";
     } catch {
       return "linked";
@@ -141,7 +171,7 @@ async function ensureOverleafClone(
   }
 
   await mkdir(path.dirname(targetPath), { recursive: true });
-  await execFileAsync("git", ["clone", authUrl, targetPath]);
+  await execFileAsync("git", ["clone", authUrl, targetPath], { env: nonInteractiveEnv });
   return "cloned";
 }
 
@@ -178,11 +208,7 @@ export async function connectOverleafProject(
   const configuredPath = parsed.data.overleaf_repo_path
     ? String(parsed.data.overleaf_repo_path)
     : "";
-  const defaultPath = overleafCloneDir(repoRoot, paperSlug);
-  const targetPath =
-    configuredPath && (existsSync(configuredPath) || configuredPath.startsWith(repoRoot))
-      ? configuredPath
-      : defaultPath;
+  const targetPath = resolveOverleafRepoPath(repoRoot, paperSlug, configuredPath || null);
 
   let action: OverleafConnectResult["action"];
   try {
@@ -226,16 +252,18 @@ const INLINE_NOTE_PATTERN = /\\([a-zA-Z]{1,12})\{([^}]*)\}/g;
 
 async function readOverleafRepoPath(
   modelRoot: string,
+  repoRoot: string,
   paperSlug: string,
 ): Promise<{ overleafPath: string; paperRel: string }> {
   const { paperRel, parsed } = await readPaperIndex(modelRoot, paperSlug);
-  const overleafPath = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
-  if (!overleafPath) {
+  const configured = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
+  if (!configured.trim()) {
     throw new ModelFsError(
       "Paper is not connected to Overleaf. Use Export → Connect Overleaf first.",
       400,
     );
   }
+  const overleafPath = resolveOverleafRepoPath(repoRoot, paperSlug, configured);
   if (!existsSync(overleafPath)) {
     throw new ModelFsError(`Overleaf repo path does not exist: ${overleafPath}`, 404);
   }
@@ -272,17 +300,7 @@ export async function pushToOverleaf(
   includeDrafts = false,
   validation?: ExportValidationConfig,
 ): Promise<OverleafPushResult> {
-  const { parsed } = await readPaperIndex(modelRoot, paperSlug);
-  const overleafPath = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
-  if (!overleafPath) {
-    throw new ModelFsError(
-      "Paper is not connected to Overleaf. Use Export → Connect Overleaf first.",
-      400,
-    );
-  }
-  if (!existsSync(overleafPath)) {
-    throw new ModelFsError(`Overleaf repo path does not exist: ${overleafPath}`, 404);
-  }
+  const { overleafPath, paperRel } = await readOverleafRepoPath(modelRoot, repoRoot, paperSlug);
 
   const bundle = await exportModularPaper(modelRoot, repoRoot, {
     paperSlug,
@@ -336,9 +354,10 @@ export async function pushToOverleaf(
 /** Parse \\todo / TODO comments from main.tex and section files; write feedback notes. */
 export async function importOverleafFeedback(
   modelRoot: string,
+  repoRoot: string,
   paperSlug: string,
 ): Promise<OverleafImportResult> {
-  const { overleafPath, paperRel } = await readOverleafRepoPath(modelRoot, paperSlug);
+  const { overleafPath, paperRel } = await readOverleafRepoPath(modelRoot, repoRoot, paperSlug);
   const texPaths: string[] = [];
   const mainPath = path.join(overleafPath, "main.tex");
   if (existsSync(mainPath)) texPaths.push(mainPath);

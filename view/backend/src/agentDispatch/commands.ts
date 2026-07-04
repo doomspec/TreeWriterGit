@@ -1,23 +1,39 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 
-import { gatherDispatchSkillBlock } from "../dispatchSkills.js";
-import { readIndexData, shellQuote } from "../modelFs.js";
+import {
+  gatherDispatchSkillBlock,
+  loadDispatchActionTemplate,
+  renderDispatchActionTemplate,
+} from "../dispatchSkills.js";
+import { ModelFsError, readIndexData, shellQuote } from "../modelFs.js";
+import { stripInlineComments } from "../inlineComments.js";
 import { stripInlineNotes } from "../inlineNotes.js";
 import { MANUSCRIPT_MARKUP, shouldIncludeManuscriptMarkup } from "../manuscriptMarkup.js";
 import {
   collectUnitPaths,
   readDispatchUnitContext,
   readDraftForDispatch,
+  readNotesForDispatch,
+  validateContextPaths,
 } from "./context.js";
 import { buildDispatchContextCliBlock } from "./contextPrefetch.js";
 import {
   GEMINI_WORKSPACE_PREAMBLE,
+  assertSafeProvider,
   isGeminiProvider,
   TTY_STDOUT_COMMANDS,
   type AiProvider,
 } from "./providers.js";
-import { actionNeedsDraft, TEMPLATES, type DispatchAction } from "./templates.js";
+import {
+  actionNeedsDraft,
+  actionNeedsNotes,
+  NOTES_TARGET_ACTIONS,
+  OUTLINE_TARGET_ACTIONS,
+  TEMPLATES,
+  type DispatchAction,
+} from "./templates.js";
+import { TEMP_NOTES_DOC } from "../draftApproval/paths.js";
 
 export interface PreviewResult {
   prompt: string;
@@ -40,11 +56,23 @@ export function promptSessionId(): string {
   return `preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const PROMPT_SESSION_ID_RE = /^[a-zA-Z0-9._-]+$/;
+
+export function sanitizePromptSessionId(sessionId: string): string {
+  const trimmed = sessionId.trim();
+  const safeId = path.basename(trimmed);
+  if (!safeId || safeId !== trimmed || !PROMPT_SESSION_ID_RE.test(safeId)) {
+    throw new ModelFsError("Invalid session id", 400);
+  }
+  return safeId;
+}
+
 export function buildProviderCommand(
   provider: AiProvider,
   promptRefFromModelCwd: string,
   outputRelPath: string,
 ): string {
+  assertSafeProvider(provider);
   const catPrompt = `cat ${shellQuote(promptRefFromModelCwd)}`;
 
   if (isGeminiProvider(provider)) {
@@ -81,38 +109,54 @@ export async function buildPreview(
   sessionId?: string,
   contextPaths?: string[],
 ): Promise<PreviewResult> {
+  const safeContextPaths =
+    contextPaths && contextPaths.length > 0
+      ? validateContextPaths(modelRoot, contextPaths)
+      : contextPaths;
+
   const outlineRelPath = `${unitPath}/outline.md`;
+  const notesRelPath = `${unitPath}/${TEMP_NOTES_DOC}`;
   const indexData = await readIndexData(modelRoot, unitPath);
   const figureSourceRel = `${unitPath}/${String(indexData.figure_source ?? "source.mmd")}`;
   const outputRelPath =
-    action === "refresh-index" || action === "sync-outline" || action === "summarize-outline"
-      ? outlineRelPath
-      : action === "generate-figure"
-        ? figureSourceRel
-        : `${unitPath}/draft.md`;
+    action === "generate-figure"
+      ? figureSourceRel
+      : OUTLINE_TARGET_ACTIONS.has(action)
+        ? outlineRelPath
+        : NOTES_TARGET_ACTIONS.has(action)
+          ? notesRelPath
+          : `${unitPath}/draft.md`;
 
-  const { idea, context } = await readDispatchUnitContext(modelRoot, unitPath, action, contextPaths);
+  const { idea, context } = await readDispatchUnitContext(modelRoot, unitPath, action, safeContextPaths);
   const needsDraft = actionNeedsDraft(action);
-  const draft = needsDraft ? stripInlineNotes(await readDraftForDispatch(modelRoot, unitPath)) : "";
+  const draft = needsDraft
+    ? stripInlineComments(stripInlineNotes(await readDraftForDispatch(modelRoot, unitPath)))
+    : "";
+  const notes = actionNeedsNotes(action) ? await readNotesForDispatch(modelRoot, unitPath) : "";
 
-  let prompt = TEMPLATES[action]
-    .replace("{idea}", idea || "(no overview defined)")
-    .replace("{draft}", draft || "(no draft yet)")
-    .replace("{context}", context)
-    .replace("{outputPath}", outputRelPath)
-    .replace("{outlinePath}", outlineRelPath)
-    .replace("{figureSourcePath}", figureSourceRel)
-    .replace("{captionPath}", `${unitPath}/draft.md`)
-    .replace("{customPrompt}", customPrompt ?? "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const templateVars = {
+    idea: idea || "(no overview defined)",
+    draft: draft || "(no draft yet)",
+    notes: notes || "(no notes yet)",
+    context,
+    outputPath: outputRelPath,
+    outlinePath: outlineRelPath,
+    figureSourcePath: figureSourceRel,
+    captionPath: `${unitPath}/draft.md`,
+    customPrompt: customPrompt ?? "",
+  };
+
+  const actionTemplate = await loadDispatchActionTemplate(repoRoot, action);
+  let prompt = actionTemplate
+    ? renderDispatchActionTemplate(actionTemplate, templateVars)
+    : renderDispatchActionTemplate(TEMPLATES[action], templateVars);
 
   const skillBlock = await gatherDispatchSkillBlock(repoRoot);
   if (skillBlock) {
     prompt = `${prompt}\n\n${skillBlock}`;
   }
 
-  const contextCliBlock = buildDispatchContextCliBlock(repoRoot);
+  const contextCliBlock = await buildDispatchContextCliBlock(repoRoot);
   if (contextCliBlock) {
     prompt = `${prompt}\n\n${contextCliBlock}`;
   }
@@ -125,7 +169,7 @@ export async function buildPreview(
     prompt = `${GEMINI_WORKSPACE_PREAMBLE}${prompt}`;
   }
 
-  const id = sessionId ?? promptSessionId();
+  const id = sanitizePromptSessionId(sessionId ?? promptSessionId());
   const promptsDir = promptsDirectory(modelRoot);
   await mkdir(promptsDir, { recursive: true });
   const promptFile = path.join(promptsDir, `${id}.txt`);

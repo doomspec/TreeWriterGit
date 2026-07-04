@@ -12,26 +12,31 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "import-docx": "tsx ../../scripts/import-docx.mjs",
-    "import-references": "tsx ../../scripts/import-references.mjs"
+    "import-references": "tsx ../../scripts/import-references.mjs",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@treewriter/shared": "workspace:*",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "gray-matter": "^4.0.3",
+    "js-yaml": "^4.2.0",
     "jszip": "^3.10.1",
     "markdown-docx": "^1.6.0",
+    "marked": "^18.0.5",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.2",
     "@types/supertest": "^6.0.2",
     "@types/ws": "^8.5.13",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.9"
   }
 }

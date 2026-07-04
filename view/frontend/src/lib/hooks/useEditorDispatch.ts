@@ -17,7 +17,7 @@ type UseEditorDispatchOptions = {
   isFigureUnit: boolean;
   pane?: "outline" | "draft";
   requiresApproval: boolean;
-  approvedBaseline: string;
+  approvedBaseline: string | null;
   flushSave: () => Promise<void>;
   onBeforeDispatch?: () => void;
   onDispatchComplete?: () => void;

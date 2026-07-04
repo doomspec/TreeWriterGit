@@ -5,7 +5,7 @@ import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import { promisify } from "node:util";
 import matter from "gray-matter";
 
-import { ModelFsError } from "./modelFs.js";
+import { ModelFsError, resolvePaperRel } from "./modelFs.js";
 import {
   buildCombinedMarkdown,
   buildSectionMarkdown,
@@ -32,7 +32,7 @@ import {
   copyJournalTemplateBundle,
   usesNatureLatexTemplate,
 } from "./exportNature.js";
-import { listPaperSections, loadJournalTemplate } from "./papers.js";
+import { listPaperSections, loadJournalTemplate, normalizeAffiliations, normalizeAuthors } from "./papers.js";
 import {
   assertExportAllowed,
   paperHasUnapprovedUnits,
@@ -151,7 +151,9 @@ async function runPandocFragment(
     inputPath,
     "--from=markdown+raw_tex+pipe_tables",
     `--to=${format === "pdf" ? "pdf" : "latex"}`,
-    "--standalone=false",
+    // Fragment (non-standalone) output is pandoc's default, so simply omit the
+    // flag. Passing "--standalone=false" is rejected as an argument on pandoc
+    // builds that treat --standalone as a pure boolean.
     "--output",
     outPath,
   ];
@@ -240,7 +242,7 @@ export async function exportModularPaper(
   repoRoot: string,
   input: { paperSlug: string; includeDrafts?: boolean; validation?: ExportValidationConfig },
 ): Promise<ModularExportBundle> {
-  const paperRel = `papers/${input.paperSlug.trim()}`;
+  const paperRel = resolvePaperRel(modelRoot, input.paperSlug);
   const paperIndex = path.join(modelRoot, paperRel, "INDEX.md");
   if (!existsSync(paperIndex)) {
     throw new ModelFsError(`Paper not found: ${input.paperSlug}`, 404);
@@ -394,12 +396,16 @@ export async function exportModularPaper(
   if (natureTemplate && exportStyle?.templateBundle) {
     await copyJournalTemplateBundle(modelRoot, exportStyle.templateBundle, bundleDir);
     const roles = classifyNatureSectionSlugs(sectionSlugs);
-    const author = typeof paperData.author === "string" ? paperData.author : undefined;
+    const legacyAuthor = typeof paperData.author === "string" ? paperData.author : undefined;
+    const affiliations = normalizeAffiliations(paperData.affiliations);
+    const authors = normalizeAuthors(paperData.authors, affiliations.length, paperData.author_affiliations);
     await writeFile(
       mainTexPath,
       buildNatureMainTexDocument({
         title: paperTitle,
-        author,
+        author: legacyAuthor,
+        authors,
+        affiliations,
         abstractSection: roles.abstract,
         bodySections: roles.body,
         methodsSection: roles.methods,

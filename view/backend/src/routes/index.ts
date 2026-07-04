@@ -1,5 +1,6 @@
 export { registerAgentRoutes } from "./agent.js";
 export { registerCommentsRoutes } from "./comments.js";
+export { registerContributorsRoutes } from "./contributors.js";
 export { registerExportRoutes } from "./export.js";
 export { registerImportRoutes } from "./import.js";
 export { registerModelRoutes } from "./model.js";

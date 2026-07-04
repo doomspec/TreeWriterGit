@@ -10,12 +10,31 @@
   display: grid;
   min-height: 0;
   min-width: 0;
-  grid-template-columns: var(--sidebar-rail-width, 36px) var(--sidebar-width, 240px) 6px minmax(0, 1fr);
+  grid-template-columns:
+    var(--sidebar-rail-width, 2.25rem)
+    var(--sidebar-content-width, 204px)
+    6px
+    minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .workspace-main--sidebar-collapsed {
-  grid-template-columns: var(--sidebar-rail-width, 36px) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-rail-width, 2.25rem) minmax(0, 1fr);
+}
+
+.sidebar-collapsed-nav {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.workspace-sidebar-shell__panel:not(.workspace-sidebar-shell__panel--overlay) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.workspace-sidebar-shell__handle {
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .workspace-sidebar-shell {
@@ -33,44 +52,54 @@
   container-name: sidebar-panel;
 }
 
-/* Section tree rows — keep titles visible when the sidebar is narrow */
+/* Section tree rows — wrap long titles; keep rows compact in narrow sidebars */
 .section-tree-row {
   position: relative;
   min-width: 0;
+  align-items: center;
 }
 
 .section-tree-row__nav {
   flex: 1 1 0%;
   min-width: 0;
-  overflow: hidden;
+  align-items: flex-start;
+  position: relative;
+  z-index: 1;
+  /* Let ⋯ receive clicks — empty flex padding must not sit above the meta column. */
+  pointer-events: none;
+}
+
+.section-tree-row__nav > * {
+  pointer-events: auto;
 }
 
 .section-tree-row__title {
   flex: 1 1 0%;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.15;
 }
 
-.section-tree-row__meta-menu {
-  display: none;
+.section-tree-row__meta .sidebar-pane-icon-btn {
+  height: 1.25rem;
+  width: 1.25rem;
 }
 
-@container sidebar-panel (max-width: 280px) {
-  .section-tree-row__counts,
-  .section-tree-row__meta-label {
-    display: none;
-  }
+.section-tree-row__meta .sidebar-pane-icon {
+  height: 0.75rem;
+  width: 0.75rem;
+}
 
-  .section-tree-row__meta-inline {
-    display: none !important;
-  }
-
-  .section-tree-row__meta-menu {
-    display: flex;
-    align-items: center;
-  }
+.section-tree-row__meta {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  flex-shrink: 0;
+  pointer-events: auto;
 }
 
 .workspace-sidebar-shell__handle {
@@ -96,16 +125,16 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: var(--sidebar-rail-width, 36px);
-  width: min(var(--sidebar-width, 240px), calc(100% - var(--sidebar-rail-width, 36px)));
+  left: var(--sidebar-rail-width, 2.25rem);
+  width: min(var(--sidebar-content-width, 204px), calc(100% - var(--sidebar-rail-width, 2.25rem)));
 }
 
 .workspace-sidebar-shell--reading-focus .workspace-sidebar-shell__panel--overlay {
   position: fixed;
   top: var(--reading-focus-nav-height);
   bottom: 0;
-  left: var(--sidebar-rail-width, 36px);
-  width: min(var(--sidebar-width, 240px), calc(100vw - var(--sidebar-rail-width, 36px)));
+  left: var(--sidebar-rail-width, 2.25rem);
+  width: min(var(--sidebar-content-width, 204px), calc(100vw - var(--sidebar-rail-width, 2.25rem)));
 }
 
 .workspace-main__sidebar {
@@ -139,17 +168,17 @@
 
 @media (max-width: 720px) {
   .workspace-main {
-    grid-template-columns: var(--sidebar-rail-width, 36px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 
   .workspace-main--sidebar-collapsed {
-    grid-template-columns: var(--sidebar-rail-width, 36px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .workspace-main:not(.workspace-main--sidebar-collapsed) .workspace-main__main,
   .workspace-main--sidebar-collapsed .workspace-main__main {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
   }
 
@@ -158,8 +187,8 @@
     z-index: 40;
     top: 0;
     bottom: 0;
-    left: var(--sidebar-rail-width, 36px);
-    width: min(var(--sidebar-width, 240px), calc(100vw - 36px));
+    left: var(--sidebar-rail-width, 2.25rem);
+    width: min(var(--sidebar-content-width, 204px), calc(100vw - var(--sidebar-rail-width, 2.25rem)));
     box-shadow: 4px 0 24px hsl(var(--foreground) / 0.08);
   }
 
@@ -213,24 +242,14 @@
 /* ── Dispatch skills panel (narrow bottom-pane column) ── */
 .dispatch-skills-panel__header {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem 0.5rem;
+  flex-direction: column;
+  gap: 0.375rem;
   border-bottom: 1px solid hsl(var(--border));
   padding: 0.375rem 0.625rem;
 }
 
-.dispatch-skills-panel__title-row {
-  display: flex;
-  min-width: 0;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: 0.125rem;
-}
-
-.dispatch-skills-panel__upload {
-  flex-shrink: 0;
-  margin-left: auto;
+.dispatch-skills-panel__toolbar {
+  flex-wrap: nowrap;
 }
 
 .dispatch-skills-panel__notice {
@@ -298,10 +317,12 @@
 }
 
 @media (max-width: 420px) {
+  .dispatch-skills-panel__new-label,
   .dispatch-skills-panel__upload-label {
     display: none;
   }
 
+  .dispatch-skills-panel__new,
   .dispatch-skills-panel__upload {
     width: 1.75rem;
     padding-inline: 0;
@@ -501,13 +522,26 @@
 .markdown-toolbar {
   display: flex;
   min-width: 0;
+  min-height: 0;
   align-items: center;
-  gap: 0.125rem;
-  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.markdown-toolbar__controls {
+  scrollbar-width: none;
+}
+
+.markdown-toolbar__controls::-webkit-scrollbar {
+  display: none;
+}
+
+.reading-focus-edit-bar__toolbar .markdown-toolbar,
+.reading-focus-edit-bar__toolbar .markdown-toolbar__controls {
+  flex-wrap: nowrap;
 }
 
 .reading-focus-edit-bar__toolbar .markdown-toolbar {
-  flex-wrap: nowrap;
+  flex: 1 1 auto;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -516,8 +550,16 @@
   display: none;
 }
 
-.ui-pane-header .markdown-toolbar {
+.reading-focus-edit-bar__toolbar .markdown-toolbar__controls {
+  flex-shrink: 0;
+}
+
+.ui-pane-header .markdown-toolbar,
+.ui-pane-header .markdown-toolbar__controls {
   flex-wrap: nowrap;
+}
+
+.ui-pane-header .markdown-toolbar {
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -526,17 +568,68 @@
   display: none;
 }
 
+/*
+ * The header's own action row (undo/redo, zoom, mode toggle) can now exceed
+ * a narrow split-view pane's width (the mode toggle grew a 3rd button for
+ * clean-preview). The parent (.workspace-pane-header) is flex-nowrap +
+ * overflow-hidden, so without this the overflow was hard-clipped instead of
+ * reachable. Scroll it like the toolbar above rather than cut it off.
+ */
+.ui-pane-header > div:last-child {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ui-pane-header > div:last-child::-webkit-scrollbar {
+  display: none;
+}
+
+/* App chrome — logo column matches sidebar icon rail (w-9) */
+.app-chrome-header--sidebar-aligned {
+  padding-left: 0;
+  gap: 0;
+}
+
+.app-chrome-header__brand-rail {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 var(--sidebar-rail-width, 2.25rem);
+  width: var(--sidebar-rail-width, 2.25rem);
+  align-items: center;
+  justify-content: center;
+}
+
+.app-chrome-header--sidebar-aligned .app-chrome-header__lead {
+  min-width: 0;
+  padding-left: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .app-chrome-header--sidebar-aligned .app-chrome-header__lead {
+    padding-left: 0.75rem;
+  }
+}
+
+.app-chrome-header__brand {
+  min-width: 0;
+}
+
 /* App chrome — prevent badge/tab overlap on narrow viewports */
 .app-chrome-header__lead {
   flex: 1 1 auto;
-}
-
-.editor-pane-toggle-host {
-  max-width: 100%;
+  min-width: 0;
 }
 
 .app-chrome-header__actions {
   flex: 0 0 auto;
+  margin-left: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.editor-pane-toggle-host {
+  max-width: 100%;
 }
 
 /* Editor pane container — wrap toolbar when pane is narrow (dual-pane split) */
@@ -589,13 +682,13 @@
   grid-template-rows: minmax(0, 1fr);
 }
 
-.reading-focus-mode .sidebar-icon-rail {
+.reading-focus-mode .sidebar-collapsed-nav {
   position: fixed;
   top: var(--reading-focus-nav-height);
   bottom: 0;
   left: 0;
   z-index: 45;
-  width: var(--sidebar-rail-width, 36px);
+  width: var(--sidebar-collapsed-width, 2.25rem);
   transform: translateX(-100%);
   opacity: 0;
   pointer-events: none;
@@ -604,7 +697,7 @@
     opacity 0.18s ease;
 }
 
-.reading-focus-mode .workspace-sidebar-shell--rail-revealed .sidebar-icon-rail {
+.reading-focus-mode .workspace-sidebar-shell--rail-revealed .sidebar-collapsed-nav {
   transform: translateX(0);
   opacity: 1;
   pointer-events: auto;
@@ -624,7 +717,7 @@
 }
 
 .reading-focus-mode .workspace-sidebar-shell--rail-revealed .workspace-sidebar-shell__panel--overlay {
-  left: var(--sidebar-rail-width, 36px);
+  left: var(--sidebar-collapsed-width, 2.25rem);
 }
 
 .reading-focus-mode .reading-focus-shell {
@@ -818,8 +911,8 @@
 
 .draft-approval-rail {
   display: flex;
-  width: min(11rem, 28vw);
-  min-width: 9rem;
+  width: min(14rem, 32vw);
+  min-width: 11rem;
   flex-direction: column;
   flex-shrink: 0;
   border-left: 1px solid hsl(var(--warning) / 0.35);
@@ -848,6 +941,7 @@
 
 .reading-focus-edit-bar {
   height: var(--workspace-pane-header-height, 2.25rem);
+  overflow: hidden;
   border-bottom: 1px solid hsl(var(--border) / 0.8);
   background: hsl(var(--card) / 0.96);
   backdrop-filter: blur(8px);
@@ -901,12 +995,18 @@
   gap: 0.25rem;
 }
 
-.reading-focus-floating-bar {
-  position: fixed;
-  bottom: 1.25rem;
-  left: 50%;
+.reading-focus-floating-bar-host {
+  pointer-events: none;
   z-index: 30;
-  transform: translateX(-50%);
+  display: flex;
+  flex-shrink: 0;
+  justify-content: center;
+  margin-top: auto;
+  padding-bottom: 1.25rem;
+}
+
+.reading-focus-floating-bar {
+  pointer-events: auto;
 }
 
 .inline-selection-toolbar {
@@ -921,9 +1021,16 @@
     0 8px 24px hsl(var(--foreground) / 0.12),
     0 2px 6px hsl(var(--foreground) / 0.08);
   backdrop-filter: blur(10px);
+  opacity: 1;
+  transition: opacity 0.25s ease;
 }
 
 .inline-selection-toolbar--measuring {
+  pointer-events: none;
+}
+
+.inline-selection-toolbar--faded {
+  opacity: 0;
   pointer-events: none;
 }
 
@@ -944,9 +1051,38 @@
   container-name: reading-focus-pane;
 }
 
+.reading-focus-pane.markdown-preview-edit,
+.reading-focus-pane.markdown-pane {
+  display: flex;
+  flex-direction: column;
+}
+
 .reading-focus-mode .markdown-pane,
 .reading-focus-mode .block-markdown-editor {
-  padding-bottom: 5rem;
+  padding-bottom: 1.5rem;
+}
+
+.reading-focus-pane .reading-focus-document,
+.reading-focus-pane .reading-focus-document__prose-column,
+.reading-focus-pane .reading-focus-document__content-row,
+.reading-focus-pane .reading-focus-document__body,
+.reading-focus-pane .rendered-markdown-field,
+.reading-focus-pane .block-markdown-editor--empty-doc {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.reading-focus-pane .prosemirror-markdown-field,
+.reading-focus-pane .ProseMirror {
+  min-height: 0;
+  flex: 1;
+}
+
+.reading-focus-pane .block-markdown-editor--empty-doc .block-markdown-editor__surface {
+  min-height: 8rem;
+  flex: 1;
 }
 
 /* Focus mode: always show editor text (no transparent highlight overlay). */
@@ -1051,6 +1187,22 @@
   background: hsl(var(--accent) / 0.45);
 }
 
+.asset-insert-menu__item-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.125rem;
+}
+
+.asset-insert-menu__secondary {
+  align-self: center;
+  border-radius: 0.25rem;
+  background: transparent;
+}
+
+.asset-insert-menu__secondary:hover {
+  background: hsl(var(--accent) / 0.45);
+}
+
 .asset-insert-menu__empty {
   margin: 0;
   padding: 0.25rem 0.625rem 0.5rem;
@@ -1110,6 +1262,19 @@
   background: hsl(var(--terminal-bg));
 }
 
+/*
+ * Used by the assistant panel's collapsible Terminal section, whose height
+ * comes from an explicit Tailwind class (h-72 / hidden) rather than a
+ * flex:1 grow inside a fixed-height ancestor like .terminal-host's — the
+ * section itself sizes to content, so flex:1 here would collapse to 0.
+ */
+.assistant-terminal-host {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: hsl(var(--terminal-bg));
+}
+
 .terminal-mount {
   position: absolute;
   inset: 0;
@@ -1117,18 +1282,21 @@
   overflow: hidden;
 }
 
-.terminal-host .xterm {
+.terminal-host .xterm,
+.assistant-terminal-host .xterm {
   height: 100% !important;
   width: 100% !important;
   padding: 0;
 }
 
-.terminal-host .xterm-viewport {
+.terminal-host .xterm-viewport,
+.assistant-terminal-host .xterm-viewport {
   overflow: hidden !important;
   border-radius: 4px;
 }
 
-.terminal-host .xterm-screen {
+.terminal-host .xterm-screen,
+.assistant-terminal-host .xterm-screen {
   width: 100% !important;
 }
 

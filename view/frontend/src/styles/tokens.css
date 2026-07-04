@@ -46,6 +46,16 @@
     --shadow-lg: 0 12px 28px hsl(var(--shadow-color) / 0.12);
   }
 
+  /* Explorer (IDE) mode wears an indigo accent to distinguish it from the
+     teal authoring workspace. Scoped to the explorer-theme subtree. */
+  .explorer-theme {
+    --primary: 248 68% 56%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 248 68% 56%;
+    --accent: 248 42% 94%;
+    --accent-foreground: 248 62% 40%;
+  }
+
   .dark {
     color-scheme: dark;
     /* Scholarly dark — teal-tinted slate, not generic coding black */
@@ -88,6 +98,14 @@
     --shadow-sm: 0 1px 2px hsl(var(--shadow-color) / 0.35);
     --shadow-md: 0 4px 14px hsl(var(--shadow-color) / 0.45);
     --shadow-lg: 0 16px 32px hsl(var(--shadow-color) / 0.55);
+  }
+
+  .dark .explorer-theme {
+    --primary: 248 70% 68%;
+    --primary-foreground: 248 30% 10%;
+    --ring: 248 70% 68%;
+    --accent: 248 30% 22%;
+    --accent-foreground: 248 62% 82%;
   }
 
   * {

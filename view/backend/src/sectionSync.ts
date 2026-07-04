@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
 import { orderedChildren, readIndexData, reorderChildren, isEquationDir, isFigureDir, isTableDir, isUnitDir, resolveChildPath } from "./modelFs.js";
+import { isManuscriptRoot } from "./model/manuscriptKind.js";
 import { displayChildTitle } from "./compose.js";
 
 async function isSectionContainerDir(modelRoot: string, relPath: string): Promise<boolean> {
@@ -262,7 +263,7 @@ export async function syncSectionDraftToChildren(
   const updated = new Set<string>();
 
   let workingMarkdown = draftMarkdown;
-  if (indexData.kind === "paper") {
+  if (isManuscriptRoot(indexData)) {
     const { preamble, remainder } = extractPreambleBeforeLinkedHeadings(draftMarkdown);
     if (preamble) {
       updated.add(await writeChildOutlineSummary(modelRoot, sectionRel, sectionTitle, preamble));

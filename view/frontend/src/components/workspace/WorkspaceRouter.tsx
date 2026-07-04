@@ -11,6 +11,8 @@ import {
   outlinePathFor,
   parentPath,
 } from "@/lib/modelTree";
+import { resolveModelReloadScope } from "@/lib/modelReloadScope";
+import { resolveWorkspaceView } from "@/lib/resolveWorkspaceView";
 import { useWorkspaceLayout } from "@/lib/workspace/WorkspaceLayoutContext";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 
@@ -30,7 +32,13 @@ export function WorkspaceRouter({
   const nav = useWorkspaceNavigationContext();
   const layout = useWorkspaceLayout();
   const reloadScopedModel = () =>
-    nav.reloadModel(nav.paperPath ? { path: nav.paperPath } : nav.browsePath ? { path: nav.browsePath } : undefined);
+    nav.reloadModel(
+      resolveModelReloadScope({
+        browsePath: nav.browsePath,
+        paperPath: nav.paperPath,
+        activeFile: nav.activeFile,
+      }),
+    );
 
   const paneLayoutProps = {
     visiblePanes: layout.editorVisiblePanes,
@@ -39,10 +47,18 @@ export function WorkspaceRouter({
     onNotesSplitChange: layout.setDualPaneNotesSplitPercent,
   };
 
-  if (nav.paperWorkspacePath) {
+  const view = resolveWorkspaceView({
+    paperWorkspacePath: nav.paperWorkspacePath,
+    tablePath: nav.tablePath,
+    sectionPath: nav.sectionPath,
+    unitPath: nav.unitPath,
+    activeFile: nav.activeFile,
+  });
+
+  if (view.kind === "paper") {
     return (
       <PaperWorkspace
-        paperPath={nav.paperWorkspacePath}
+        paperPath={view.path}
         refreshVersion={nav.refreshVersion}
         onNavigate={nav.navigateTo}
         onOpenFile={nav.openFile}
@@ -60,10 +76,10 @@ export function WorkspaceRouter({
     );
   }
 
-  if (nav.tablePath) {
+  if (view.kind === "table") {
     return (
       <TableWorkspace
-        tablePath={nav.tablePath}
+        tablePath={view.path}
         tableTitle={nav.tableTitle}
         refreshVersion={nav.refreshVersion}
         onError={onError}
@@ -82,43 +98,10 @@ export function WorkspaceRouter({
     );
   }
 
-  if (nav.unitPath || nav.activeFile) {
-    const editorContainerPath =
-      nav.unitPath ?? manuscriptContainerPathFromFile(nav.activeFile) ?? null;
-    const editorContainerNode = editorContainerPath ? findNode(nav.tree, editorContainerPath) : null;
-    return (
-      <EditorWorkspace
-        unitPath={editorContainerPath}
-        activeFile={nav.activeFile ?? (editorContainerPath ? outlinePathFor(editorContainerPath) : "")}
-        refreshVersion={nav.refreshVersion}
-        getPathVersion={nav.getPathVersion}
-        layout={layout.editorLayout}
-        onLayoutChange={layout.setEditorLayout}
-        onError={onError}
-        linkContextPath={nav.unitPath ?? parentPath(nav.activeFile ?? "")}
-        onNavigate={nav.handleMarkdownNavigate}
-        dualPaneSplit={layout.dualPaneSplit}
-        onDualPaneSplitChange={layout.setDualPaneSplit}
-        assetPreviewSplit={layout.assetPreviewSplit}
-        onAssetPreviewSplitChange={layout.setAssetPreviewSplit}
-        activePane={layout.dualPaneActive}
-        onActivePaneChange={layout.setDualPaneActive}
-        {...paneLayoutProps}
-        onSendToTerminal={onSendToTerminal}
-        onBeforeDispatch={onBeforeDispatch}
-        onDispatchComplete={onDispatchComplete}
-        isFigure={nav.unitPath ? nav.isFigure : isFigureFolder(editorContainerNode)}
-        isEquation={nav.unitPath ? nav.isEquation : isEquationFolder(editorContainerNode)}
-        onModelChanged={reloadScopedModel}
-        paperPath={nav.paperPath}
-      />
-    );
-  }
-
-  if (nav.sectionPath) {
+  if (view.kind === "section") {
     return (
       <SectionWorkspace
-        sectionPath={nav.sectionPath}
+        sectionPath={view.path}
         refreshVersion={nav.refreshVersion}
         onNavigate={nav.navigateTo}
         onOpenFile={nav.openFile}
@@ -130,6 +113,39 @@ export function WorkspaceRouter({
         getPathVersion={nav.getPathVersion}
         {...paneLayoutProps}
         onDispatchComplete={onDispatchComplete}
+      />
+    );
+  }
+
+  if (view.kind === "editor") {
+    const editorContainerPath =
+      view.unitPath ?? manuscriptContainerPathFromFile(view.activeFile) ?? null;
+    const editorContainerNode = editorContainerPath ? findNode(nav.tree, editorContainerPath) : null;
+    return (
+      <EditorWorkspace
+        unitPath={editorContainerPath}
+        activeFile={view.activeFile ?? (editorContainerPath ? outlinePathFor(editorContainerPath) : "")}
+        refreshVersion={nav.refreshVersion}
+        getPathVersion={nav.getPathVersion}
+        layout={layout.editorLayout}
+        onLayoutChange={layout.setEditorLayout}
+        onError={onError}
+        linkContextPath={view.unitPath ?? parentPath(view.activeFile ?? "")}
+        onNavigate={nav.handleMarkdownNavigate}
+        dualPaneSplit={layout.dualPaneSplit}
+        onDualPaneSplitChange={layout.setDualPaneSplit}
+        assetPreviewSplit={layout.assetPreviewSplit}
+        onAssetPreviewSplitChange={layout.setAssetPreviewSplit}
+        activePane={layout.dualPaneActive}
+        onActivePaneChange={layout.setDualPaneActive}
+        {...paneLayoutProps}
+        onSendToTerminal={onSendToTerminal}
+        onBeforeDispatch={onBeforeDispatch}
+        onDispatchComplete={onDispatchComplete}
+        isFigure={view.unitPath ? nav.isFigure : isFigureFolder(editorContainerNode)}
+        isEquation={view.unitPath ? nav.isEquation : isEquationFolder(editorContainerNode)}
+        onModelChanged={reloadScopedModel}
+        paperPath={nav.paperPath}
       />
     );
   }

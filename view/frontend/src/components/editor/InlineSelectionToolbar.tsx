@@ -32,7 +32,7 @@ export function InlineSelectionToolbar({
   toolbarProps: InlineToolbarProps;
   className?: string;
 }) {
-  const { visible, position, toolbarRef } = useInlineSelectionToolbar(scopeRef, enabled);
+  const { visible, position, faded, toolbarRef } = useInlineSelectionToolbar(scopeRef, enabled);
 
   if (!visible || typeof document === "undefined") {
     return null;
@@ -44,6 +44,9 @@ export function InlineSelectionToolbar({
       className={cn(
         "inline-selection-toolbar",
         !position && "inline-selection-toolbar--measuring",
+        // Fades out after a few seconds idle so it stops overlaying the text
+        // while reading, scrolling, or typing; any activity brings it back.
+        position && faded && "inline-selection-toolbar--faded",
         className,
       )}
       style={

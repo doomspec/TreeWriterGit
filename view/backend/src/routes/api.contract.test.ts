@@ -95,8 +95,59 @@ describe("papers API contract", () => {
           slug,
           title: "Contract Test Paper",
           authors: ["Ada Lovelace"],
+          docType: "paper",
+          tags: [],
         }),
       );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/manuscript creates grant and GET filters by docType", async () => {
+    await mkdir(path.join(modelRoot, "templates"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "templates/nsf-research-proposal.md"),
+      `---
+doc_type: grant
+template_id: nsf-research-proposal
+section_order:
+  - specific-aims
+notes_dirs:
+  - literature
+  - budget
+asset_dirs: []
+---
+`,
+      "utf8",
+    );
+    await writeFile(
+      path.join(modelRoot, "templates/plos-one.md"),
+      "---\njournal: PLOS ONE\nsection_order:\n  - introduction\n---\n",
+      "utf8",
+    );
+
+    const server = createTestServer({ repoRoot, modelRoot });
+    try {
+      const agent = request(server.app);
+      const createRes = await agent.post("/api/manuscript").send({
+        title: "Contract Grant",
+        docType: "grant",
+        templateId: "nsf-research-proposal",
+        authors: ["PI"],
+        funder: "NSF",
+        tags: ["nsf"],
+      });
+      expect(createRes.status).toBe(201);
+
+      const templatesRes = await agent.get("/api/manuscript/templates?docType=grant");
+      expect(templatesRes.status).toBe(200);
+      expect(templatesRes.body.templates.length).toBeGreaterThan(0);
+
+      const listRes = await agent.get("/api/manuscripts?docType=grant");
+      expect(listRes.status).toBe(200);
+      expect(listRes.body.manuscripts).toHaveLength(1);
+      expect(listRes.body.manuscripts[0].docType).toBe("grant");
     } finally {
       await server.close();
     }
@@ -150,6 +201,28 @@ describe("agent API contract", () => {
           defaultProvider: expect.any(String),
         }),
       );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/contributors returns the global registry", async () => {
+    const server = createTestServer({ repoRoot, modelRoot });
+    try {
+      const empty = await request(server.app).get("/api/contributors");
+      expect(empty.status).toBe(200);
+      expect(empty.body).toEqual({
+        registry: { affiliations: [], authors: [] },
+      });
+
+      const { writeContributorsRegistry } = await import("../contributorsRegistry.js");
+      await writeContributorsRegistry(modelRoot, {
+        affiliations: ["MIT"],
+        authors: [{ firstName: "Grace", lastName: "Hopper", affiliationTexts: ["MIT"] }],
+      });
+      const seeded = await request(server.app).get("/api/contributors");
+      expect(seeded.body.registry.affiliations).toEqual(["MIT"]);
+      expect(seeded.body.registry.authors[0].lastName).toBe("Hopper");
     } finally {
       await server.close();
     }

@@ -45,13 +45,13 @@ describe("WorkspaceProvider", () => {
     const { result } = renderWorkspaceHook(() => useWorkspaceNavigationContext());
     expect(result.current.sidebarPanelOpen).toBe(true);
     act(() => {
-      result.current.setSidebarPanel("papers");
+      result.current.setSidebarPanel("paperInfo");
     });
     expect(result.current.sidebarPanelOpen).toBe(false);
     act(() => {
-      result.current.setSidebarPanel("outline");
+      result.current.setSidebarPanel("graph");
     });
-    expect(result.current.sidebarPanel).toBe("outline");
+    expect(result.current.sidebarPanel).toBe("graph");
     expect(result.current.sidebarPanelOpen).toBe(true);
   });
 
@@ -63,5 +63,48 @@ describe("WorkspaceProvider", () => {
     });
     expect(result.current.sidebarWidth).toBe(420);
     expect(result.current.sidebarWidth).not.toBe(initial);
+  });
+
+  it("cycles sidebar layout collapsed → expanded → pinned → collapsed", async () => {
+    const { result } = renderWorkspaceHook(() => useWorkspaceNavigationContext());
+    expect(result.current.sidebarPanelOpen).toBe(true);
+    expect(result.current.sidebarPinned).toBe(true);
+
+    act(() => {
+      result.current.cycleSidebarPanelLayout();
+    });
+    expect(result.current.sidebarPanelOpen).toBe(false);
+    expect(result.current.sidebarPinned).toBe(false);
+
+    act(() => {
+      result.current.cycleSidebarPanelLayout();
+    });
+    expect(result.current.sidebarPanelOpen).toBe(true);
+    expect(result.current.sidebarPinned).toBe(false);
+
+    act(() => {
+      result.current.cycleSidebarPanelLayout();
+    });
+    expect(result.current.sidebarPanelOpen).toBe(true);
+    expect(result.current.sidebarPinned).toBe(true);
+  });
+
+  it("keeps assistant Skills and Terminal sections mutually exclusive", async () => {
+    const { result } = renderWorkspaceHook(() => useWorkspaceLayout());
+
+    expect(result.current.aiPanelTerminalOpen).toBe(true);
+    expect(result.current.aiPanelSkillsOpen).toBe(false);
+
+    act(() => {
+      result.current.setAiPanelSkillsOpen(true);
+    });
+    expect(result.current.aiPanelSkillsOpen).toBe(true);
+    expect(result.current.aiPanelTerminalOpen).toBe(false);
+
+    act(() => {
+      result.current.setAiPanelTerminalOpen(true);
+    });
+    expect(result.current.aiPanelTerminalOpen).toBe(true);
+    expect(result.current.aiPanelSkillsOpen).toBe(false);
   });
 });

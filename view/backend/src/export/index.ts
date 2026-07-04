@@ -16,6 +16,7 @@ export {
   buildBibliography,
   extractCiteKeys,
   findMissingCitations,
+  removeCiteKeyFromMarkdown,
   resolveCslPath,
 } from "./bibliography.js";
 

@@ -1,10 +1,16 @@
 import { request } from "@/lib/apiClient";
 
+export type DispatchSkillTier = "system" | "user";
+export type DispatchSkillSubkind = "rule" | "action";
+
 export type DispatchSkill = {
   filename: string;
   title: string;
   size: number;
   enabled: boolean;
+  tier: DispatchSkillTier;
+  subkind: DispatchSkillSubkind;
+  skillPath: string;
 };
 
 export async function fetchDispatchSkills(): Promise<DispatchSkill[]> {
@@ -32,6 +38,33 @@ export async function deleteDispatchSkill(filename: string): Promise<DispatchSki
   const data = await request<{ skills: DispatchSkill[] }>(
     `/api/agent/skills/${encodeURIComponent(filename)}`,
     { method: "DELETE" },
+  );
+  return data.skills;
+}
+
+export async function fetchDispatchSkillContent(skillPath: string): Promise<string> {
+  const data = await request<{ content: string }>(
+    `/api/agent/skills/${encodeURIComponent(skillPath)}`,
+  );
+  return data.content;
+}
+
+export async function updateDispatchSkill(
+  skillPath: string,
+  changes: { content?: string; newFilename?: string },
+): Promise<DispatchSkill[]> {
+  const data = await request<{ skills: DispatchSkill[] }>(
+    `/api/agent/skills/${encodeURIComponent(skillPath)}`,
+    { method: "PATCH", body: JSON.stringify(changes) },
+  );
+  return data.skills;
+}
+
+export async function resetSystemSkill(skillPath: string): Promise<DispatchSkill[]> {
+  const normalized = skillPath.replace(/^system\//, "");
+  const data = await request<{ skills: DispatchSkill[] }>(
+    `/api/agent/skills/system/${encodeURIComponent(normalized)}/reset`,
+    { method: "POST" },
   );
   return data.skills;
 }

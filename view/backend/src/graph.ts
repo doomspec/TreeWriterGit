@@ -65,7 +65,7 @@ function inferType(kind: unknown, id: string): GraphNodeType {
   if (kind === "equation") return "figure";
   if (kind === "unit") return "unit";
   if (kind === "section" || kind === "subsection") return "section";
-  if (kind === "paper") return "paper";
+  if (kind === "paper" || kind === "manuscript") return "paper";
   if (/(^|\/)notes(\/|$)/.test(id)) return "note";
   if (/(^|\/)papers\/[^/]+$/.test(id)) return "paper";
   return "doc";

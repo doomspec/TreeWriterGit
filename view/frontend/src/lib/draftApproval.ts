@@ -15,22 +15,26 @@ export type DraftPendingSource = "human" | "ai";
 
 export type { DraftEditMeta };
 
+export const APPROVAL_DIR = ".approval";
 export const DRAFT_APPROVED_DOC = "draft.approved.md";
 export const OUTLINE_APPROVED_DOC = "outline.approved.md";
 
-export function requiresDraftApproval(filePath: string): boolean {
-  if (isTempNotesPath(filePath)) return false;
-  return isDraftPath(filePath) || isOutlineDocPath(filePath);
+export function approvalDirFor(unitDir: string): string {
+  return `${unitDir}/${APPROVAL_DIR}`;
 }
 
 export function approvedDraftPathFor(filePath: string): string {
   const unitDir = isDraftPath(filePath) ? parentPath(filePath) : filePath;
-  return `${unitDir}/${DRAFT_APPROVED_DOC}`;
+  return `${approvalDirFor(unitDir)}/${DRAFT_APPROVED_DOC}`;
 }
 
 export function approvedOutlinePathFor(filePath: string): string {
   const unitDir = isOutlineDocPath(filePath) ? parentPath(filePath) : filePath;
-  return `${unitDir}/${OUTLINE_APPROVED_DOC}`;
+  return `${approvalDirFor(unitDir)}/${OUTLINE_APPROVED_DOC}`;
+}
+export function requiresDraftApproval(filePath: string): boolean {
+  if (isTempNotesPath(filePath)) return false;
+  return isDraftPath(filePath) || isOutlineDocPath(filePath);
 }
 
 export function approvedBaselinePathFor(filePath: string): string {
@@ -124,6 +128,41 @@ export function formatPendingAuthorLabel(options: {
     return options.aiProvider?.trim() || loadLastAgentProvider() || "AI";
   }
   return formatGitHubHandle(options.editedBy) ?? "Editor";
+}
+
+/** Resolve approval attribution for display — never substitute the viewer's handle for external edits. */
+export function resolvePendingApprovalDisplay(options: {
+  editMeta: Pick<DraftEditMeta, "editedBy" | "aiAssisted" | "aiProvider">;
+  pendingSource: DraftPendingSource | null;
+  githubHandle: string | null;
+  isDirty: boolean;
+}): {
+  editedBy: string | null;
+  pendingSource: DraftPendingSource | null;
+  aiAssisted: boolean;
+  aiProvider: string | null;
+} {
+  const { editMeta, pendingSource, githubHandle, isDirty } = options;
+  const aiAssisted = pendingSource === "ai" || Boolean(editMeta.aiAssisted);
+
+  let effectivePendingSource = pendingSource;
+  if (aiAssisted) {
+    effectivePendingSource = "ai";
+  } else if (effectivePendingSource === null && isDirty) {
+    effectivePendingSource = "human";
+  }
+
+  let editedBy = editMeta.editedBy;
+  if (effectivePendingSource === "human" && isDirty) {
+    editedBy = githubHandle || editMeta.editedBy;
+  }
+
+  return {
+    editedBy,
+    pendingSource: effectivePendingSource,
+    aiAssisted,
+    aiProvider: editMeta.aiProvider,
+  };
 }
 
 function normalizeGitHubHandle(raw: string): string {

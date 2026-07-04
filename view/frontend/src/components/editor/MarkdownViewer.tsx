@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 
 import { FigureCard, FigureLink } from "@/components/editor/FigureCard";
 import { EquationCard, EquationLink } from "@/components/editor/EquationCard";
+import { CiteBadge } from "@/components/editor/CiteBadge";
 import { LatexLabelBadge } from "@/components/editor/LatexLabelBadge";
 import { LatexRefBadge } from "@/components/editor/LatexRefBadge";
 import { InlineNoteBadge } from "@/components/editor/InlineNoteBadge";
@@ -14,7 +15,7 @@ import { parseInlineNoteCodeSpan, preprocessInlineNotesForMarkdown } from "@/lib
 import { repairEditorMacroSyntax } from "@/lib/editorMacroRepair";
 import { parseTextHighlightCodeSpan, preprocessTextHighlightsForMarkdown } from "@/lib/textHighlight";
 import { preprocessLatexForMarkdownPreview } from "@/lib/latexPreview";
-import { parseLabelCodeSpan, parseRefCodeSpan, preprocessLatexTokensForMarkdown } from "@/lib/latexTokens";
+import { parseLabelCodeSpan, parseRefCodeSpan, parseCiteCodeSpan, preprocessLatexTokensForMarkdown } from "@/lib/latexTokens";
 import {
   EQUATION_BLOCK_LANG,
   FIGURE_BLOCK_LANG,
@@ -89,6 +90,19 @@ export function MarkdownViewer({
         const refKey = !codeClassName ? parseRefCodeSpan(raw) : null;
         if (refKey) {
           return <LatexRefBadge refKey={refKey} />;
+        }
+        const citeKey = !codeClassName ? parseCiteCodeSpan(raw) : null;
+        if (citeKey) {
+          return (
+            <CiteBadge
+              citeKey={citeKey}
+              onOpen={
+                linksClickable && onNavigate
+                  ? (key) => onNavigate({ type: "bib", citeKey: key })
+                  : undefined
+              }
+            />
+          );
         }
         const highlight = !codeClassName ? parseTextHighlightCodeSpan(raw) : null;
         if (highlight) {

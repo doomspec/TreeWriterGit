@@ -19,6 +19,7 @@ import {
   draftStatusLabel,
   loadDraftApprovalState,
   loadModelFileContent,
+  resolvePendingApprovalDisplay,
 } from "@/lib/draftApproval";
 import { effectiveDiffBaseline } from "@/lib/draftDiff";
 import { cn } from "@/lib/utils";
@@ -95,7 +96,7 @@ export function TableBuilderEditor({
 }) {
   const [data, setData] = useState<ParsedTableDraft>(() => initTableDraft(2, 2, tableTitle));
   const [loaded, setLoaded] = useState("");
-  const [approvedBaseline, setApprovedBaseline] = useState("");
+  const [approvedBaseline, setApprovedBaseline] = useState<string | null>(null);
   const [editMeta, setEditMeta] = useState({
     editedBy: null as string | null,
     aiAssisted: false,
@@ -157,13 +158,24 @@ export function TableBuilderEditor({
     onSaved: onModelChanged,
     onDiscarded: applyContent,
     onApproved: () => applyContent(currentContent),
+    editMeta,
+  });
+
+  const approvalDisplay = resolvePendingApprovalDisplay({
+    editMeta,
+    pendingSource,
+    githubHandle,
+    isDirty,
   });
 
   useEffect(() => {
     let cancelled = false;
     void loadDraftApprovalState(filePath).then(({ content: baseline, meta }) => {
       if (!cancelled) {
-        setApprovedBaseline(baseline);
+        // meta.approvedAt distinguishes "approved with empty content" from
+        // "never approved" — both would otherwise read as "" (see
+        // effectiveDiffBaseline in draftDiff.ts).
+        setApprovedBaseline(meta.approvedAt !== null ? baseline : null);
         setEditMeta({ editedBy: meta.editedBy, aiAssisted: meta.aiAssisted, aiProvider: meta.aiProvider });
       }
     });
@@ -470,10 +482,10 @@ export function TableBuilderEditor({
         {isPendingApproval ? (
           <PendingApprovalChip
             className="mb-4"
-            pendingSource={pendingSource ?? "human"}
-            editedBy={githubHandle || editMeta.editedBy}
-            aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
-            aiProvider={editMeta.aiProvider}
+            pendingSource={approvalDisplay.pendingSource ?? "human"}
+            editedBy={approvalDisplay.editedBy}
+            aiAssisted={approvalDisplay.aiAssisted}
+            aiProvider={approvalDisplay.aiProvider}
             approvedBaseline={approvedBaseline}
             loadedContent={loaded}
             current={currentContent}

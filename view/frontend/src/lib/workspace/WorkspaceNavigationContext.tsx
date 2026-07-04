@@ -1,22 +1,22 @@
 import { createContext, useContext, type ReactNode } from "react";
 
 import type { CommentRecord, CommentSummary } from "@treewriter/shared";
-import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import type { GraphScope } from "@/lib/graphLocal";
 import type { AgentDispatchIntent } from "@/lib/agentDispatchPanel";
 import type { NodeKind } from "@/lib/api/modelApi";
 import type { SidebarPanel } from "@/lib/workspacePreferences";
 import type { useModelTree } from "@/lib/useModelTree";
 import type { useWorkspaceNavigation } from "@/lib/useWorkspaceNavigation";
+import type { OpenFileOptions } from "@/lib/useWorkspaceNavigation";
 import type { findNode } from "@/lib/modelTree";
 
 export type WorkspaceNavigationContextValue = {
-  sidebarTab: WorkspaceNavTab;
   sidebarPanel: SidebarPanel;
   sidebarPanelOpen: boolean;
   setSidebarPanel: (panel: SidebarPanel) => void;
   setSidebarPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   toggleSidebarPanel: () => void;
+  cycleSidebarPanelLayout: () => void;
   sidebarPinned: boolean;
   setSidebarPinned: (pinned: boolean | ((prev: boolean) => boolean)) => void;
   toggleSidebarPin: () => void;
@@ -66,17 +66,24 @@ export type WorkspaceNavigationContextValue = {
   canCreateFolder: boolean;
   canCreateUnit: boolean;
   canGoUp: boolean;
-  openFile: ReturnType<typeof useWorkspaceNavigation>["openFile"];
+  openFile: (path: string, options?: OpenFileOptions) => void;
   navigateTo: ReturnType<typeof useWorkspaceNavigation>["navigateTo"];
   handleMarkdownNavigate: ReturnType<typeof useWorkspaceNavigation>["handleMarkdownNavigate"];
   backToSectionView: ReturnType<typeof useWorkspaceNavigation>["backToSectionView"];
-  handleSidebarTabChange: (tab: WorkspaceNavTab) => void;
+  focusSectionsPanel: () => void;
+  focusPaperInfoPanel: () => void;
   handleSearchSelect: ReturnType<typeof useWorkspaceNavigation>["handleSearchSelect"];
   submitCreateChild: (name: string) => Promise<void>;
   lastPaperPath: string | null;
   editorPaneScopePath: string | null;
   dualPaneEditorActive: boolean;
   notesPaneAvailable: boolean;
+  /** Selected cite key when main.bib is open. */
+  selectedBibCiteKey: string | null;
+  setSelectedBibCiteKey: (citeKey: string | null) => void;
+  /** Insert snippet into the active editor (registered by MarkdownEditor). */
+  insertEditorSnippet: ((snippet: string) => void) | null;
+  registerEditorInsertSnippet: (fn: ((snippet: string) => void) | null) => void;
   /** INDEX child_order for folders under the active paper (loaded once per paper). */
   paperChildOrders: Record<string, string[]>;
 };

@@ -56,7 +56,7 @@ describe("pendingHighlightMarkdown", () => {
   });
 
   it("uses loaded content when nothing is approved yet", () => {
-    const result = markdownWithPendingHighlights("", "Hello world.", "Hello beautiful world.");
+    const result = markdownWithPendingHighlights(null, "Hello world.", "Hello beautiful world.");
     expect(result).toMatch(/highlight-inline--pending">beautiful\s*<\/mark>/);
   });
 

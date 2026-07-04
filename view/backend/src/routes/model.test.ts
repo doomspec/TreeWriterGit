@@ -68,6 +68,10 @@ function createTestDeps(): ServerDeps {
       blockOnUnapproved: false,
       blockOnMissingCitations: false,
     }),
+    getZoteroLocalConfig: async () => ({
+      enabled: false,
+      baseUrl: "http://127.0.0.1:23119/api",
+    }),
     getAutoExportState: () => ({
       running: false,
       lastRunAt: null,
@@ -205,8 +209,8 @@ describe("registerModelRoutes", () => {
       });
       expect(putResponse.status).toBe(200);
       expect(existsSync(path.join(modelRoot, notesRel))).toBe(true);
-      expect(existsSync(path.join(modelRoot, sectionRel, "draft.approved.md"))).toBe(false);
-      expect(existsSync(path.join(modelRoot, sectionRel, "outline.approved.md"))).toBe(false);
+      expect(existsSync(path.join(modelRoot, sectionRel, ".approval", "draft.approved.md"))).toBe(false);
+      expect(existsSync(path.join(modelRoot, sectionRel, ".approval", "outline.approved.md"))).toBe(false);
     });
   });
 

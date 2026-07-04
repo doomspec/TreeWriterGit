@@ -1,6 +1,6 @@
 ---
 name: technology-paper
-description: Use when writing, reviewing, or revising a technology/methods/tool paper (a paper whose contribution IS a new technology, instrument, algorithm, software, assay, or device) for a Nature-family or similar high-impact venue. Triggers include "technology paper", "methods paper", "tool paper", "make the technology the star", "place in context", "conceptual advance", "direct comparison", "reproducible", "target journal fit", or any request to improve how a paper sells its technical contribution. Encodes an 8-point checklist from a Nature Portfolio editor talk on improving technology papers. Complements the multi-level scientific-writing-framework (structure/flow) by focusing on the technology-contribution narrative.
+description: Make the technology the star of a methods/tool/technology paper — a paper whose contribution IS a new instrument, algorithm, software, assay, or device — for a Nature-family or high-impact venue. Triggers include technology/methods/tool paper, conceptual advance, direct benchmarking, reproducibility, and target-journal fit. An 8-point Nature Portfolio framework for how a paper sells its technical contribution; complements scientific-writing-framework (which handles structure and prose flow).
 ---
 
 # Improving Technology Papers (Nature Portfolio 8-point framework)

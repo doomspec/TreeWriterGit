@@ -9,7 +9,6 @@ export const DEFAULT_COMMAND_CHORDS: CommandBindingDefaults = {
   "palette.open.alt": "Mod+Shift+P",
   "workspace.explorer": "Mod+1",
   "workspace.papers": "Mod+2",
-  "sidebar.outline": "Mod+Shift+O",
   "sidebar.toggle": "Mod+Shift+B",
   "navigate.up": "Mod+ArrowUp",
   "navigate.back": "Mod+[",

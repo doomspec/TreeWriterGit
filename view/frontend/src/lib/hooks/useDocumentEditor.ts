@@ -14,8 +14,8 @@ type UseDocumentEditorOptions = {
   targetPath: string;
   loadedContent: string;
   setLoadedContent: (content: string) => void;
-  approvedBaseline: string;
-  setApprovedBaseline: (baseline: string) => void;
+  approvedBaseline: string | null;
+  setApprovedBaseline: (baseline: string | null) => void;
   saveContent: (content: string, pendingSource: import("@/lib/draftApproval").DraftPendingSource | null) => Promise<void>;
   reloadAfterDiscard?: () => Promise<string>;
   onError?: (message: string) => void;
@@ -23,6 +23,7 @@ type UseDocumentEditorOptions = {
   onApproved?: () => void | Promise<void>;
   onDiscarded?: (restored: string) => void;
   requiresApproval?: boolean;
+  editMeta?: Pick<import("@/lib/draftApproval").DraftEditMeta, "aiAssisted">;
 };
 
 export function useDocumentEditor(options: UseDocumentEditorOptions) {
@@ -41,6 +42,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions) {
     onSaved,
     onApproved,
     onDiscarded,
+    editMeta,
   } = options;
 
   const {
@@ -82,6 +84,7 @@ export function useDocumentEditor(options: UseDocumentEditorOptions) {
       onDiscarded?.(restored);
     },
     requiresApproval,
+    editMeta,
   });
 
   useEditorDirty(isDirty);

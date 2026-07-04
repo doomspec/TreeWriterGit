@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
-import { Columns2, Eye, FileCode2 } from "lucide-react";
+import { AlertTriangle, Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { BibEntrySourcePane } from "@/components/editor/BibEntrySourcePane";
+import { BibFilePreview } from "@/components/editor/BibFilePreview";
+import {
+  MAIN_BIB_MANUAL_EDIT_MESSAGE,
+  MainBibManualEditDialog,
+} from "@/components/editor/MainBibManualEditDialog";
+import { EditorAiActionsMenu } from "@/components/editor/EditorAiActionsMenu";
 import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
 import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
 import { MarkdownEditor, type EditorLayout } from "@/components/editor/MarkdownEditor";
@@ -10,16 +17,264 @@ import {
   DualPanePane,
 } from "@/components/editor/DualPaneController";
 import { useReadingFocusSplitPaneTitles } from "@/components/editor/ReadingFocusNavBar";
+import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { ResizableVerticalSplit } from "@/components/layout/ResizableVerticalSplit";
 import { outlinePathFor, stripFrontmatter, tempNotesPathFor, draftPathFor, type NavigateTarget } from "@/lib/modelTree";
 import { useReadingFocus } from "@/lib/readingFocus";
+import { useBibLibrarySummary } from "@/lib/bibLibraryContext";
+import { useWindowWidth } from "@/lib/useWindowWidth";
+import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import type { DualPaneActive, EditorVisiblePanes } from "@/lib/workspacePreferences";
+import {
+  loadWorkspacePreferences,
+  mergeWorkspaceDefaults,
+  scheduleSaveWorkspacePreferences,
+} from "@/lib/workspacePreferences";
+import { refreshPaperPendingPaths } from "@/lib/refreshPaperPending";
 import { cn } from "@/lib/utils";
 
 function captionFromDraft(content: string): string {
   return stripFrontmatter(content)
     .replace(/^\s*#(?!#)\s+[^\n\r]+\r?\n?/, "")
     .trim();
+}
+
+function BibMainBibWorkspace({
+  activeFile,
+  refreshVersion,
+  getPathVersion,
+  layout,
+  onLayoutChange,
+  dualPaneSplit,
+  onDualPaneSplitChange,
+  onError,
+  linkContextPath,
+  onNavigate,
+  onModelChanged,
+  paperPath,
+}: {
+  activeFile: string;
+  refreshVersion: number;
+  getPathVersion: (path: string) => number;
+  layout: EditorLayout;
+  onLayoutChange: (layout: EditorLayout) => void;
+  dualPaneSplit: number;
+  onDualPaneSplitChange: (percent: number) => void;
+  onError: (message: string) => void;
+  linkContextPath: string;
+  onNavigate?: (target: NavigateTarget) => void;
+  onModelChanged?: () => void;
+  paperPath?: string | null;
+}) {
+  const nav = useWorkspaceNavigationContext();
+  const windowWidth = useWindowWidth();
+  const { summary } = useBibLibrarySummary();
+  const loadFullBibPref = mergeWorkspaceDefaults(loadWorkspacePreferences()).loadLargeBibSource;
+  const [fullSourceOptIn, setFullSourceOptIn] = useState(() => loadFullBibPref);
+  const [manualEditAccepted, setManualEditAccepted] = useState(false);
+  const [manualEditDialogOpen, setManualEditDialogOpen] = useState(false);
+  const [pendingManualAction, setPendingManualAction] = useState<"loadFull" | "source" | null>(null);
+  const hideEntryList = nav.sidebarPanel === "references" && nav.sidebarPanelOpen;
+
+  const showFullSource = layout === "source" || fullSourceOptIn;
+  const hideBibSourcePane = layout !== "source" && windowWidth < 1280;
+  const inManualMode = showFullSource;
+
+  const applyManualEdit = useCallback(
+    (action: "loadFull" | "source") => {
+      if (action === "loadFull") {
+        setFullSourceOptIn(true);
+        scheduleSaveWorkspacePreferences({ loadLargeBibSource: true });
+      } else {
+        onLayoutChange("source");
+      }
+    },
+    [onLayoutChange],
+  );
+
+  const requestManualEdit = useCallback(
+    (action: "loadFull" | "source") => {
+      if (manualEditAccepted) {
+        applyManualEdit(action);
+        return;
+      }
+      setPendingManualAction(action);
+      setManualEditDialogOpen(true);
+    },
+    [applyManualEdit, manualEditAccepted],
+  );
+
+  const handleLoadFullSource = useCallback(() => {
+    requestManualEdit("loadFull");
+  }, [requestManualEdit]);
+
+  const handleLayoutChange = useCallback(
+    (next: EditorLayout) => {
+      if (next === "source") {
+        requestManualEdit("source");
+        return;
+      }
+      onLayoutChange(next);
+    },
+    [onLayoutChange, requestManualEdit],
+  );
+
+  const handleOpenReferenceManager = useCallback(() => {
+    setManualEditDialogOpen(false);
+    setPendingManualAction(null);
+    setFullSourceOptIn(false);
+    scheduleSaveWorkspacePreferences({ loadLargeBibSource: false });
+    if (layout === "source") onLayoutChange("split");
+    nav.setSidebarPanel("references");
+    nav.setSidebarPanelOpen(true);
+    nav.openFile(
+      "main.bib",
+      nav.selectedBibCiteKey ? { citeKey: nav.selectedBibCiteKey } : undefined,
+    );
+  }, [layout, nav, onLayoutChange]);
+
+  const handleProceedManually = useCallback(() => {
+    setManualEditAccepted(true);
+    setManualEditDialogOpen(false);
+    const action = pendingManualAction;
+    setPendingManualAction(null);
+    if (action) applyManualEdit(action);
+  }, [applyManualEdit, pendingManualAction]);
+
+  const handleBackToEntryView = useCallback(() => {
+    setFullSourceOptIn(false);
+    scheduleSaveWorkspacePreferences({ loadLargeBibSource: false });
+    if (layout === "source") onLayoutChange("split");
+  }, [layout, onLayoutChange]);
+
+  const layoutToggleButtons = (
+    <div className="inline-flex items-center gap-0.5 rounded-md border border-border p-0.5">
+      {(
+        [
+          { id: "preview" as const, icon: Eye, label: "Preview" },
+          { id: "split" as const, icon: Columns2, label: "Split" },
+          { id: "source" as const, icon: FileCode2, label: "Source" },
+        ] as const
+      ).map(({ id, icon: Icon, label }) => (
+        <Button
+          key={id}
+          type="button"
+          variant={layout === id ? "default" : "ghost"}
+          size="icon"
+          className="h-6 w-6"
+          aria-label={label}
+          title={label}
+          onClick={() => handleLayoutChange(id)}
+        >
+          <Icon className="h-3 w-3" aria-hidden="true" />
+        </Button>
+      ))}
+    </div>
+  );
+
+  const editorChrome = (
+    <div className="flex h-10 shrink-0 items-center justify-end gap-3 border-b border-border bg-card px-3">
+      {layoutToggleButtons}
+    </div>
+  );
+
+  const fullSourceEditor = (
+    <MarkdownEditor
+      key={`${activeFile}:source`}
+      filePath={activeFile}
+      refreshVersion={refreshVersion}
+      pathVersion={getPathVersion(activeFile)}
+      layout="source"
+      className="min-h-0 min-w-0 flex-1"
+      onError={onError}
+      linkContextPath={linkContextPath}
+      onNavigate={onNavigate}
+      splitPercent={dualPaneSplit}
+      onSplitChange={onDualPaneSplitChange}
+      paperPath={paperPath}
+      enableDispatch={false}
+      scrollToBibCiteKey={nav.selectedBibCiteKey}
+    />
+  );
+
+  const splitWithSource = layout === "split" && !hideBibSourcePane;
+
+  const sourcePane = showFullSource ? (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-muted/20">
+      <div className="ui-pane-header shrink-0">
+        <span className="ui-pane-header__label">Full main.bib</span>
+        <div className="ui-pane-header__actions">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={handleBackToEntryView}
+          >
+            Back to entry view
+          </Button>
+        </div>
+      </div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{fullSourceEditor}</div>
+    </div>
+  ) : (
+    <BibEntrySourcePane
+      citeKey={nav.selectedBibCiteKey}
+      totalEntries={summary?.total}
+      onLoadFullSource={handleLoadFullSource}
+    />
+  );
+
+  const previewPane = (
+    <BibFilePreview
+      key={`${activeFile}:preview`}
+      filePath={activeFile}
+      onError={onError}
+      onModelChanged={onModelChanged}
+      paperPath={paperPath}
+      hideEntryList={hideEntryList}
+      headerActions={splitWithSource ? layoutToggleButtons : undefined}
+    />
+  );
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <MainBibManualEditDialog
+        open={manualEditDialogOpen}
+        onOpenReferenceManager={handleOpenReferenceManager}
+        onProceedManually={handleProceedManually}
+        onCancel={() => {
+          setManualEditDialogOpen(false);
+          setPendingManualAction(null);
+        }}
+      />
+      {inManualMode && manualEditAccepted ? (
+        <div
+          className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-950 dark:text-amber-100"
+          role="status"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>{MAIN_BIB_MANUAL_EDIT_MESSAGE}</span>
+        </div>
+      ) : null}
+      {!splitWithSource ? editorChrome : null}
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {layout === "source" ? (
+          sourcePane
+        ) : splitWithSource ? (
+          <ResizableDualPane
+            splitPercent={dualPaneSplit}
+            onSplitChange={onDualPaneSplitChange}
+            className="min-h-0 min-w-0 flex-1"
+            left={previewPane}
+            right={sourcePane}
+          />
+        ) : (
+          previewPane
+        )}
+      </div>
+    </div>
+  );
 }
 
 function LeafUnitEditor({
@@ -141,6 +396,17 @@ function LeafUnitEditor({
           onBeforeDispatch={onBeforeDispatch}
           onDispatchComplete={onDispatchComplete}
           paperPath={paperPath}
+          headerExtra={
+            !isFigure && !isEquation ? (
+              <EditorAiActionsMenu
+                pane="outline"
+                actions={[
+                  { action: "sync-outline", label: "Outline from draft" },
+                  { action: "outline-from-notes" },
+                ]}
+              />
+            ) : undefined
+          }
         />
       </DualPanePane>
     ),
@@ -148,6 +414,7 @@ function LeafUnitEditor({
       activePane,
       isPaperEditor,
       isFigure,
+      isEquation,
       linkContextPath,
       onActivePaneChange,
       onBeforeDispatch,
@@ -191,6 +458,21 @@ function LeafUnitEditor({
           onContentChange={isFigure || isEquation ? handleDraftContentChange : undefined}
           paperPath={paperPath}
           showReadingFocusBar={activePane === "draft"}
+          headerExtra={
+            !isFigure && !isEquation ? (
+              <EditorAiActionsMenu
+                pane="draft"
+                actions={[
+                  { action: "draft", label: "Draft from outline" },
+                  { action: "draft-from-notes" },
+                  { action: "revise", label: "Refine" },
+                  // "custom" ignores autoPreview and just opens the prompt box (see
+                  // DispatchPanel.executeAction) — true here means one click, not two.
+                  { action: "custom", label: "Apply skill…" },
+                ]}
+              />
+            ) : undefined
+          }
         />
       </DualPanePane>
     ),
@@ -236,6 +518,15 @@ function LeafUnitEditor({
             paperPath={paperPath}
             enableDispatch={false}
             showReadingFocusBar={activePane === "notes"}
+            headerExtra={
+              <EditorAiActionsMenu
+                pane="notes"
+                actions={[
+                  { action: "notes-from-draft" },
+                  { action: "notes-from-outline" },
+                ]}
+              />
+            }
           />
         </DualPanePane>
       ) : undefined,
@@ -398,13 +689,78 @@ export function EditorWorkspace({
   const draftPath = unitPath ? draftPathFor(unitPath) : null;
   const readingFocus = useReadingFocus();
 
-  const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = [
-    { id: "source", icon: FileCode2, label: "Source" },
-    { id: "split", icon: Columns2, label: "Split" },
-    { id: "preview", icon: Eye, label: "Preview" },
-  ];
-
   const isPaperEditor = Boolean(paperPath && unitPath === paperPath);
+  const isBibFile = activeFile.toLowerCase().endsWith(".bib");
+
+  useEffect(() => {
+    if (!paperPath) return;
+    void refreshPaperPendingPaths(paperPath);
+  }, [paperPath, refreshVersion]);
+
+  const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = isBibFile
+    ? [
+        { id: "preview", icon: Eye, label: "Preview" },
+        { id: "split", icon: Columns2, label: "Split" },
+        { id: "source", icon: FileCode2, label: "Source" },
+      ]
+    : [
+        { id: "source", icon: FileCode2, label: "Source" },
+        { id: "split", icon: Columns2, label: "Split" },
+        { id: "preview", icon: Eye, label: "Preview" },
+      ];
+
+  const layoutToggleButtons = (
+    <div className="inline-flex items-center gap-0.5 rounded-md border border-border p-0.5">
+      {layoutButtons.map(({ id, icon: Icon, label }) => (
+        <Button
+          key={id}
+          type="button"
+          variant={layout === id ? "default" : "ghost"}
+          size="icon"
+          className="h-6 w-6"
+          aria-label={label}
+          title={label}
+          onClick={() => onLayoutChange(id)}
+        >
+          <Icon className="h-3 w-3" aria-hidden="true" />
+        </Button>
+      ))}
+    </div>
+  );
+
+  const editorChrome = (
+    <div
+      className={cn(
+        "flex h-10 shrink-0 items-center justify-end gap-3 border-b border-border bg-card px-3",
+        readingFocus.active && "editor-chrome-hidden",
+      )}
+    >
+      {layoutToggleButtons}
+    </div>
+  );
+
+  // A .bib activeFile wins over the leaf-unit branch. Opening a reference from
+  // inside a unit draft keeps currentPath (and therefore unitPath) on that unit,
+  // so without this the leaf-unit editor would keep rendering and the main.bib
+  // verification view would never appear.
+  if (isBibFile) {
+    return (
+      <BibMainBibWorkspace
+        activeFile={activeFile}
+        refreshVersion={refreshVersion}
+        getPathVersion={getPathVersion}
+        layout={layout}
+        onLayoutChange={onLayoutChange}
+        dualPaneSplit={dualPaneSplit}
+        onDualPaneSplitChange={onDualPaneSplitChange}
+        onError={onError}
+        linkContextPath={linkContextPath ?? activeFile}
+        onNavigate={onNavigate}
+        onModelChanged={onModelChanged}
+        paperPath={paperPath}
+      />
+    );
+  }
 
   if (isLeafEditor && outlinePath && draftPath && unitPath) {
     return (
@@ -441,29 +797,7 @@ export function EditorWorkspace({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        className={cn(
-          "flex h-10 shrink-0 items-center justify-end gap-3 border-b border-border bg-card px-3",
-          readingFocus.active && "editor-chrome-hidden",
-        )}
-      >
-        <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-          {layoutButtons.map(({ id, icon: Icon, label }) => (
-            <Button
-              key={id}
-              type="button"
-              variant={layout === id ? "default" : "ghost"}
-              size="icon"
-              className="h-7 w-7"
-              aria-label={label}
-              title={label}
-              onClick={() => onLayoutChange(id)}
-            >
-              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-            </Button>
-          ))}
-        </div>
-      </div>
+      {editorChrome}
 
       <MarkdownEditor
         key={activeFile}
@@ -483,3 +817,5 @@ export function EditorWorkspace({
     </div>
   );
 }
+
+export { BibMainBibWorkspace };

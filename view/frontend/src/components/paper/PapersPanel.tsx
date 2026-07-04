@@ -13,12 +13,16 @@ import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { UnapprovedIndicator } from "@/components/nav/UnapprovedIndicator";
 import { cn } from "@/lib/utils";
-import { useDraftPendingPaths, replaceServerDraftPendingPaths } from "@/lib/draftPendingStore";
+import { useDraftPendingPaths, replaceServerPendingReviews } from "@/lib/draftPendingStore";
+import { resolveActivePaperSlug } from "@/lib/activePaperSlug";
+import { usePaperPendingReviews } from "@/lib/usePaperPendingReviews";
 import { sectionNeedsHighlight, unapprovedSectionRowClass, unapprovedSectionTitle } from "@/lib/unapprovedHighlight";
 import { loadIndexChildOrder } from "@/lib/indexChildOrder";
 import { navigateAfterArchive, useArchiveNodeDialog } from "@/lib/useArchiveNodeDialog";
 import {
+  convertUnitToSubsection,
   createNode,
+  duplicateNode,
   fetchPaperDetail,
   moveNode,
   reorderChildren,
@@ -83,7 +87,8 @@ export function PapersPanel({
   const [detail, setDetail] = useState<PaperDetail | null>(null);
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
   const [childOrderOverrides, setChildOrderOverrides] = useState<Record<string, string[]>>({});
-  const { commentSummary, paperChildOrders } = useWorkspaceNavigationContext();
+  const { commentSummary, paperChildOrders, setSidebarPanel, lastPaperPath } =
+    useWorkspaceNavigationContext();
   const childOrders = useMemo(
     () => ({ ...paperChildOrders, ...childOrderOverrides }),
     [childOrderOverrides, paperChildOrders],
@@ -97,6 +102,12 @@ export function PapersPanel({
 
   const selectedSlug = useMemo(() => paperSlugFromPath(currentPath), [currentPath]);
   const paperPath = selectedSlug ? `papers/${selectedSlug}` : null;
+  const reviewPaperSlug = resolveActivePaperSlug(selectedSlug, lastPaperPath);
+  const { totalCount: pendingReviewCount } = usePaperPendingReviews(
+    reviewPaperSlug,
+    refreshVersion ?? 0,
+    onError,
+  );
 
   useEffect(() => {
     const previousPath = previousPathRef.current;
@@ -148,7 +159,8 @@ export function PapersPanel({
   );
 
   const showSectionList =
-    Boolean(paperPath) && (currentPath !== paperPath || !collapsedPaths.has(paperPath));
+    Boolean(paperPath) &&
+    (currentPath === paperPath || (paperPath !== null && !collapsedPaths.has(paperPath)));
 
   const requestCreate = useCallback((parentPath: string, kind: NodeKind) => {
     setCreatePrompt({ parentPath, kind });
@@ -197,16 +209,19 @@ export function PapersPanel({
         try {
           const data = await fetchPaperDetail(selectedSlug);
           setDetail(data.paper);
-          replaceServerDraftPendingPaths(data.paper.pendingApprovalPaths ?? []);
+          replaceServerPendingReviews(data.paper.pendingReviews ?? []);
+          if (data.paper.sectionOrder.length > 0) {
+            setSectionOrder((prev) => (prev.length > 0 ? prev : data.paper.sectionOrder));
+          }
         } catch {
           setDetail(null);
-          replaceServerDraftPendingPaths([]);
+          replaceServerPendingReviews([]);
         }
       } else {
         setDetail(null);
         setSectionOrder([]);
         setChildOrderOverrides({});
-        replaceServerDraftPendingPaths([]);
+        replaceServerPendingReviews([]);
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
@@ -254,28 +269,57 @@ export function PapersPanel({
 
   useEffect(() => {
     if (papersLoading || detailLoading || selectedSlug || papers.length === 0) return;
-    if (currentPath === "papers" || currentPath === "") {
-      onNavigate(defaultPaperPath(papers));
-    }
-  }, [currentPath, detailLoading, onNavigate, papers, papersLoading, selectedSlug]);
+    if (currentPath !== "papers" && currentPath !== "") return;
+
+    const restorePath =
+      lastPaperPath && papers.some((paper) => `papers/${paper.slug}` === lastPaperPath)
+        ? lastPaperPath
+        : defaultPaperPath(papers);
+    onNavigate(restorePath);
+  }, [currentPath, detailLoading, lastPaperPath, onNavigate, papers, papersLoading, selectedSlug]);
 
   const containerCounts = detail?.containerCounts ?? {};
+  const containerWordCounts = detail?.containerWordCounts ?? {};
 
   const paperHighlight = paperPath
     ? sectionNeedsHighlight(paperPath, containerCounts[paperPath] ?? detail?.counts)
     : { highlight: false, pending: false, unapproved: false };
 
+  const effectiveSectionOrder = useMemo(
+    () => (sectionOrder.length > 0 ? sectionOrder : (detail?.sectionOrder ?? [])),
+    [detail?.sectionOrder, sectionOrder],
+  );
+
   const sections = useMemo((): SectionRow[] => {
     if (!paperPath) return [];
-    const fromTree = sectionsForPaper(tree, paperPath, sectionOrder);
-    if (!detail?.sections.length) return fromTree;
-    const byPath = new Map(detail.sections.map((s) => [s.path, s]));
-    return fromTree.map((s) => ({
-      ...s,
-      title: byPath.get(s.path)?.title ?? s.title,
-      counts: byPath.get(s.path)?.counts,
+    const fromTree = sectionsForPaper(tree, paperPath, effectiveSectionOrder);
+    const byPath = new Map((detail?.sections ?? []).map((s) => [s.path, s]));
+
+    if (fromTree.length > 0) {
+      return fromTree.map((s) => ({
+        ...s,
+        title: byPath.get(s.path)?.title ?? s.title,
+        counts: byPath.get(s.path)?.counts,
+        draftWordCount: byPath.get(s.path)?.draftWordCount,
+      }));
+    }
+
+    if (detail?.sections.length) {
+      return detail.sections.map((s) => ({
+        name: s.path.split("/").pop() ?? s.path,
+        path: s.path,
+        title: s.title,
+        counts: s.counts,
+        draftWordCount: s.draftWordCount,
+      }));
+    }
+
+    return effectiveSectionOrder.map((name) => ({
+      name,
+      path: `${paperPath}/${name}`,
+      title: byPath.get(`${paperPath}/${name}`)?.title ?? name,
     }));
-  }, [detail, paperPath, sectionOrder, tree]);
+  }, [detail, effectiveSectionOrder, paperPath, tree]);
 
   const handleSectionReorder = async (order: string[]) => {
     if (!paperPath) return;
@@ -305,8 +349,45 @@ export function PapersPanel({
     }
   };
 
+  const handleConvertToSubsection = useCallback(
+    async (unitPath: string) => {
+      setReordering(true);
+      try {
+        await convertUnitToSubsection(unitPath);
+        handleModelChanged();
+        onNavigate(unitPath);
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setReordering(false);
+      }
+    },
+    [handleModelChanged, onError, onNavigate],
+  );
+
+  const handleDuplicate = useCallback(
+    async (nodePath: string) => {
+      setReordering(true);
+      try {
+        const result = await duplicateNode(nodePath);
+        handleModelChanged();
+        onNavigate(result.path);
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setReordering(false);
+      }
+    },
+    [handleModelChanged, onError, onNavigate],
+  );
+
   return (
-    <div className={cn("space-y-3", embedded ? "p-3 pt-0" : "border-b border-border px-4 py-3")}>
+    <div
+      className={cn(
+        embedded && hidePaperHeader ? "flex min-h-0 flex-col" : "space-y-3",
+        embedded ? (hidePaperHeader ? "" : "p-3 pt-0") : "border-b border-border px-4 py-3",
+      )}
+    >
       {!hidePaperHeader ? (
         <PaperSelectorBar
           tree={tree}
@@ -336,12 +417,125 @@ export function PapersPanel({
         />
       ) : null}
 
+      {pendingReviewCount > 0 && !hidePaperHeader ? (
+        <button
+          type="button"
+          className="w-full rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-left text-xs text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+          onClick={() => setSidebarPanel("review")}
+        >
+          {pendingReviewCount} pending review{pendingReviewCount === 1 ? "" : "s"} — open Review
+          panel
+        </button>
+      ) : null}
+
       {selectedSlug && paperPath ? (
+        hidePaperHeader ? (
+          <div className="flex min-h-0 flex-col">
+            {pendingReviewCount > 0 ? (
+              <div className="px-2 pt-2">
+                <button
+                  type="button"
+                  className="w-full rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-left text-xs text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+                  onClick={() => setSidebarPanel("review")}
+                >
+                  {pendingReviewCount} pending review{pendingReviewCount === 1 ? "" : "s"} — open Review
+                  panel
+                </button>
+              </div>
+            ) : null}
+
+            <div className={cn("px-2 pb-1", pendingReviewCount === 0 ? "pt-2" : "pt-0.5")}>
+              <div
+                className={cn(
+                  "section-tree-row flex items-center gap-0.5 rounded-md border border-border/60 bg-background",
+                  unapprovedSectionRowClass({
+                    highlight: paperHighlight.highlight,
+                    pending: paperHighlight.pending,
+                    active: currentPath === paperPath,
+                  }),
+                  currentPath === paperPath ? "border-primary/40 bg-accent/50" : undefined,
+                )}
+              >
+                <button
+                  type="button"
+                  className={sectionTreeNavButtonClassName({
+                    active: currentPath === paperPath,
+                    highlight: paperHighlight.highlight,
+                    textSize: "text-[11px]",
+                    rowPad: "py-0",
+                  })}
+                  onClick={() => onTreeItemClick(paperPath)}
+                >
+                  <UnapprovedIndicator
+                    pending={paperHighlight.pending}
+                    unapproved={paperHighlight.unapproved}
+                  />
+                  <span
+                    className={unapprovedSectionTitle(
+                      "section-tree-row__title font-medium",
+                      paperHighlight.highlight,
+                    )}
+                    title="Paper overview · Outline · Draft"
+                  >
+                    {detail?.title ?? "Paper overview"}
+                  </span>
+                </button>
+                <SectionTreeRowMeta
+                  createParentPath={paperPath}
+                  paperPath={paperPath}
+                  tree={tree}
+                  title={detail?.title ?? "Paper overview"}
+                  rowPath={paperPath}
+                  counts={containerCounts[paperPath] ?? detail?.counts}
+                  wordCount={containerWordCounts[paperPath] ?? detail?.draftWordCount}
+                  disabled={reordering}
+                  onCreate={requestCreate}
+                  showRename={false}
+                  showDelete={false}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1 px-2 pb-2.5 pt-0.5">
+              {sections.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No sections yet — use ⋯ on the overview row to add a section.
+                </p>
+              ) : showSectionList ? (
+                <SectionOrderList
+                  sections={sections}
+                  paperPath={paperPath}
+                  currentPath={currentPath}
+                  tree={tree}
+                  childOrders={childOrders}
+                  containerCounts={containerCounts}
+                  containerWordCounts={containerWordCounts}
+                  reordering={reordering}
+                  isBranchExpanded={isBranchExpanded}
+                  onTreeItemClick={onTreeItemClick}
+                  onReorder={handleSectionReorder}
+                  onChildReorder={handleChildReorder}
+                  onDelete={requestArchive}
+                  onRename={requestRename}
+                  onCreate={requestCreate}
+                  onConvertToSubsection={(path) => void handleConvertToSubsection(path)}
+                  onDuplicate={(path) => void handleDuplicate(path)}
+                />
+              ) : null}
+              {sections.length > 0 ? (
+                <p className="text-[9px] leading-snug text-muted-foreground">
+                  Drag to reorder · ⋯ for actions ·{" "}
+                  <span className="text-amber-700 dark:text-amber-300">amber = unapproved</span>
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : (
         <div className="space-y-3">
           <div className="space-y-1">
             <div
               className={cn(
-                "section-tree-row flex items-stretch gap-0.5 rounded-md border border-border/60 bg-background",
+                "section-tree-row flex items-center gap-0.5 rounded-md border border-border/60 bg-background",
                 unapprovedSectionRowClass({
                   highlight: paperHighlight.highlight,
                   pending: paperHighlight.pending,
@@ -355,8 +549,8 @@ export function PapersPanel({
                 className={sectionTreeNavButtonClassName({
                   active: currentPath === paperPath,
                   highlight: paperHighlight.highlight,
-                  textSize: "text-xs",
-                  rowPad: "py-1.5",
+                  textSize: "text-[11px]",
+                  rowPad: "py-0",
                 })}
                 onClick={() => onTreeItemClick(paperPath)}
               >
@@ -369,11 +563,9 @@ export function PapersPanel({
                     "section-tree-row__title font-medium",
                     paperHighlight.highlight,
                   )}
+                  title="Paper overview · Outline · Draft"
                 >
                   {detail?.title ?? "Paper overview"}
-                </span>
-                <span className="section-tree-row__meta-label shrink-0 text-[10px] text-muted-foreground">
-                  Outline · Draft
                 </span>
               </button>
               <SectionTreeRowMeta
@@ -382,6 +574,8 @@ export function PapersPanel({
                 tree={tree}
                 title={detail?.title ?? "Paper overview"}
                 rowPath={paperPath}
+                counts={containerCounts[paperPath] ?? detail?.counts}
+                wordCount={containerWordCounts[paperPath] ?? detail?.draftWordCount}
                 disabled={reordering}
                 onCreate={requestCreate}
                 showRename={false}
@@ -407,6 +601,7 @@ export function PapersPanel({
                 tree={tree}
                 childOrders={childOrders}
                 containerCounts={containerCounts}
+                containerWordCounts={containerWordCounts}
                 reordering={reordering}
                 isBranchExpanded={isBranchExpanded}
                 onTreeItemClick={onTreeItemClick}
@@ -415,17 +610,19 @@ export function PapersPanel({
                 onDelete={requestArchive}
                 onRename={requestRename}
                 onCreate={requestCreate}
+                onConvertToSubsection={(path) => void handleConvertToSubsection(path)}
+                onDuplicate={(path) => void handleDuplicate(path)}
               />
             ) : null}
             {sections.length > 0 ? (
-              <p className="text-[10px] text-muted-foreground">
-                Drag to reorder · click again on a selected folder to collapse · hover for + rename
-                remove · ⋯ on narrow sidebar ·{" "}
-                <span className="text-amber-700 dark:text-amber-300">amber = unapproved text</span>
+              <p className="text-[9px] leading-snug text-muted-foreground">
+                Drag to reorder · ⋯ for actions ·{" "}
+                <span className="text-amber-700 dark:text-amber-300">amber = unapproved</span>
               </p>
             ) : null}
           </div>
         </div>
+        )
       ) : papers.length === 0 && !papersLoading ? (
         <p className="text-xs text-muted-foreground">Create a paper to get started.</p>
       ) : null}

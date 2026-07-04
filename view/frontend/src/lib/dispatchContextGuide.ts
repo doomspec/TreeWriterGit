@@ -14,6 +14,10 @@ export function buildContextCliExamples(unitPath?: string): string[] {
     `node ../scripts/tw-context.mjs read ${unit}/draft.md`,
     `node ../scripts/tw-context.mjs tree ${paper} --depth 1`,
     `node ../scripts/tw-context.mjs compose ${paper}/sections/{section}`,
+    `node ../scripts/tw-context.mjs context ${unit} --action draft`,
+    `node ../scripts/tw-context.mjs graph ${unit}`,
+    `node ../scripts/tw-context.mjs sessions ${paper} --kind chat`,
+    `node ../scripts/tw-context.mjs health`,
     `pnpm import-docx ${paper} /path/to/file.docx   # repo root only`,
   ];
 }
@@ -25,10 +29,10 @@ export function buildContextCliQuickRef(unitPath?: string): string {
     "",
     ...examples.map((line) => `  ${line}`),
     "",
-    "Search/compose need pnpm dev. read/tree work offline.",
-    "Full guide: .treewriter-skills/treewriter-context-cli.md",
+    "Search, compose, context, graph, and health need pnpm dev. read, tree, and sessions work offline.",
+    "System skills: .treewriter-skills/system/treewriter-context-cli.md (always loaded on dispatch).",
   ].join("\n");
 }
 
 export const DISPATCH_CONTEXT_LAYERS_SUMMARY =
-  "Every preview adds linked files, sibling unit outlines, and related search hits in the same paper. Check extra files below to override; use the terminal CLI for more.";
+  "Every preview adds linked files, sibling unit outlines, and related search hits in the same paper. Check extra files in the Assistant panel context list to override; use tw-context in the terminal for more.";

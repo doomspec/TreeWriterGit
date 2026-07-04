@@ -1,8 +1,21 @@
 import type { Express } from "express";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
-import { importBibtexReferences } from "../../bibtexImport.js";
+import {
+  addMainBibEntryFromCrossref,
+  deleteMainBibEntries,
+  importMainBibtex,
+  markMainBibEntryVerified,
+  previewMainBibEntryFromCrossref,
+  previewNewBibEntryFromCrossref,
+  searchCrossrefCandidates,
+  updateMainBibEntry,
+  updateMainBibEntryFromCrossref,
+} from "../../bibLibrary.js";
 import { uploadFigureImage } from "../../figures.js";
-import { resolveModelPath } from "../../modelFs.js";
+import { removeCiteKeyFromPaperDrafts } from "../../paperCitations.js";
+import { resolveModelPath, resolvePaperRel } from "../../modelFs.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { bodyString, requireBody } from "../params.js";
 import type { ServerDeps } from "../types.js";
@@ -34,16 +47,169 @@ export function registerModelAssetRoutes(app: Express, deps: ServerDeps): void {
   );
 
   app.post(
+    "/api/model/data/upload",
+    asyncHandler(async (request, response) => {
+      const paperSlug = requireBody(request, "paperSlug");
+      const filename = requireBody(request, "filename");
+      const dataBase64 = bodyString(request, "data");
+      if (!dataBase64) {
+        response.status(400).json({ error: "Empty file data" });
+        return;
+      }
+      const safeName = path.basename(filename.trim());
+      if (!safeName || safeName === "." || safeName === "..") {
+        response.status(400).json({ error: "Invalid filename" });
+        return;
+      }
+      const paperRel = resolvePaperRel(deps.modelRoot, paperSlug);
+      const dataRel = `${paperRel}/notes/data/${safeName}`;
+      resolveModelPath(deps.modelRoot, dataRel);
+      const buffer = Buffer.from(dataBase64, "base64");
+      if (buffer.length === 0) {
+        response.status(400).json({ error: "Empty file data" });
+        return;
+      }
+      if (buffer.length > 20 * 1024 * 1024) {
+        response.status(400).json({ error: "File too large (max 20MB)" });
+        return;
+      }
+      const dataAbs = path.join(deps.modelRoot, dataRel);
+      await mkdir(path.dirname(dataAbs), { recursive: true });
+      await writeFile(dataAbs, buffer);
+      deps.broadcastModelEvent({ type: "model-changed", path: dataRel });
+      response.status(201).json({ path: dataRel });
+    }),
+  );
+
+  app.post(
     "/api/model/references/import",
     asyncHandler(async (request, response) => {
       const paperPath = requireBody(request, "paper");
       const bibtex = requireBody(request, "bibtex");
       resolveModelPath(deps.modelRoot, paperPath);
-      const result = await importBibtexReferences(deps.modelRoot, paperPath, bibtex);
+      const result = await importMainBibtex(deps.modelRoot, bibtex);
       if (result.created.length > 0) {
-        deps.broadcastModelEvent({ type: "model-changed", path: `${paperPath}/notes/literature` });
+        deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
       }
       response.status(201).json(result);
+    }),
+  );
+
+  app.post(
+    "/api/model/references/remove-from-text",
+    asyncHandler(async (request, response) => {
+      const paperPath = requireBody(request, "paper");
+      const citeKey = requireBody(request, "citeKey");
+      resolveModelPath(deps.modelRoot, paperPath);
+      const result = await removeCiteKeyFromPaperDrafts(deps.modelRoot, paperPath, citeKey);
+      for (const relPath of result.modified) {
+        deps.broadcastModelEvent({ type: "model-changed", path: relPath });
+      }
+      response.json(result);
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/import",
+    asyncHandler(async (request, response) => {
+      const bibtex = requireBody(request, "bibtex");
+      const result = await importMainBibtex(deps.modelRoot, bibtex);
+      if (result.created.length > 0) {
+        deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
+      }
+      response.status(201).json(result);
+    }),
+  );
+
+  app.put(
+    "/api/model/bib/entry",
+    asyncHandler(async (request, response) => {
+      const citeKey = requireBody(request, "citeKey");
+      const fields =
+        request.body?.fields && typeof request.body.fields === "object"
+          ? (request.body.fields as Record<string, string>)
+          : {};
+      const entry = await updateMainBibEntry(deps.modelRoot, citeKey, {
+        nextCiteKey: bodyString(request, "nextCiteKey") || citeKey,
+        type: bodyString(request, "type") || undefined,
+        fields,
+      });
+      deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
+      response.json({ entry });
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/verify",
+    asyncHandler(async (request, response) => {
+      const citeKey = requireBody(request, "citeKey");
+      const entry = await markMainBibEntryVerified(deps.modelRoot, citeKey);
+      deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
+      response.json({ entry });
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/delete",
+    asyncHandler(async (request, response) => {
+      const raw = request.body?.citeKeys;
+      const citeKeys = Array.isArray(raw)
+        ? raw.filter((key): key is string => typeof key === "string")
+        : [];
+      const result = await deleteMainBibEntries(deps.modelRoot, citeKeys);
+      if (result.deleted.length > 0) {
+        deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
+      }
+      response.json(result);
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/crossref/search",
+    asyncHandler(async (request, response) => {
+      const title = requireBody(request, "title");
+      const rows = Number(request.body?.rows ?? 5);
+      response.json({ candidates: await searchCrossrefCandidates(title, rows) });
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/crossref/preview",
+    asyncHandler(async (request, response) => {
+      const citeKey = requireBody(request, "citeKey");
+      const doi = requireBody(request, "doi");
+      const entry = await previewMainBibEntryFromCrossref(deps.modelRoot, citeKey, doi);
+      response.json({ entry });
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/crossref/preview-new",
+    asyncHandler(async (request, response) => {
+      const doi = requireBody(request, "doi");
+      const entry = await previewNewBibEntryFromCrossref(deps.modelRoot, doi);
+      response.json({ entry });
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/crossref/add",
+    asyncHandler(async (request, response) => {
+      const doi = requireBody(request, "doi");
+      const result = await addMainBibEntryFromCrossref(deps.modelRoot, doi);
+      deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
+      response.status(result.created ? 201 : 200).json(result);
+    }),
+  );
+
+  app.post(
+    "/api/model/bib/crossref/update",
+    asyncHandler(async (request, response) => {
+      const citeKey = requireBody(request, "citeKey");
+      const doi = requireBody(request, "doi");
+      const entry = await updateMainBibEntryFromCrossref(deps.modelRoot, citeKey, doi);
+      deps.broadcastModelEvent({ type: "model-changed", path: "main.bib" });
+      response.json({ entry });
     }),
   );
 }

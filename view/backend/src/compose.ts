@@ -2,7 +2,18 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import { isEquationDir, isFigureDir, isTableDir, isUnitDir, orderedChildren, readIndexData, resolveChildPath } from "./modelFs.js";
+import { resolveApprovedManuscriptRel } from "./draftApproval/paths.js";
+
+import {
+  isEquationDir,
+  isFigureDir,
+  isManuscriptRoot,
+  isTableDir,
+  isUnitDir,
+  orderedChildren,
+  readIndexData,
+  resolveChildPath,
+} from "./model/index.js";
 import { resolveEquationMetadata } from "./equations.js";
 import { resolveFigureMetadata } from "./figures.js";
 import { resolveTableMetadata } from "./tables.js";
@@ -84,12 +95,13 @@ async function readDraftContent(
   relPath: string,
   approvedOnly = false,
 ): Promise<string> {
-  const fileName = approvedOnly ? "draft.approved.md" : "draft.md";
-  const draftPath = path.join(modelRoot, relPath, fileName);
-  if (!existsSync(draftPath)) {
-    if (approvedOnly) return "";
-    return "";
+  if (approvedOnly) {
+    const approvedRel = resolveApprovedManuscriptRel(modelRoot, relPath, "draft");
+    if (!approvedRel) return "";
+    return (await readFile(path.join(modelRoot, approvedRel), "utf8")).trim();
   }
+  const draftPath = path.join(modelRoot, relPath, "draft.md");
+  if (!existsSync(draftPath)) return "";
   return (await readFile(draftPath, "utf8")).trim();
 }
 
@@ -213,7 +225,7 @@ export async function composeSectionView(
   const indexData = await readIndexData(modelRoot, dirRel);
   const title = String(indexData.title ?? titleCase(path.posix.basename(dirRel)));
   const kind = typeof indexData.kind === "string" ? indexData.kind : null;
-  const isPaper = kind === "paper";
+  const isPaper = isManuscriptRoot(indexData);
 
   const ownOutline = await readOutlineContent(modelRoot, dirRel);
   const ownSummary = parseOutlineSummary(ownOutline);

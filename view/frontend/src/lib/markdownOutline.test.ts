@@ -4,6 +4,7 @@ import {
   buildBlockHeadingIdMap,
   extractMarkdownHeadings,
   filterDocumentOutlineHeadings,
+  hasNavigableOutlineEntries,
 } from "@/lib/markdownOutline";
 import { splitMarkdownIntoBlocks } from "@/lib/markdownBlocks";
 
@@ -145,6 +146,31 @@ Planning notes only.`;
     expect(filterDocumentOutlineHeadings(extractMarkdownHeadings(md)).map((h) => h.text)).toEqual([
       "VibeCount",
     ]);
+  });
+});
+
+describe("hasNavigableOutlineEntries", () => {
+  it("returns false for title-only outlines with empty Summary/Outline stubs", () => {
+    const md = `# 1 Introduction
+
+## Summary
+
+_Overview._
+
+## Outline
+`;
+    const filtered = filterDocumentOutlineHeadings(extractMarkdownHeadings(md));
+    expect(filtered.map((h) => h.text)).toEqual(["1 Introduction"]);
+    expect(hasNavigableOutlineEntries(filtered)).toBe(false);
+  });
+
+  it("returns true when outline list links exist", () => {
+    const md = `# Introduction
+
+## Outline
+- [Background](background/INDEX.md)`;
+    const filtered = filterDocumentOutlineHeadings(extractMarkdownHeadings(md));
+    expect(hasNavigableOutlineEntries(filtered)).toBe(true);
   });
 });
 

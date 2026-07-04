@@ -28,16 +28,21 @@ export function clearTerminalSessionId(): void {
 export type TerminalConnectOptions = {
   sessionId?: string | null;
   forceNew?: boolean;
+  /** When false, server skips full scrollback replay and only sends output from the disconnect gap. */
+  replayScrollback?: boolean;
 };
 
 export function buildTerminalWebSocketUrl(baseUrl: string, options: TerminalConnectOptions = {}): string {
-  const { sessionId = loadTerminalSessionId(), forceNew = false } = options;
+  const { sessionId = loadTerminalSessionId(), forceNew = false, replayScrollback = true } = options;
   const url = new URL(baseUrl);
   if (sessionId) {
     url.searchParams.set("session", sessionId);
   }
   if (forceNew) {
     url.searchParams.set("new", "1");
+  }
+  if (!replayScrollback) {
+    url.searchParams.set("scrollback", "0");
   }
   return url.toString();
 }

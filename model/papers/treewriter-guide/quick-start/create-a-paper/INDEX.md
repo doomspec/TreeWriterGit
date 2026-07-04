@@ -1,8 +1,13 @@
 ---
-kind: "unit"
-title: "Create a new paper"
-status: "approved"
+kind: unit
+title: Create a new paper
+status: approved
 links: []
-approved_at: "2026-06-25T02:12:40.454Z"
-approved_by: "treewriter-guide-scaffold"
+approved_at: '2026-06-29T13:25:22.722Z'
+approved_by: yakavetsiv
+edited_by: null
+edited_at: null
+ai_assisted: false
+ai_provider: null
 ---
+

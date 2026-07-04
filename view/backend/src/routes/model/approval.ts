@@ -9,7 +9,7 @@ import {
   isDraftFilePath,
   normalizeGitHubHandle,
   readApprovedContentForFile,
-  readEditMetaForFile,
+  refreshPendingManuscriptMeta,
   unitDirFromApprovalFile,
 } from "../../draftApproval.js";
 import { invalidateGraphCache } from "../../graphCache.js";
@@ -32,10 +32,14 @@ export function registerModelApprovalRoutes(app: Express, deps: ServerDeps): voi
         return;
       }
       resolveModelPath(deps.modelRoot, unitDirFromApprovalFile(pathParam));
-      const [content, meta] = await Promise.all([
-        readApprovedContentForFile(deps.modelRoot, pathParam),
-        readEditMetaForFile(deps.modelRoot, pathParam),
-      ]);
+      const content = await readApprovedContentForFile(deps.modelRoot, pathParam);
+      const { updated, meta } = await refreshPendingManuscriptMeta(deps.modelRoot, pathParam, {
+        repoRoot: deps.repoRoot,
+        agentJobs: deps.agentJobs,
+      });
+      for (const rel of updated) {
+        deps.broadcastModelEvent({ type: "model-changed", path: rel });
+      }
       response.json({ content, meta });
     }),
   );
@@ -50,7 +54,9 @@ export function registerModelApprovalRoutes(app: Express, deps: ServerDeps): voi
         return;
       }
       resolveModelPath(deps.modelRoot, pathParam);
-      const result = await approveDraftTarget(deps.modelRoot, pathParam, approvedBy);
+      const result = await approveDraftTarget(deps.modelRoot, pathParam, approvedBy, {
+        repoRoot: deps.repoRoot,
+      });
       for (const rel of result.updated) {
         deps.broadcastModelEvent({ type: "model-changed", path: rel });
       }
@@ -68,7 +74,9 @@ export function registerModelApprovalRoutes(app: Express, deps: ServerDeps): voi
         return;
       }
       resolveModelPath(deps.modelRoot, pathParam);
-      const result = await approvePendingChildrenTarget(deps.modelRoot, pathParam, approvedBy);
+      const result = await approvePendingChildrenTarget(deps.modelRoot, pathParam, approvedBy, {
+        repoRoot: deps.repoRoot,
+      });
       for (const rel of result.updated) {
         deps.broadcastModelEvent({ type: "model-changed", path: rel });
       }

@@ -58,11 +58,23 @@ function renderMirrorParts(parts: RawMirrorPart[], keyPrefix: string) {
   });
 }
 
+function commentLineClass(
+  lineNumber: number,
+  commentLines?: Set<number>,
+  activeCommentLine?: number | null,
+): string | undefined {
+  if (activeCommentLine === lineNumber) return "highlight-line--comment-active";
+  if (commentLines?.has(lineNumber)) return "highlight-line--comment";
+  return undefined;
+}
+
 export function HighlightingTextarea({
   value,
   baseline,
   highlight = false,
   showTextHighlights = true,
+  commentLines,
+  activeCommentLine = null,
   fillContainer = true,
   className,
   mirrorClassName,
@@ -73,6 +85,8 @@ export function HighlightingTextarea({
   baseline: string;
   highlight?: boolean;
   showTextHighlights?: boolean;
+  commentLines?: Set<number>;
+  activeCommentLine?: number | null;
   /** When false, textarea grows with content; parent should scroll. */
   fillContainer?: boolean;
   mirrorClassName?: string;
@@ -87,7 +101,8 @@ export function HighlightingTextarea({
   const showPendingMirror = highlight && debouncedText !== baseline;
   const lines = useMemo(() => splitLines(text), [text]);
   const showHlMirror = showTextHighlights && hasRawTextHighlights(text);
-  const showMirror = showPendingMirror || showHlMirror;
+  const showCommentMirror = Boolean(commentLines && commentLines.size > 0);
+  const showMirror = showPendingMirror || showHlMirror || showCommentMirror;
 
   const rows = useMemo((): HighlightRow[] => {
     if (!showPendingMirror) {
@@ -133,11 +148,14 @@ export function HighlightingTextarea({
         const row = rows[index] ?? { kind: "equal" as const, text: line };
         const prefix = index > 0 ? "\n" : "";
         const parts = lineMirrorParts(line, row);
+        const lineClass = commentLineClass(index + 1, commentLines, activeCommentLine);
 
         return (
           <Fragment key={index}>
             {prefix}
-            {renderMirrorParts(parts, String(index))}
+            <span className={lineClass}>
+              {renderMirrorParts(parts, String(index))}
+            </span>
           </Fragment>
         );
       })}

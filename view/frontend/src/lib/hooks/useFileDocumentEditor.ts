@@ -44,7 +44,7 @@ export function useFileDocumentEditor(options: UseFileDocumentEditorOptions) {
   } = options;
 
   const [loadedContent, setLoadedContent] = useState("");
-  const [approvedBaseline, setApprovedBaseline] = useState("");
+  const [approvedBaseline, setApprovedBaseline] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editMeta, setEditMeta] = useState<DraftEditMeta>({
     editedBy: null,
@@ -111,6 +111,7 @@ export function useFileDocumentEditor(options: UseFileDocumentEditorOptions) {
       onDiscardedExternal?.(restored);
     },
     requiresApproval,
+    editMeta,
   });
 
   const isDirtyRef = useRef(editor.isDirty);

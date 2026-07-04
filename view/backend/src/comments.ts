@@ -1,12 +1,18 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
 import type { CommentAssignee, CommentRecord, CommentSummary } from "@treewriter/shared";
 
 import { loadProviders } from "./agentDispatch/providers.js";
-import { ModelFsError, resolveModelPath } from "./modelFs.js";
+import {
+  listInlineComments,
+  removeInlineCommentById,
+  renderInlineCommentTag,
+  replaceInlineCommentById,
+} from "./inlineComments.js";
+import { ModelFsError, resolveModelPath, resolvePaperRel } from "./modelFs.js";
 
 export type { CommentAssignee, CommentRecord, CommentSummary };
 
@@ -40,45 +46,87 @@ function normalizeAssignee(value: unknown): CommentAssignee | null {
   return { type, id, label };
 }
 
+function serializeAssignee(assignee: CommentAssignee | null | undefined): string | undefined {
+  if (!assignee) return undefined;
+  return `${assignee.type}:${assignee.id}:${assignee.label}`;
+}
+
+function parseAssigneeAttr(value: string | null | undefined): CommentAssignee | null {
+  if (!value) return null;
+  const [type, id, ...labelParts] = value.split(":");
+  const label = labelParts.join(":");
+  if (type !== "human" && type !== "ai") return null;
+  if (!id || !label) return null;
+  return { type, id, label };
+}
+
 /** Parse assignee from API body; throws ModelFsError on invalid shape. */
 export function parseCommentAssignee(value: unknown): CommentAssignee | null | undefined {
   if (value === undefined) return undefined;
   return normalizeAssignee(value);
 }
 
-function normalizeCommentRecord(raw: unknown): CommentRecord | null {
-  if (!raw || typeof raw !== "object") return null;
-  const record = raw as Record<string, unknown>;
-  const id = String(record.id ?? "").trim();
-  const file = String(record.file ?? "").trim();
-  const author = String(record.author ?? "").trim();
-  const text = String(record.text ?? "").trim();
-  const created_at = String(record.created_at ?? "").trim();
-  if (!id || !file || !author || !text || !created_at) return null;
-  const line = Math.max(1, Math.floor(Number(record.line) || 1));
-  let assigned_to: CommentAssignee | null | undefined;
-  if (record.assigned_to === null) {
-    assigned_to = null;
-  } else if (record.assigned_to !== undefined) {
-    try {
-      assigned_to = normalizeAssignee(record.assigned_to);
-    } catch {
-      assigned_to = undefined;
-    }
-  }
+function inlineCommentToRecord(
+  fileRel: string,
+  comment: ReturnType<typeof listInlineComments>[number],
+  createdAtFallback?: string,
+): CommentRecord | null {
+  if (!comment.text.trim()) return null;
+  const assignedTo = parseAssigneeAttr(comment.assigned_to);
   return {
-    id,
-    file,
-    line,
-    author,
-    text,
-    resolved: Boolean(record.resolved),
-    created_at,
-    ...(record.updated_at ? { updated_at: String(record.updated_at) } : {}),
-    ...(assigned_to !== undefined ? { assigned_to } : {}),
-    ...(record.assigned_by != null ? { assigned_by: String(record.assigned_by) } : {}),
-    ...(record.assigned_at != null ? { assigned_at: String(record.assigned_at) } : {}),
+    id: comment.id || randomUUID().slice(0, 8),
+    file: fileRel,
+    line: comment.line,
+    author: comment.author || "unknown",
+    text: comment.text,
+    resolved: comment.resolved,
+    created_at: createdAtFallback ?? new Date().toISOString(),
+    assigned_to: assignedTo,
+    assigned_by: comment.assigned_by,
+    assigned_at: comment.assigned_at,
   };
+}
+
+function manuscriptAbs(modelRoot: string, fileRel: string): string {
+  const normalized = assertMarkdownPath(fileRel);
+  return resolveModelPath(modelRoot, normalized);
+}
+
+async function readManuscript(modelRoot: string, fileRel: string): Promise<string> {
+  return readFile(manuscriptAbs(modelRoot, fileRel), "utf8");
+}
+
+async function writeManuscript(modelRoot: string, fileRel: string, content: string): Promise<void> {
+  await writeFile(manuscriptAbs(modelRoot, fileRel), content, "utf8");
+}
+
+function insertCommentAtLine(markdown: string, line: number, tag: string): string {
+  const lines = markdown.split("\n");
+  const index = Math.max(0, Math.min(lines.length - 1, line - 1));
+  const current = lines[index] ?? "";
+  lines[index] = `${current} ${tag}`.trimEnd();
+  return lines.join("\n");
+}
+
+function buildCommentTag(input: {
+  id: string;
+  author: string;
+  text: string;
+  resolved?: boolean;
+  assigned_to?: CommentAssignee | null;
+  assigned_by?: string | null;
+  assigned_at?: string | null;
+  created_at?: string;
+}): string {
+  return renderInlineCommentTag({
+    id: input.id,
+    author: input.author,
+    text: input.text,
+    resolved: input.resolved,
+    assigned_to: serializeAssignee(input.assigned_to ?? null),
+    assigned_by: input.assigned_by ?? undefined,
+    assigned_at: input.assigned_at ?? input.created_at,
+  });
 }
 
 export async function validateCommentAssignee(
@@ -96,7 +144,7 @@ export async function validateCommentAssignee(
   }
 }
 
-/** Sidecar path relative to model root (see phase-2-paper-model). */
+/** Legacy sidecar path (read-only fallback during migration). */
 export function commentsSidecarRel(_modelRoot: string, fileRel: string): string {
   const normalized = assertMarkdownPath(fileRel);
   const paperMatch = normalized.match(/^papers\/([^/]+)\/(.+)$/);
@@ -110,75 +158,31 @@ export function commentsSidecarRel(_modelRoot: string, fileRel: string): string 
   return `.comments/${normalized}.comments.json`;
 }
 
-/** Legacy/alternate sidecar location when canonical path is empty. */
-function alternateCommentsSidecarRel(fileRel: string, primaryRel: string): string | null {
-  const normalized = assertMarkdownPath(fileRel);
-  const paperMatch = normalized.match(/^papers\/([^/]+)\/(.+)$/);
-  if (!paperMatch) return null;
-  const [, slug, rest] = paperMatch;
-  if (rest.startsWith("sections/")) {
-    const flat = `papers/${slug}/.comments/${rest}.comments.json`;
-    return flat === primaryRel ? null : flat;
-  }
-  const nested = `papers/${slug}/sections/.comments/${rest}.comments.json`;
-  return nested === primaryRel ? null : nested;
-}
-
-function sidecarAbs(modelRoot: string, fileRel: string): string {
-  const normalized = assertMarkdownPath(fileRel);
-  resolveModelPath(modelRoot, normalized);
-  return path.join(modelRoot, commentsSidecarRel(modelRoot, normalized));
-}
-
-function sidecarAbsFromRel(modelRoot: string, sidecarRel: string): string {
-  return path.join(modelRoot, sidecarRel);
-}
-
-async function readSidecarAbs(abs: string): Promise<CommentRecord[]> {
+async function readLegacySidecarComments(modelRoot: string, fileRel: string): Promise<CommentRecord[]> {
+  const sidecarRel = commentsSidecarRel(modelRoot, fileRel);
+  const abs = path.join(modelRoot, sidecarRel);
   if (!existsSync(abs)) return [];
   try {
     const raw = await readFile(abs, "utf8");
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((entry) => normalizeCommentRecord(entry))
-      .filter((entry): entry is CommentRecord => entry !== null);
+    return parsed.filter((entry): entry is CommentRecord => Boolean(entry && typeof entry === "object"));
   } catch {
     return [];
   }
 }
 
-async function readSidecarForFile(modelRoot: string, fileRel: string): Promise<CommentRecord[]> {
-  const normalized = assertMarkdownPath(fileRel);
-  const primaryRel = commentsSidecarRel(modelRoot, normalized);
-  const fromPrimary = await readSidecarAbs(sidecarAbsFromRel(modelRoot, primaryRel));
-  if (fromPrimary.length > 0) return fromPrimary;
-  const alternateRel = alternateCommentsSidecarRel(normalized, primaryRel);
-  if (!alternateRel) return [];
-  return readSidecarAbs(sidecarAbsFromRel(modelRoot, alternateRel));
-}
-
-async function writeSidecar(abs: string, comments: CommentRecord[]): Promise<void> {
-  await mkdir(path.dirname(abs), { recursive: true });
-  await writeFile(abs, `${JSON.stringify(comments, null, 2)}\n`, "utf8");
-}
-
-async function validateAssigneeForWrite(
-  assignee: CommentAssignee | null,
-  repoRoot: string | undefined,
-): Promise<void> {
-  if (!assignee) return;
-  if (!repoRoot) {
-    if (assignee.type === "ai") {
-      throw new ModelFsError("Cannot assign AI provider without server configuration", 400);
-    }
-    return;
-  }
-  await validateCommentAssignee(repoRoot, assignee);
-}
-
 export async function listComments(modelRoot: string, fileRel: string): Promise<CommentRecord[]> {
-  return readSidecarForFile(modelRoot, fileRel);
+  const normalized = assertMarkdownPath(fileRel);
+  const abs = manuscriptAbs(modelRoot, normalized);
+  if (existsSync(abs)) {
+    const markdown = await readFile(abs, "utf8");
+    const inline = listInlineComments(markdown, normalized)
+      .map((comment) => inlineCommentToRecord(normalized, comment))
+      .filter((entry): entry is CommentRecord => entry !== null);
+    if (inline.length > 0) return inline;
+  }
+  return readLegacySidecarComments(modelRoot, normalized);
 }
 
 export async function createComment(
@@ -199,11 +203,22 @@ export async function createComment(
   const line = Math.max(1, Math.floor(Number(input.line) || 1));
   const assignedTo = input.assigned_to === undefined ? null : normalizeAssignee(input.assigned_to);
   await validateAssigneeForWrite(assignedTo, options?.repoRoot);
-  const abs = sidecarAbs(modelRoot, normalized);
-  const comments = await readSidecarAbs(abs);
   const now = new Date().toISOString();
-  const record: CommentRecord = {
-    id: randomUUID().slice(0, 8),
+  const id = randomUUID().slice(0, 8);
+  const tag = buildCommentTag({
+    id,
+    author: input.author.trim(),
+    text: input.text.trim(),
+    assigned_to: assignedTo,
+    assigned_by: input.assigned_by?.trim() || input.author.trim(),
+    assigned_at: assignedTo ? now : null,
+    created_at: now,
+  });
+  const markdown = await readManuscript(modelRoot, normalized);
+  const updated = insertCommentAtLine(markdown, line, tag);
+  await writeManuscript(modelRoot, normalized, updated);
+  return {
+    id,
     file: normalized,
     line,
     author: input.author.trim(),
@@ -218,9 +233,20 @@ export async function createComment(
         }
       : {}),
   };
-  comments.push(record);
-  await writeSidecar(abs, comments);
-  return record;
+}
+
+async function validateAssigneeForWrite(
+  assignee: CommentAssignee | null,
+  repoRoot: string | undefined,
+): Promise<void> {
+  if (!assignee) return;
+  if (!repoRoot) {
+    if (assignee.type === "ai") {
+      throw new ModelFsError("Cannot assign AI provider without server configuration", 400);
+    }
+    return;
+  }
+  await validateCommentAssignee(repoRoot, assignee);
 }
 
 export async function updateComment(
@@ -236,33 +262,49 @@ export async function updateComment(
   options?: { repoRoot?: string },
 ): Promise<CommentRecord> {
   const normalized = assertMarkdownPath(fileRel);
-  const abs = sidecarAbs(modelRoot, normalized);
-  const comments = await readSidecarAbs(abs);
-  const idx = comments.findIndex((c) => c.id === id);
-  if (idx < 0) throw new ModelFsError("Comment not found", 404);
-  const current = { ...comments[idx] };
-  if (patch.text !== undefined) {
-    if (!patch.text.trim()) throw new ModelFsError("Comment text required", 400);
-    current.text = patch.text.trim();
-  }
-  if (patch.resolved !== undefined) current.resolved = patch.resolved;
+  const markdown = await readManuscript(modelRoot, normalized);
+  const existing = listInlineComments(markdown, normalized).find((comment) => comment.id === id);
+  if (!existing) throw new ModelFsError("Comment not found", 404);
+
+  const text = patch.text !== undefined ? patch.text.trim() : existing.text;
+  if (!text) throw new ModelFsError("Comment text required", 400);
+  const resolved = patch.resolved !== undefined ? patch.resolved : existing.resolved;
+  let assignedTo = parseAssigneeAttr(existing.assigned_to);
+  let assignedBy = existing.assigned_by;
+  let assignedAt = existing.assigned_at;
   if (patch.assigned_to !== undefined) {
-    const assignedTo = normalizeAssignee(patch.assigned_to);
+    assignedTo = normalizeAssignee(patch.assigned_to);
     await validateAssigneeForWrite(assignedTo, options?.repoRoot);
     if (assignedTo) {
-      current.assigned_to = assignedTo;
-      current.assigned_by = patch.assigned_by?.trim() || current.assigned_by || current.author;
-      current.assigned_at = new Date().toISOString();
+      assignedBy = patch.assigned_by?.trim() || existing.author || null;
+      assignedAt = new Date().toISOString();
     } else {
-      current.assigned_to = null;
-      current.assigned_by = null;
-      current.assigned_at = null;
+      assignedBy = null;
+      assignedAt = null;
     }
   }
-  current.updated_at = new Date().toISOString();
-  comments[idx] = current;
-  await writeSidecar(abs, comments);
-  return current;
+
+  const nextTag = buildCommentTag({
+    id,
+    author: existing.author || "unknown",
+    text,
+    resolved,
+    assigned_to: assignedTo,
+    assigned_by: assignedBy,
+    assigned_at: assignedAt ?? undefined,
+    created_at: assignedAt ?? undefined,
+  });
+  const updatedMarkdown = replaceInlineCommentById(markdown, id, nextTag);
+  if (!updatedMarkdown) throw new ModelFsError("Comment not found", 404);
+  await writeManuscript(modelRoot, normalized, updatedMarkdown);
+
+  const record = inlineCommentToRecord(
+    normalized,
+    listInlineComments(updatedMarkdown, normalized).find((comment) => comment.id === id)!,
+    assignedAt ?? undefined,
+  );
+  if (!record) throw new ModelFsError("Comment not found", 404);
+  return record;
 }
 
 export async function deleteComment(
@@ -271,11 +313,10 @@ export async function deleteComment(
   id: string,
 ): Promise<void> {
   const normalized = assertMarkdownPath(fileRel);
-  const abs = sidecarAbs(modelRoot, normalized);
-  const comments = await readSidecarAbs(abs);
-  const filtered = comments.filter((c) => c.id !== id);
-  if (filtered.length === comments.length) throw new ModelFsError("Comment not found", 404);
-  await writeSidecar(abs, filtered);
+  const markdown = await readManuscript(modelRoot, normalized);
+  const updated = removeInlineCommentById(markdown, id);
+  if (!updated) throw new ModelFsError("Comment not found", 404);
+  await writeManuscript(modelRoot, normalized, updated.replace(/[ \t]+\n/g, "\n"));
 }
 
 function summarizeCommentList(items: CommentRecord[]): Pick<
@@ -298,41 +339,41 @@ function summarizeCommentList(items: CommentRecord[]): Pick<
   return { unresolved, total, assigned, assignedUnresolved };
 }
 
-async function walkPaperCommentSidecars(
+async function walkPaperMarkdownFiles(
   modelRoot: string,
   slug: string,
-  visit: (records: CommentRecord[]) => void,
+  visit: (fileRel: string, markdown: string) => void,
 ): Promise<void> {
-  async function walkCommentsDir(dir: string): Promise<void> {
-    if (!existsSync(dir)) return;
-    const entries = await readdir(dir, { withFileTypes: true });
+  async function walkDir(dirRel: string): Promise<void> {
+    const abs = path.join(modelRoot, dirRel);
+    if (!existsSync(abs)) return;
+    const entries = await readdir(abs, { withFileTypes: true });
     for (const entry of entries) {
-      const full = path.join(dir, entry.name);
+      if (entry.name.startsWith(".")) continue;
+      const childRel = `${dirRel}/${entry.name}`;
       if (entry.isDirectory()) {
-        await walkCommentsDir(full);
-      } else if (entry.name.endsWith(".comments.json")) {
-        visit(await readSidecarAbs(full));
+        await walkDir(childRel);
+      } else if (entry.name.endsWith(".md") && entry.name !== "INDEX.md") {
+        visit(childRel, await readFile(path.join(modelRoot, childRel), "utf8"));
       }
     }
   }
-
-  await walkCommentsDir(path.join(modelRoot, "papers", slug, "sections", ".comments"));
-  await walkCommentsDir(path.join(modelRoot, "papers", slug, ".comments"));
+  await walkDir(`papers/${slug}`);
 }
 
 export async function summarizeCommentsForPaper(
   modelRoot: string,
   paperSlug: string,
 ): Promise<CommentSummary> {
-  const slug = paperSlug.trim();
-  if (!slug || slug.includes("/") || slug.includes("..")) {
-    throw new ModelFsError("Invalid paper slug", 400);
-  }
-  resolveModelPath(modelRoot, `papers/${slug}`);
+  const paperRel = resolvePaperRel(modelRoot, paperSlug);
+  const slug = paperRel.slice("papers/".length);
 
   const totals = { unresolved: 0, total: 0, assigned: 0, assignedUnresolved: 0 };
-  await walkPaperCommentSidecars(modelRoot, slug, (records) => {
-    const partial = summarizeCommentList(records);
+  await walkPaperMarkdownFiles(modelRoot, slug, (fileRel, markdown) => {
+    const inline = listInlineComments(markdown, fileRel)
+      .map((comment) => inlineCommentToRecord(fileRel, comment))
+      .filter((entry): entry is CommentRecord => entry !== null);
+    const partial = summarizeCommentList(inline);
     totals.unresolved += partial.unresolved;
     totals.total += partial.total;
     totals.assigned += partial.assigned;
@@ -346,19 +387,17 @@ export async function listAssignedCommentsForPaper(
   paperSlug: string,
   filter?: { assigneeId?: string; assigneeType?: CommentAssignee["type"] },
 ): Promise<CommentRecord[]> {
-  const slug = paperSlug.trim();
-  if (!slug || slug.includes("/") || slug.includes("..")) {
-    throw new ModelFsError("Invalid paper slug", 400);
-  }
-  resolveModelPath(modelRoot, `papers/${slug}`);
+  const paperRel = resolvePaperRel(modelRoot, paperSlug);
+  const slug = paperRel.slice("papers/".length);
 
   const results: CommentRecord[] = [];
-  await walkPaperCommentSidecars(modelRoot, slug, (records) => {
-    for (const comment of records) {
-      if (!comment.assigned_to) continue;
-      if (filter?.assigneeType && comment.assigned_to.type !== filter.assigneeType) continue;
-      if (filter?.assigneeId && comment.assigned_to.id !== filter.assigneeId) continue;
-      results.push(comment);
+  await walkPaperMarkdownFiles(modelRoot, slug, (fileRel, markdown) => {
+    for (const comment of listInlineComments(markdown, fileRel)) {
+      const record = inlineCommentToRecord(fileRel, comment);
+      if (!record?.assigned_to) continue;
+      if (filter?.assigneeType && record.assigned_to.type !== filter.assigneeType) continue;
+      if (filter?.assigneeId && record.assigned_to.id !== filter.assigneeId) continue;
+      results.push(record);
     }
   });
   return results.sort(
@@ -367,4 +406,32 @@ export async function listAssignedCommentsForPaper(
       a.line - b.line ||
       a.created_at.localeCompare(b.created_at),
   );
+}
+
+/** Migrate legacy JSON sidecar comments into inline tags on the manuscript. */
+export async function migrateSidecarCommentsToInline(
+  modelRoot: string,
+  fileRel: string,
+): Promise<{ migrated: number }> {
+  const normalized = assertMarkdownPath(fileRel);
+  const legacy = await readLegacySidecarComments(modelRoot, normalized);
+  if (legacy.length === 0) return { migrated: 0 };
+  let markdown = await readManuscript(modelRoot, normalized);
+  let migrated = 0;
+  for (const comment of legacy.sort((a, b) => a.line - b.line)) {
+    const tag = buildCommentTag({
+      id: comment.id,
+      author: comment.author,
+      text: comment.text,
+      resolved: comment.resolved,
+      assigned_to: comment.assigned_to ?? null,
+      assigned_by: comment.assigned_by ?? null,
+      assigned_at: comment.assigned_at ?? comment.created_at,
+      created_at: comment.created_at,
+    });
+    markdown = insertCommentAtLine(markdown, comment.line, tag);
+    migrated += 1;
+  }
+  await writeManuscript(modelRoot, normalized, markdown);
+  return { migrated };
 }

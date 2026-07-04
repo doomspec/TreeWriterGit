@@ -139,12 +139,6 @@ export function useDocumentOutline(): DocumentOutlineState | null {
   return useContext(DocumentOutlineContext);
 }
 
-export function useDocumentOutlineRequired(): DocumentOutlineState {
-  const ctx = useContext(DocumentOutlineContext);
-  if (!ctx) throw new Error("useDocumentOutlineRequired must be used within DocumentOutlineProvider");
-  return ctx;
-}
-
 /** Keep outline panel in sync with the active editor document. */
 export function useSyncDocumentOutline(
   markdown: string,

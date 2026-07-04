@@ -37,8 +37,7 @@ export const HELP_SHORTCUT_GROUPS: HelpShortcutGroup[] = [
     category: "Navigation",
     shortcuts: [
       { label: "Switch to Explorer", chordId: "workspace.explorer" },
-      { label: "Switch to Papers", chordId: "workspace.papers" },
-      { label: "Document outline panel", chordId: "sidebar.outline" },
+      { label: "Switch to Sections", chordId: "workspace.papers" },
       { label: "Toggle sidebar panel", chordId: "sidebar.toggle" },
       { label: "Go up one folder", chordId: "navigate.up" },
       { label: "Back to section view", chordId: "navigate.back" },
@@ -56,7 +55,7 @@ export const HELP_SHORTCUT_GROUPS: HelpShortcutGroup[] = [
     category: "View",
     shortcuts: [
       { label: "Toggle reading focus", chordId: "readingFocus.toggle" },
-      { label: "Toggle terminal & AI panel", chordId: "panel.bottom.toggle" },
+      { label: "Toggle Assistant panel", chordId: "panel.bottom.toggle" },
       { label: "Cycle theme", chordId: "theme.cycle" },
     ],
   },
@@ -75,10 +74,10 @@ export const HELP_SHORTCUT_GROUPS: HelpShortcutGroup[] = [
 
 export const HELP_FEATURES: HelpFeature[] = [
   {
-    title: "Papers workspace & section tree",
-    body: "Browse manuscripts under Papers. Drag sections and units to reorder. Hover a row for create, rename, and remove — or use the ⋯ menu on a narrow sidebar. Amber rows mark units with unapproved draft text.",
+    title: "Sections workspace & section tree",
+    body: "Browse sections and units under Sections. Drag sections and units to reorder. Hover a row for create, rename, and remove — or use the ⋯ menu on a narrow sidebar. Amber rows mark units with unapproved draft text.",
     hints: [
-      "Create sections from the paper row; create units or subsections from section rows.",
+      "Create sections from the manuscript row; create units or subsections from section rows.",
       "On unit rows, Create adds a sibling under the parent section.",
     ],
   },
@@ -90,14 +89,6 @@ export const HELP_FEATURES: HelpFeature[] = [
       "Composed drafts roll up approved unit text for export.",
       "Use Split / Write / Plan presets in the header. Shift+Alt+1/2/3 still focus individual panes.",
       "Pane layout is remembered separately for each paper, section, and unit.",
-    ],
-  },
-  {
-    title: "Document outline navigation",
-    body: "The Outline sidebar panel lists the paper title, top-level sections, and links from your ## Outline / ## Sections lists. Click a heading or list link to jump in the editor.",
-    hints: [
-      "Open from the sidebar list icon or ⌘⇧O.",
-      "Linked headings in composed drafts scroll the draft pane.",
     ],
   },
   {
@@ -121,23 +112,24 @@ export const HELP_FEATURES: HelpFeature[] = [
   },
   {
     title: "Figures, tables & equations",
-    body: "Manage assets from the Papers sidebar. Embed figures with ::figure[], equations with ::equation[], and wikilinks for cross-references. Asset autocomplete suggests paths while you type.",
+    body: "Open Assets from the sidebar to manage figures, tables, and equations. Embed figures with ::figure[], equations with ::equation[], and wikilinks for cross-references. Asset autocomplete suggests paths while you type.",
   },
   {
     title: "Export & LaTeX",
-    body: "Open Export from the sidebar download icon to download LaTeX or PDF, or push to a connected Overleaf project. Toggle include drafts to export outline and non-approved text.",
+    body: "Open Export from the sidebar download icon to download LaTeX, PDF, or Word, or push to Overleaf for journal papers. Grants and reports emphasize Word export. Toggle include drafts to export outline and non-approved text.",
     hints: [
       "Settings → Export can auto-export after edits and optionally push to Overleaf.",
       "Modular export writes one .tex file per section for Overleaf \\input{} workflows.",
     ],
   },
   {
-    title: "Terminal & AI dispatch",
-    body: "The bottom panel combines a terminal with AI dispatch. Each preview bundles outline, draft, links, sibling units, and paper search hits. Terminal cwd is model/; agents use tw-context for read-only lookup and pnpm import-docx from repo root for bulk Word import.",
+    title: "Assistant, terminal & AI",
+    body: "The Assistant panel (sparkle icon, right split) combines chat, dispatch hot commands, and a collapsible terminal. Each preview bundles outline, draft, links, sibling units, and paper search hits. Paper-wide chat history lives under papers/{slug}/notes/sessions/. Terminal cwd is model/; agents use tw-context for read-only lookup and pnpm import-docx from repo root for bulk Word import.",
     hints: [
-      "Dispatch → Skills: enable treewriter-context-cli.md first (AI usage + CLI), then writing skills.",
-      "Dispatch → Integration: copy system prompt or context CLI cheatsheet.",
-      "Configure AI providers in Settings; keep pnpm dev running for FTS search.",
+      "Settings → Skills: system skills always load; enable user writing skills as needed.",
+      "System action prompts (dispatch-draft.md, etc.) are editable with Reset to repo default.",
+      "Assistant → Integration: copy system prompt or context CLI cheatsheet.",
+      "Configure AI providers in Settings; keep pnpm dev running for FTS search and API-backed tw-context commands.",
     ],
   },
   {
@@ -185,11 +177,11 @@ export const HELP_OVERLEAF = {
 };
 
 export const HELP_QUICK_START = [
-  "Open a paper under Papers and browse sections and units in the sidebar.",
+  "Open a paper under Paper, then browse sections and units in the Sections sidebar.",
   "Edit outline and draft in split view; approve draft changes to sync composed text.",
-  "Use the document outline panel or graph to jump between linked sections.",
+  "Use the graph panel to jump between linked sections.",
   "Connect Overleaf from Export when you are ready to share LaTeX with collaborators.",
-  "Use AI dispatch from unit panes; tw-context CLI in the terminal fetches extra manuscript context on demand.",
+  "Use the Assistant panel for AI dispatch; tw-context CLI in the terminal fetches extra manuscript context on demand.",
   "Press ⌘⇧F for reading focus; press ⌘K whenever you forget a shortcut.",
 ] as const;
 

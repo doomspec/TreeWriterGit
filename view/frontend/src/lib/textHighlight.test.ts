@@ -23,6 +23,19 @@ describe("textHighlight", () => {
     expect(isInlineAuthorNoteMacro("hl")).toBe(false);
   });
 
+  it("does not wrap empty selection", () => {
+    expect(wrapTextHighlight("yellow", "")).toBe("");
+    expect(wrapTextHighlight("yellow", "   ")).toBe("");
+  });
+
+  it("leaves content unchanged when highlighting empty selection", () => {
+    const input = "Alpha beta gamma";
+    const result = applyTextHighlight(input, 6, 6, "yellow");
+    expect(result.value).toBe(input);
+    expect(result.selectionStart).toBe(6);
+    expect(result.selectionEnd).toBe(6);
+  });
+
   it("wraps selection in highlight macro", () => {
     expect(wrapTextHighlight("yellow", "important")).toBe("\\hl{yellow}{important}");
   });

@@ -42,12 +42,15 @@ export function MarkdownSourcePane({
   content,
   diffBaseline,
   showInlinePendingHighlights,
+  disableSourceMirrors = false,
   filePath,
   setContent,
   assetAutocomplete,
   updateSelectedLine,
   onTextareaKeyDown,
   editorPlaceholder: _editorPlaceholder = "Write here…",
+  commentLines,
+  activeCommentLine = null,
 }: {
   compact: boolean;
   readingFocusActive: boolean;
@@ -69,6 +72,7 @@ export function MarkdownSourcePane({
   content: string;
   diffBaseline: string;
   showInlinePendingHighlights: boolean;
+  disableSourceMirrors?: boolean;
   filePath: string;
   setContent: (value: string) => void;
   assetAutocomplete: {
@@ -78,6 +82,8 @@ export function MarkdownSourcePane({
   updateSelectedLine: () => void;
   onTextareaKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   editorPlaceholder?: string;
+  commentLines?: Set<number>;
+  activeCommentLine?: number | null;
 }) {
   return (
     <div
@@ -122,8 +128,11 @@ export function MarkdownSourcePane({
         )}
         mirrorClassName="p-4 font-mono text-[13px] leading-6"
         value={content}
-        baseline={diffBaseline}
-        highlight={showInlinePendingHighlights}
+        baseline={disableSourceMirrors ? content : diffBaseline}
+        highlight={showInlinePendingHighlights && !disableSourceMirrors}
+        showTextHighlights={!disableSourceMirrors}
+        commentLines={commentLines}
+        activeCommentLine={activeCommentLine}
         spellCheck={false}
         aria-label={`Edit source ${filePath}`}
         onChange={(e) => {

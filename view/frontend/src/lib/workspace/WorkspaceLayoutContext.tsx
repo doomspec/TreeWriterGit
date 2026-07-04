@@ -22,6 +22,16 @@ export type WorkspaceLayoutContextValue = {
   setBottomPanelHeight: (height: number) => void;
   agentPanelOpen: boolean;
   setAgentPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  aiPanelOpen: boolean;
+  setAiPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  aiPanelWidth: number;
+  setAiPanelWidth: (width: number) => void;
+  aiPanelTerminalOpen: boolean;
+  setAiPanelTerminalOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  aiPanelDispatchOpen: boolean;
+  setAiPanelDispatchOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
+  aiPanelSkillsOpen: boolean;
+  setAiPanelSkillsOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
 };
 
 const WorkspaceLayoutContext = createContext<WorkspaceLayoutContextValue | null>(null);

@@ -14,14 +14,17 @@
   max-width: 42rem;
   margin-inline: auto;
   font-family: var(--reading-font-family);
-  font-size: calc(1.05rem * 0.85 * var(--reading-font-size-scale, 1));
-  line-height: 1.65;
+  font-size: calc(1.05rem * 0.92 * var(--reading-font-size-scale, 1));
+  line-height: 1.75;
   color: hsl(var(--foreground));
 }
 
 .markdown-pane .markdown-reading {
-  max-width: none;
-  margin-inline: 0;
+  /* Cap the reading measure on wide single-column panes (e.g. WRITE mode)
+     without shrinking narrower split-view panes: falls back to 100% of the
+     pane whenever that's less than the cap. */
+  max-width: min(100%, 48rem);
+  margin-inline: auto;
 }
 
 .markdown-pane .markdown-body h1,
@@ -93,6 +96,22 @@
   border-radius: 2px;
 }
 
+.highlight-line--comment {
+  background: hsl(var(--primary) / 0.12);
+  box-shadow: inset 3px 0 0 hsl(var(--primary) / 0.55);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border-radius: 2px;
+}
+
+.highlight-line--comment-active {
+  background: hsl(var(--primary) / 0.2);
+  box-shadow: inset 3px 0 0 hsl(var(--primary));
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border-radius: 2px;
+}
+
 .highlight-inline--pending {
   background: hsl(var(--warning) / 0.28);
   box-decoration-break: clone;
@@ -114,6 +133,14 @@ del.highlight-inline--deleted {
 .dark .highlight-line--pending,
 .dark .highlight-inline--pending {
   background: hsl(var(--warning) / 0.22);
+}
+
+.dark .highlight-line--comment {
+  background: hsl(var(--primary) / 0.16);
+}
+
+.dark .highlight-line--comment-active {
+  background: hsl(var(--primary) / 0.24);
 }
 
 .dark .highlight-inline--deleted,
@@ -268,7 +295,7 @@ del.highlight-inline--deleted.pending-change-focus {
 .markdown-body h1 {
   margin: 0 0 0.875rem;
   font-family: var(--reading-font-family);
-  font-size: calc(1.75rem * 0.85 * var(--reading-font-size-scale, 1));
+  font-size: calc(1.75rem * 0.92 * var(--reading-font-size-scale, 1));
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -278,7 +305,7 @@ del.highlight-inline--deleted.pending-change-focus {
 .markdown-body h2 {
   margin: 1.5rem 0 0.625rem;
   font-family: var(--reading-font-family);
-  font-size: calc(1.25rem * 0.85 * var(--reading-font-size-scale, 1));
+  font-size: calc(1.25rem * 0.92 * var(--reading-font-size-scale, 1));
   font-weight: 650;
   line-height: 1.3;
   color: hsl(var(--foreground));
@@ -288,7 +315,7 @@ del.highlight-inline--deleted.pending-change-focus {
 .markdown-body h3 {
   margin: 1.25rem 0 0.5rem;
   font-family: var(--reading-font-family);
-  font-size: calc(1.05rem * 0.85 * var(--reading-font-size-scale, 1));
+  font-size: calc(1.05rem * 0.92 * var(--reading-font-size-scale, 1));
   font-weight: 650;
   line-height: 1.35;
   color: hsl(var(--foreground));
@@ -314,7 +341,7 @@ del.highlight-inline--deleted.pending-change-focus {
 
 .markdown-body h4 {
   margin: 1rem 0 0.375rem;
-  font-size: calc(0.95rem * 0.85 * var(--reading-font-size-scale, 1));
+  font-size: calc(0.95rem * 0.92 * var(--reading-font-size-scale, 1));
   font-weight: 650;
   line-height: 1.35;
   color: hsl(var(--foreground) / 0.9);
@@ -454,9 +481,7 @@ del.highlight-inline--deleted.pending-change-focus {
 .markdown-body a.outline-nav-link--active {
   background: hsl(var(--accent) / 0.65);
   color: hsl(var(--foreground));
-  font-weight: 600;
   border-radius: 0.25rem;
-  padding-inline: 0.15rem;
   text-decoration: none;
   box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.35);
 }
@@ -491,6 +516,20 @@ del.highlight-inline--deleted.pending-change-focus {
 .block-markdown-editor--review .block-markdown-editor__block--review {
   border-left-color: hsl(var(--amber-500) / 0.35);
   padding-left: 0.75rem;
+}
+
+.block-markdown-editor__block--comment {
+  border-left: 3px solid hsl(var(--primary) / 0.45);
+  padding-left: 0.75rem;
+  background: hsl(var(--primary) / 0.06);
+  border-radius: 0.375rem;
+}
+
+.block-markdown-editor__block--comment-active {
+  border-left: 3px solid hsl(var(--primary));
+  padding-left: 0.75rem;
+  background: hsl(var(--primary) / 0.12);
+  border-radius: 0.375rem;
 }
 
 .markdown-body a {
@@ -571,6 +610,44 @@ del.highlight-inline--deleted.pending-change-focus {
 .latex-ref-badge--linked:hover {
   background: hsl(var(--primary) / 0.18);
   border-color: hsl(var(--primary) / 0.35);
+}
+
+.latex-cite-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.25rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.35);
+  padding: 0.05rem 0.35rem;
+  font-size: 0.72rem;
+  vertical-align: baseline;
+}
+
+.latex-cite-badge--clickable {
+  cursor: pointer;
+}
+
+.latex-cite-badge--clickable:hover {
+  background: hsl(var(--accent));
+}
+
+.latex-cite-badge__icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  opacity: 0.75;
+}
+
+.latex-cite-badge__tag {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+.latex-cite-badge__key {
+  font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .text-highlight-badge {
@@ -714,7 +791,7 @@ del.highlight-inline--deleted.pending-change-focus {
 .editor-text-zoom-root .composed-draft-raw,
 .editor-text-zoom-root .composed-draft-preview {
   font-size: calc(
-    1.05rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+    1.05rem * var(--editor-text-base, 0.92) * var(--reading-font-size-scale, 1) *
       var(--editor-text-zoom, 1)
   );
 }
@@ -722,33 +799,33 @@ del.highlight-inline--deleted.pending-change-focus {
 .editor-text-zoom-root .highlighting-textarea__input.font-mono,
 .editor-text-zoom-root .highlighting-textarea__mirror.font-mono,
 .editor-text-zoom-root .bg-editor .font-mono {
-  font-size: calc(13px * var(--editor-text-base, 0.85) * var(--editor-text-zoom, 1));
+  font-size: calc(13px * var(--editor-text-base, 0.92) * var(--editor-text-zoom, 1));
 }
 
 .editor-text-zoom-root .markdown-body h1 {
   font-size: calc(
-    1.75rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+    1.75rem * var(--editor-text-base, 0.92) * var(--reading-font-size-scale, 1) *
       var(--editor-text-zoom, 1)
   );
 }
 
 .editor-text-zoom-root .markdown-body h2 {
   font-size: calc(
-    1.25rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+    1.25rem * var(--editor-text-base, 0.92) * var(--reading-font-size-scale, 1) *
       var(--editor-text-zoom, 1)
   );
 }
 
 .editor-text-zoom-root .markdown-body h3 {
   font-size: calc(
-    1.05rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+    1.05rem * var(--editor-text-base, 0.92) * var(--reading-font-size-scale, 1) *
       var(--editor-text-zoom, 1)
   );
 }
 
 .editor-text-zoom-root .markdown-body h4 {
   font-size: calc(
-    0.95rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+    0.95rem * var(--editor-text-base, 0.92) * var(--reading-font-size-scale, 1) *
       var(--editor-text-zoom, 1)
   );
 }
@@ -756,7 +833,7 @@ del.highlight-inline--deleted.pending-change-focus {
 .editor-text-zoom-root .markdown-preview-edit > h1,
 .editor-text-zoom-root .rendered-markdown-field > h1 {
   font-size: calc(
-    1.5rem * var(--editor-text-base, 0.85) * var(--reading-font-size-scale, 1) *
+    1.5rem * var(--editor-text-base, 0.92) * var(--reading-font-size-scale, 1) *
       var(--editor-text-zoom, 1)
   );
 }

@@ -2,13 +2,14 @@ import { Bot, User } from "lucide-react";
 
 import { PendingChangesDiff, usePendingChangesSummary } from "@/components/editor/PendingChangesDiff";
 import { Button } from "@/components/ui/button";
-import { formatGitHubHandle, type DraftPendingSource } from "@/lib/draftApproval";
+import { formatPendingAuthorLabel, type DraftPendingSource } from "@/lib/draftApproval";
 import { cn } from "@/lib/utils";
 
 export function DraftApprovalRail({
   pendingSource,
   editedBy,
   aiAssisted = false,
+  aiProvider = null,
   onApprove,
   onDiscard,
   approving = false,
@@ -21,6 +22,7 @@ export function DraftApprovalRail({
   pendingSource: DraftPendingSource | null;
   editedBy?: string | null;
   aiAssisted?: boolean;
+  aiProvider?: string | null;
   onApprove: () => void;
   onDiscard: () => void;
   approving?: boolean;
@@ -34,8 +36,14 @@ export function DraftApprovalRail({
 
   if (!pendingSource) return null;
 
-  const Icon = pendingSource === "ai" || aiAssisted ? Bot : User;
-  const handleLabel = formatGitHubHandle(editedBy);
+  const source = pendingSource ?? (aiAssisted ? "ai" : "human");
+  const Icon = source === "ai" || aiAssisted ? Bot : User;
+  const authorLabel = formatPendingAuthorLabel({
+    pendingSource: source,
+    editedBy,
+    aiAssisted,
+    aiProvider,
+  });
 
   return (
     <aside
@@ -49,8 +57,7 @@ export function DraftApprovalRail({
             Track changes
           </p>
           <p className="truncate text-[10px] text-muted-foreground">
-            {handleLabel ? `${handleLabel} · ` : ""}
-            {summary}
+            {authorLabel} · {summary}
           </p>
         </div>
       </div>

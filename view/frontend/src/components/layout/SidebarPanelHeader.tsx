@@ -1,26 +1,20 @@
-import { Pin, PinOff } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatGitSyncError, gitSyncHasError, type GitSyncState } from "@/lib/gitSync";
 
-export function SidebarPanelHeader({
+/** Git and terminal status — pinned to the bottom of the sidebar panel. */
+export function SidebarPanelFooter({
   gitSync,
   gitStatusLabel,
   onGitClick,
   connectionState,
-  pinned,
-  onTogglePin,
 }: {
   gitSync: GitSyncState | null;
   gitStatusLabel: string;
   onGitClick: () => void;
   connectionState: string;
-  pinned?: boolean;
-  onTogglePin?: () => void;
 }) {
   return (
-    <div className="sidebar-panel-header sticky top-0 z-[55]">
+    <div className="sidebar-panel-header shrink-0 border-t border-border">
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
         <button
           type="button"
@@ -49,27 +43,12 @@ export function SidebarPanelHeader({
           terminal {connectionState.replace("_", " ")}
         </span>
       </div>
-      {onTogglePin ? (
-        <Button
-          type="button"
-          variant={pinned ? "default" : "ghost"}
-          size="icon"
-          className="ml-auto h-7 w-7 shrink-0"
-          title={pinned ? "Unpin sidebar (show on hover)" : "Pin sidebar open"}
-          aria-label={pinned ? "Unpin sidebar panel" : "Pin sidebar panel open"}
-          aria-pressed={pinned}
-          onClick={onTogglePin}
-        >
-          {pinned ? (
-            <Pin className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <PinOff className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </Button>
-      ) : null}
     </div>
   );
 }
+
+/** @deprecated Use SidebarPanelFooter */
+export const SidebarPanelHeader = SidebarPanelFooter;
 
 export function gitSyncBadgeClass(gitSync: GitSyncState | null): string {
   if (gitSync?.conflictDetected) return "ui-badge-destructive";

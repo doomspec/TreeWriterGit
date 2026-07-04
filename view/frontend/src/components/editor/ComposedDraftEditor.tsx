@@ -1,31 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { BlockMarkdownEditor, type BlockMarkdownEditorHandle } from "@/components/editor/BlockMarkdownEditor";
+import type { BlockMarkdownEditorHandle } from "@/components/editor/editorHandle";
+import { ProseMirrorMarkdownField } from "@/components/editor/ProseMirrorMarkdownField";
 import {
   EditorAssetAutocompleteLayer,
   EditorCommentsOverlay,
   EditorShell,
 } from "@/components/editor/EditorShell";
+import { EditorPaneHeader } from "@/components/editor/chrome/EditorPaneHeader";
 import { DraftApprovalBar } from "@/components/editor/DraftApprovalBar";
+import { DraftApprovalRail } from "@/components/editor/DraftApprovalRail";
 import { MultiParagraphApprovalDialog } from "@/components/editor/MultiParagraphApprovalDialog";
 import { PendingApprovalChip } from "@/components/editor/PendingApprovalChip";
-import { EditorFocusToggle } from "@/components/editor/EditorFocusToggle";
-import { EditorPaneModeToggle } from "@/components/editor/EditorPaneModeToggle";
-import { EditorPaneOverflowMenu } from "@/components/editor/EditorPaneOverflowMenu";
-import { EditorUndoRedoButtons } from "@/components/editor/EditorUndoRedoButtons";
 import { HighlightingTextarea } from "@/components/editor/HighlightingTextarea";
 import { MarkdownToolbar } from "@/components/editor/MarkdownToolbar";
 import { InlineSelectionToolbar } from "@/components/editor/InlineSelectionToolbar";
 import { ReadingFocusEditBar } from "@/components/editor/ReadingFocusEditBar";
 import { ReadingFocusFloatingBar } from "@/components/editor/ReadingFocusFloatingBar";
 import { ReadingFocusDocumentLayout } from "@/components/editor/ReadingFocusDocumentLayout";
-import { ReadingFocusTitleLink } from "@/components/editor/ReadingFocusTitleLink";
 import { usePendingChangeNavigation } from "@/lib/usePendingChangeNavigation";
 import { useSyncDocumentOutline } from "@/lib/documentOutline";
-import { headingIdFromLine } from "@/lib/markdownOutline";
 import { useRenderedOrTextareaFormat } from "@/lib/useRenderedOrTextareaFormat";
 import { handleFormatShortcut } from "@/lib/editor/formatShortcut";
-import { draftSaveMeta, draftStatusLabel, loadDraftApprovalState, approveDraftAtPath, type DraftEditMeta } from "@/lib/draftApproval";
+import { draftSaveMeta, draftStatusLabel, loadDraftApprovalState, approveDraftAtPath, resolvePendingApprovalDisplay, type DraftEditMeta } from "@/lib/draftApproval";
 import { effectiveDiffBaseline } from "@/lib/draftDiff";
 import { handleEditorUndoRedoShortcuts } from "@/lib/editorUndoShortcuts";
 import { markdownWordCount } from "@/lib/editorStats";
@@ -43,14 +40,18 @@ import {
 } from "@/lib/composedDraftStructure";
 import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { paperPathFromModelPath } from "@/lib/assetInsert";
-import { useEditorCrossRef } from "@/lib/hooks/useEditorCrossRef";
 import { useEditorComments } from "@/lib/hooks/useEditorComments";
+import {
+  editorCommentLines,
+  fileLineToEditorLine,
+  unresolvedCommentFileLines,
+} from "@/lib/commentLineHighlight";
 import { useDocumentEditor } from "@/lib/hooks/useDocumentEditor";
 import { useAssetAutocomplete } from "@/lib/useAssetAutocomplete";
-import { TextZoomControl } from "@/components/editor/TextZoomControl";
 import { editorTextZoomStyle } from "@/lib/editorTextZoom";
 import { useEditorTextZoom } from "@/lib/useEditorTextZoom";
 import { useReadingFocus } from "@/lib/readingFocus";
+import { useReviewRailOpen } from "@/lib/useReviewRailOpen";
 import { useEditorDraftPendingPaths } from "@/lib/draftPendingStore";
 import { sessionKeyForComposedDraft, loadEditorSession, type EditorPaneMode } from "@/lib/editorSessionState";
 import { useEditorPresence } from "@/lib/hooks/useEditorPresence";
@@ -116,23 +117,15 @@ export function ComposedDraftEditor({
   showReadingFocusBar?: boolean;
 }) {
   const readingFocus = useReadingFocus();
+  const [reviewRailOpen, toggleReviewRail] = useReviewRailOpen();
   const nav = useWorkspaceNavigationContext();
-  const effectiveLinkContext = linkContextPath || containerPath;
-  const activeOutlineNavPath = useMemo(() => {
-    const focus = nav.activeFile ? parentPath(nav.activeFile) : nav.browsePath;
-    const context = effectiveLinkContext.replace(/\\/g, "/").replace(/\/+$/, "");
-    const normalizedFocus = focus.replace(/\\/g, "/").replace(/\/+$/, "");
-    if (!normalizedFocus || normalizedFocus === context) return null;
-    return normalizedFocus;
-  }, [containerPath, effectiveLinkContext, nav.activeFile, nav.browsePath]);
   const paperPath = useMemo(
     () => paperPathFromModelPath(linkContextPath || containerPath),
     [containerPath, linkContextPath],
   );
-  const figureLabelIndex = useEditorCrossRef(paperPath, refreshVersion);
 
   const [loadedContent, setLoadedContent] = useState("");
-  const [approvedBaseline, setApprovedBaseline] = useState("");
+  const [approvedBaseline, setApprovedBaseline] = useState<string | null>(null);
   const [editMeta, setEditMeta] = useState<DraftEditMeta>({
     editedBy: null,
     editedAt: null,
@@ -158,6 +151,8 @@ export function ComposedDraftEditor({
   const [structureBusy, setStructureBusy] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const blockRef = useRef<BlockMarkdownEditorHandle | null>(null);
+  const [activeActions, setActiveActions] = useState<ReadonlySet<string>>(() => new Set());
+  const handleActiveFormats = useCallback((actions: string[]) => setActiveActions(new Set(actions)), []);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const editorSessionKey = sessionKeyForComposedDraft(containerPath);
   const isDirtyRef = useRef(false);
@@ -272,10 +267,6 @@ export function ComposedDraftEditor({
 
   const editorStats = useMemo(() => markdownWordCount(content), [content]);
   const outlineMarkdown = useMemo(() => buildDraftMarkdown(title, content), [title, content]);
-  const documentTitleHeadingId = useMemo(
-    () => (title.trim() ? headingIdFromLine(`# ${title.trim()}`, new Map()) : null),
-    [title],
-  );
   const bindOutlineScroll = useSyncDocumentOutline(
     outlineMarkdown,
     scrollContainerRef,
@@ -285,10 +276,18 @@ export function ComposedDraftEditor({
   isDirtyRef.current = isDirty;
   const lineCount = useMemo(() => Math.max(24, content.split("\n").length + 2), [content]);
   const draftFilePath = `${containerPath}/draft.md`;
-  const { unresolvedComments, setUnresolvedComments } = useEditorComments(
+  const fullDraftMarkdown = useMemo(() => buildDraftMarkdown(title, content), [title, content]);
+  const { unresolvedComments, comments, setUnresolvedComments, setComments } = useEditorComments(
     draftFilePath,
     refreshVersion,
   );
+  const draftCommentLines = useMemo(
+    () => editorCommentLines(unresolvedCommentFileLines(comments), fullDraftMarkdown, content),
+    [comments, content, fullDraftMarkdown],
+  );
+  const activeDraftCommentLine = commentsOpen
+    ? fileLineToEditorLine(selectedLine, fullDraftMarkdown, content)
+    : null;
   const { otherEditor } = useEditorPresence(draftFilePath, authorName);
   const diffBaseline = useMemo(
     () => effectiveDiffBaseline(approvedBaseline, loadedContent),
@@ -310,6 +309,10 @@ export function ComposedDraftEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paneMode]);
   const showInlinePendingHighlights = showPendingHighlights && pendingHighlightsReady;
+  // "Clean preview": lets the author read the current text without the inline
+  // tracked-changes diff, without discarding the pending approval state.
+  const [cleanPreview, setCleanPreview] = useState(false);
+  const effectivePendingHighlights = showInlinePendingHighlights && !cleanPreview;
   const editorDraftPendingPaths = useEditorDraftPendingPaths();
   const outlinePath = `${containerPath}/outline.md`;
   const outlinePendingElsewhere = useMemo(
@@ -422,18 +425,47 @@ export function ComposedDraftEditor({
     [containerPath, content, nav, onError, onSynced, structureInsert],
   );
 
+  const approvalDisplay = resolvePendingApprovalDisplay({
+    editMeta,
+    pendingSource,
+    githubHandle,
+    isDirty,
+  });
+
   const approvalBar = sessionApprovalActive ? (
     <DraftApprovalBar
-      pendingSource={pendingSource}
-      editedBy={githubHandle || editMeta.editedBy}
-      aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
+      pendingSource={approvalDisplay.pendingSource}
+      editedBy={approvalDisplay.editedBy}
+      aiAssisted={approvalDisplay.aiAssisted}
+      aiProvider={approvalDisplay.aiProvider}
+      approvers={editMeta.approvers ?? []}
+      gitCommit={editMeta.gitCommit ?? null}
       onApprove={() => void runApprove()}
       onDiscard={() => void handleDiscard()}
       approving={saveState === "saving"}
       approveLabel="Approve & sync"
       changeNavigation={pendingChangeNavigation}
+      reviewRailOpen={reviewRailOpen}
+      onToggleReviewRail={toggleReviewRail}
     />
   ) : null;
+
+  const approvalRail =
+    sessionApprovalActive && reviewRailOpen ? (
+      <DraftApprovalRail
+        pendingSource={approvalDisplay.pendingSource}
+        editedBy={approvalDisplay.editedBy}
+        aiAssisted={approvalDisplay.aiAssisted}
+        aiProvider={approvalDisplay.aiProvider}
+        onApprove={() => void runApprove()}
+        onDiscard={() => void handleDiscard()}
+        approving={saveState === "saving"}
+        approveLabel="Approve & sync"
+        approvedBaseline={diffBaseline}
+        loadedContent={loadedContent}
+        current={content}
+      />
+    ) : null;
 
   useEffect(() => {
     if (!isPendingApproval) return;
@@ -520,6 +552,26 @@ export function ComposedDraftEditor({
       renderedActive: paneMode === "rendered",
       onTextareaEdit,
     });
+
+  // Route undo/redo to the PM history when the rendered surface is active so
+  // the toolbar buttons and keyboard share one stack.
+  const pmUndo = useCallback(() => {
+    if (paneMode === "rendered" && blockRef.current?.runUndo) blockRef.current.runUndo();
+    else undo();
+  }, [paneMode, undo]);
+  const pmRedo = useCallback(() => {
+    if (paneMode === "rendered" && blockRef.current?.runRedo) blockRef.current.runRedo();
+    else redo();
+  }, [paneMode, redo]);
+  const pmCanUndo =
+    paneMode === "rendered" && blockRef.current?.canUndo ? blockRef.current.canUndo() : canUndo;
+  const pmCanRedo =
+    paneMode === "rendered" && blockRef.current?.canRedo ? blockRef.current.canRedo() : canRedo;
+
+  useEffect(() => {
+    nav.registerEditorInsertSnippet((snippet) => insertSnippet(snippet));
+    return () => nav.registerEditorInsertSnippet(null);
+  }, [insertSnippet, nav]);
 
   const assetAutocomplete = useAssetAutocomplete({
     paperPath,
@@ -663,14 +715,6 @@ export function ComposedDraftEditor({
     defaultLabel: "approved",
   });
 
-  const paneModeToggle = (
-    <EditorPaneModeToggle
-      paneMode={paneMode}
-      onPaneModeChange={setPaneMode}
-      ariaLabel={`${paneLabel} editing mode`}
-      reviewMode={showInlinePendingHighlights && paneMode === "rendered"}
-    />
-  );
 
   const paneEditBar = (
     <ReadingFocusEditBar
@@ -692,39 +736,32 @@ export function ComposedDraftEditor({
           onInsertInlineNote={insertInlineNote}
           onInsertHighlight={insertTextHighlight}
           onInsertSnippet={insertSnippet}
+          activeActions={activeActions}
         />
       }
       trailing={
-        readingFocus.active ? (
-          <>
-            {paneModeToggle}
-            {headerExtra}
-          </>
-        ) : (
-          <>
-            {paneModeToggle}
-            <EditorPaneOverflowMenu statusText={!sessionApprovalActive ? saveLabel : undefined}>
-              <div className="px-1 py-1">
-                <EditorUndoRedoButtons
-                  canUndo={canUndo}
-                  canRedo={canRedo}
-                  onUndo={undo}
-                  onRedo={redo}
-                />
-              </div>
-              <div className="px-1 py-1">
-                <EditorFocusToggle />
-              </div>
-              <div className="px-1 py-1 font-mono text-[10px] text-muted-foreground">
-                {editorStats.words} words · {editorStats.characters} chars
-              </div>
-              <div className="px-1 py-1">
-                <TextZoomControl zoom={zoom} onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={resetZoom} />
-              </div>
-              {headerExtra ? <div className="px-1 py-1">{headerExtra}</div> : null}
-            </EditorPaneOverflowMenu>
-          </>
-        )
+        <EditorPaneHeader
+          paneLabel={paneLabel}
+          paneMode={paneMode}
+          onPaneModeChange={setPaneMode}
+          reviewMode={effectivePendingHighlights && paneMode === "rendered"}
+          pendingDiffAvailable={showInlinePendingHighlights}
+          cleanPreview={cleanPreview}
+          onCleanPreviewChange={setCleanPreview}
+          canUndo={pmCanUndo}
+          canRedo={pmCanRedo}
+          onUndo={pmUndo}
+          onRedo={pmRedo}
+          wordCount={editorStats.words}
+          charCount={editorStats.characters}
+          zoom={zoom}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onZoomReset={resetZoom}
+          statusText={!sessionApprovalActive ? saveLabel : undefined}
+          headerExtra={headerExtra}
+          readingFocusActive={readingFocus.active}
+        />
       }
     />
   );
@@ -748,6 +785,7 @@ export function ComposedDraftEditor({
           onClose={() => setCommentsOpen(false)}
           onError={onError}
           onUnresolvedChange={setUnresolvedComments}
+          onCommentsChange={setComments}
           onNavigateToLine={setSelectedLine}
         />
       }
@@ -794,72 +832,36 @@ export function ComposedDraftEditor({
         {content.trim() || paneMode === "raw" ? (
           paneMode === "rendered" ? (
             content.trim() ? (
-              <ReadingFocusDocumentLayout
-                title={
-                  title.trim() ? (
-                    <ReadingFocusTitleLink
-                      title={title}
-                      contextPath={linkContextPath || containerPath}
-                      headingId={documentTitleHeadingId}
-                      onNavigate={onNavigate}
-                    />
-                  ) : null
-                }
-              >
-                <BlockMarkdownEditor
-                  ref={blockRef}
+              <ReadingFocusDocumentLayout>
+                <ProseMirrorMarkdownField
+                  editorRef={blockRef}
                   value={content}
+                  onChange={setContent}
+                  onSelect={updateSelectedLine}
+                  ariaLabel={`Edit composed ${paneLabel.toLowerCase()}`}
+                  onNavigate={onNavigate}
+                  linkContextPath={linkContextPath}
+                  linksClickable
+                  onActiveFormatsChange={handleActiveFormats}
                   approvedBaseline={approvedBaseline}
-                  loadedContent={loadedContent}
-                  figureLabelIndex={figureLabelIndex}
-                  highlightPending={showInlinePendingHighlights}
-                  pendingApproval={
-                    showInlinePendingHighlights
-                      ? {
-                          pendingSource: pendingSource ?? "human",
-                          editedBy: githubHandle || editMeta.editedBy,
-                          aiAssisted: pendingSource === "ai" || editMeta.aiAssisted,
-                          aiProvider: editMeta.aiProvider,
-                          loadedContent,
-                          onApprove: () => void runApprove(),
-                          onDiscard: () => void handleDiscard(),
-                          approving: saveState === "saving",
-                          approveLabel: "Approve & sync",
-                        }
-                      : null
-                  }
-                  className={cn(
-                    "composed-draft-preview",
-                    title.trim() && "composed-draft-preview--hide-lead-title",
-                  )}
-                linkContextPath={linkContextPath}
-                activeOutlineNavPath={activeOutlineNavPath}
-                linksClickable
-                ariaLabel={`Edit composed ${paneLabel.toLowerCase()}`}
-                onNavigate={onNavigate}
-                refreshVersion={refreshVersion}
-                onChange={setContent}
-                inputRef={textareaRef}
-                onSelect={updateSelectedLine}
-                onBlur={(event) => assetAutocomplete.handleEditorBlur(event.currentTarget)}
-                onKeyDown={onBlockKeyDown}
-                onTextareaSync={(textarea) => void assetAutocomplete.sync(textarea)}
-                composedDraftActions={composedDraftActions}
-              />
+                  showPendingDiff={effectivePendingHighlights}
+                  refreshVersion={refreshVersion}
+                  className="composed-draft-preview"
+                />
               </ReadingFocusDocumentLayout>
             ) : (
               <p className="text-sm italic text-muted-foreground">Empty composed draft.</p>
             )
           ) : (
             <>
-              {showInlinePendingHighlights ? (
+              {effectivePendingHighlights ? (
                 <PendingApprovalChip
                   inline
                   className="mb-2"
-                  pendingSource={pendingSource ?? "human"}
-                  editedBy={githubHandle || editMeta.editedBy}
-                  aiAssisted={pendingSource === "ai" || editMeta.aiAssisted}
-                  aiProvider={editMeta.aiProvider}
+                  pendingSource={approvalDisplay.pendingSource ?? "human"}
+                  editedBy={approvalDisplay.editedBy}
+                  aiAssisted={approvalDisplay.aiAssisted}
+                  aiProvider={approvalDisplay.aiProvider}
                   approvedBaseline={approvedBaseline}
                   loadedContent={loadedContent}
                   current={content}
@@ -876,7 +878,9 @@ export function ComposedDraftEditor({
               mirrorClassName="font-mono text-[13px] leading-6"
               value={content}
               baseline={diffBaseline}
-              highlight={showInlinePendingHighlights}
+              highlight={effectivePendingHighlights}
+              commentLines={draftCommentLines}
+              activeCommentLine={activeDraftCommentLine}
               rows={lineCount}
               spellCheck={false}
               aria-label={`Edit composed ${paneLabel.toLowerCase()} (raw)`}
@@ -921,18 +925,27 @@ export function ComposedDraftEditor({
             }}
           />
           {readingFocus.active && showReadingFocusBar ? (
-            <ReadingFocusFloatingBar
-              className="reading-focus-floating-bar"
-              wordCount={editorStats.words}
-              charCount={editorStats.characters}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              onUndo={undo}
-              onRedo={redo}
-              onExit={readingFocus.exit}
-            />
+            <div className="reading-focus-floating-bar-host">
+              <ReadingFocusFloatingBar
+                className="reading-focus-floating-bar"
+                wordCount={editorStats.words}
+                charCount={editorStats.characters}
+                canUndo={pmCanUndo}
+                canRedo={pmCanRedo}
+                onUndo={pmUndo}
+                onRedo={pmRedo}
+                onExit={readingFocus.exit}
+                paneMode={paneMode}
+                onPaneModeChange={setPaneMode}
+                paneLabel={paneLabel}
+                pendingDiffAvailable={showInlinePendingHighlights}
+                cleanPreview={cleanPreview}
+                onCleanPreviewChange={setCleanPreview}
+              />
+            </div>
           ) : null}
         </div>
+        {approvalRail}
       </div>
     </EditorShell>
       <NamePromptDialog

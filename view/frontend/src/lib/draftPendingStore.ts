@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 
+import type { PendingReviewItem } from "@treewriter/shared";
+
 const PENDING_EVENT = "treewriter:draft-pending";
 
 const serverPendingPaths = new Set<string>();
+const serverPendingReviews: PendingReviewItem[] = [];
 const editorPendingPaths = new Set<string>();
 let pendingPaths = new Set<string>();
 
@@ -42,6 +45,17 @@ export function replaceServerDraftPendingPaths(paths: string[]): void {
     if (normalized) serverPendingPaths.add(normalized);
   }
   recomputePendingPaths();
+}
+
+/** Replace server-derived pending review rows (from paper detail). */
+export function replaceServerPendingReviews(items: PendingReviewItem[]): void {
+  serverPendingReviews.length = 0;
+  serverPendingReviews.push(...items);
+  replaceServerDraftPendingPaths(items.map((item) => item.path));
+}
+
+export function getServerPendingReviews(): PendingReviewItem[] {
+  return serverPendingReviews;
 }
 
 export function getDraftPendingPaths(): ReadonlySet<string> {

@@ -25,6 +25,7 @@ export const ASSET_EXTENSIONS = new Set([
   ".gif",
   ".webp",
   ".pdf",
+  ".xlsx",
 ]);
 
 export type FigureMetadata = {
@@ -70,6 +71,8 @@ export function assetContentType(relativePath: string): string {
       return "image/webp";
     case ".pdf":
       return "application/pdf";
+    case ".xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     case ".mmd":
     case ".tex":
       return "text/plain; charset=utf-8";
@@ -357,8 +360,9 @@ export async function uploadFigureImage(
     const indexAbs = path.join(modelRoot, meta.path, "INDEX.md");
     const raw = await readFile(indexAbs, "utf8");
     const parsed = matter(raw);
-    applyFigureUploadFields(parsed.data as Record<string, unknown>, safeName, effectiveRole);
-    await writeFile(indexAbs, matter.stringify(parsed.content, parsed.data), "utf8");
+    const indexData = { ...(parsed.data as Record<string, unknown>) };
+    applyFigureUploadFields(indexData, safeName, effectiveRole);
+    await writeFile(indexAbs, matter.stringify(parsed.content, indexData), "utf8");
   } else {
     const noteRel = meta.outlinePath;
     if (!noteRel) {
@@ -372,9 +376,12 @@ export async function uploadFigureImage(
     const noteAbs = path.join(modelRoot, noteRel);
     const raw = await readFile(noteAbs, "utf8");
     const parsed = matter(raw);
-    parsed.data.figure_path = safeName;
-    applyFigureUploadFields(parsed.data as Record<string, unknown>, safeName, effectiveRole);
-    await writeFile(noteAbs, matter.stringify(parsed.content, parsed.data), "utf8");
+    const noteData = {
+      ...(parsed.data as Record<string, unknown>),
+      figure_path: safeName,
+    };
+    applyFigureUploadFields(noteData, safeName, effectiveRole);
+    await writeFile(noteAbs, matter.stringify(parsed.content, noteData), "utf8");
   }
 
   const figure = await resolveFigureMetadata(modelRoot, normalized);

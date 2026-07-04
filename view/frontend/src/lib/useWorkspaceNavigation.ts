@@ -1,4 +1,4 @@
-import { useCallback, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 
 import {
   findNode,
@@ -12,43 +12,106 @@ import {
   type NavigateTarget,
 } from "@/lib/modelTree";
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
-import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
+
+export type OpenFileOptions = {
+  citeKey?: string;
+};
+
+export type NavigateFromTargetDeps = {
+  openFile: (path: string, options?: OpenFileOptions) => void;
+  navigateTo: (path: string) => void;
+  tree?: ModelNode[];
+};
+
+/**
+ * Resolve a NavigateTarget to the right workspace action. Pure helper shared by
+ * the markdown editor, paper, and section workspaces so link-click behavior
+ * stays consistent.
+ */
+export function navigateFromTarget(
+  target: NavigateTarget,
+  { openFile, navigateTo, tree }: NavigateFromTargetDeps,
+): void {
+  if (target.type === "bib") {
+    openFile("main.bib", { citeKey: target.citeKey });
+    return;
+  }
+  if (target.type === "file") {
+    openFile(target.path);
+    return;
+  }
+  if (tree) {
+    const resolved = resolveModelPathTarget(tree, target.path);
+    if (resolved?.type === "file") {
+      openFile(resolved.path);
+      return;
+    }
+    if (resolved) {
+      navigateTo(resolved.path);
+      return;
+    }
+  }
+  navigateTo(target.path);
+}
 
 type UseWorkspaceNavigationOptions = {
   tree: ModelNode[];
-  sidebarTab: WorkspaceNavTab;
+  lastPaperPath: string | null;
   setCurrentPath: Dispatch<SetStateAction<string>>;
   setActiveFile: Dispatch<SetStateAction<string | null>>;
   setEditorLayout: Dispatch<SetStateAction<EditorLayout>>;
-  setSidebarTab: Dispatch<SetStateAction<WorkspaceNavTab>>;
   setSearchQuery: Dispatch<SetStateAction<string>>;
+  setSelectedBibCiteKey: Dispatch<SetStateAction<string | null>>;
 };
 
+/**
+ * Navigation actions for browse path, active file, and markdown link targets.
+ *
+ * **openFile** sets `browsePath` to the file's parent folder. When that differs from the
+ * current browse path, the prior path is saved so **backToSectionView** can restore it.
+ *
+ * **navigateTo** opens units with their outline; containers clear `activeFile`.
+ */
 export function useWorkspaceNavigation({
   tree,
-  sidebarTab,
+  lastPaperPath,
   setCurrentPath,
   setActiveFile,
   setEditorLayout,
-  setSidebarTab,
   setSearchQuery,
+  setSelectedBibCiteKey,
 }: UseWorkspaceNavigationOptions) {
+  /** Browse path to restore when leaving a nested file view (e.g. unit opened from section). */
+  const focusReturnPathRef = useRef<string | null>(null);
+
   const openFile = useCallback(
-    (path: string) => {
+    (path: string, options?: OpenFileOptions) => {
       const folder = parentPath(path);
-      const nextPath =
-        sidebarTab === "papers" && folder !== "" && !isUnderPapers(folder) ? PAPERS_ROOT : folder;
-      setCurrentPath(nextPath);
+      setCurrentPath((current) => {
+        if (folder === "" && path.toLowerCase().endsWith(".bib")) {
+          if (isUnderPapers(current)) return current;
+          if (lastPaperPath && isUnderPapers(lastPaperPath)) return lastPaperPath;
+          return PAPERS_ROOT;
+        }
+        const nextPath = folder !== "" && !isUnderPapers(folder) ? PAPERS_ROOT : folder;
+        if (folder !== current && current) {
+          focusReturnPathRef.current = current;
+        }
+        return nextPath;
+      });
       setActiveFile(path);
       setEditorLayout("split");
+      if (options?.citeKey) {
+        setSelectedBibCiteKey(options.citeKey);
+      }
     },
-    [setActiveFile, setCurrentPath, setEditorLayout, sidebarTab],
+    [lastPaperPath, setActiveFile, setCurrentPath, setEditorLayout, setSelectedBibCiteKey],
   );
 
   const navigateTo = useCallback(
     (path: string) => {
-      const normalized =
-        sidebarTab === "papers" && path !== "" && !isUnderPapers(path) ? PAPERS_ROOT : path;
+      focusReturnPathRef.current = null;
+      const normalized = path !== "" && !isUnderPapers(path) ? PAPERS_ROOT : path;
       const target = resolveModelPathTarget(tree, normalized);
       if (!target) return;
       if (target.type === "file") {
@@ -64,37 +127,24 @@ export function useWorkspaceNavigation({
         setActiveFile(null);
       }
     },
-    [openFile, setActiveFile, setCurrentPath, setEditorLayout, sidebarTab, tree],
+    [openFile, setActiveFile, setCurrentPath, setEditorLayout, tree],
   );
 
   const handleMarkdownNavigate = useCallback(
     (target: NavigateTarget) => {
-      const path = target.type === "file" ? target.path : target.path;
-      const resolved = resolveModelPathTarget(tree, path);
-      if (!resolved) return;
-      if (resolved.type === "file") {
-        openFile(resolved.path);
-        return;
-      }
-      navigateTo(resolved.path);
+      navigateFromTarget(target, { openFile, navigateTo, tree });
     },
     [navigateTo, openFile, tree],
   );
 
   const backToSectionView = useCallback(() => {
+    const restorePath = focusReturnPathRef.current;
+    focusReturnPathRef.current = null;
     setActiveFile(null);
-  }, [setActiveFile]);
-
-  const handleSidebarTabChange = useCallback(
-    (tab: WorkspaceNavTab) => {
-      setSidebarTab(tab);
-      if (tab === "papers") {
-        setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
-        setActiveFile(null);
-      }
-    },
-    [setActiveFile, setCurrentPath, setSidebarTab],
-  );
+    if (restorePath) {
+      setCurrentPath(restorePath);
+    }
+  }, [setActiveFile, setCurrentPath]);
 
   const handleSearchSelect = useCallback(
     (hit: { path: string }) => {
@@ -113,7 +163,6 @@ export function useWorkspaceNavigation({
     navigateTo,
     handleMarkdownNavigate,
     backToSectionView,
-    handleSidebarTabChange,
     handleSearchSelect,
   };
 }

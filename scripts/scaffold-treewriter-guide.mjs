@@ -252,20 +252,28 @@ Cite in drafts with \`[@cite_key]\` or \`[@a2024; @b2020]\`. Do **not** use \`\\
   await makeApprovedUnit(`${base}/structure/section-vs-unit-view`, {
     title: "Section view vs unit view",
     idea: "Composed draft vs single-paragraph editing.",
-    draft: `**Section view** stitches approved child unit drafts into a composed preview — use it to read the whole section and run fan-out AI dispatch. **Unit view** focuses on one paragraph for tight editing.
+    draft: `**Section view** opens when you select a container folder — it stitches approved child unit drafts into a composed preview. Use it to read the whole section and run fan-out AI dispatch. **Unit view** opens for leaf folders and focuses on one paragraph (\`outline.md\` + \`draft.md\`).
 
-Open the **Document outline** panel (\`⌘⇧O\`) to jump between headings and linked children.`,
+**Routing:** clicking a unit from section view navigates into that unit. **Back** returns to the parent **section folder**, not the paper root.
+
+**Explorer vs Writer** — Explorer browses all of \`model/\`; Writer scopes to one paper. Opening anything under \`papers/{slug}/\` switches to Writer.
+
+Open **Document outline** (\`⌘⇧O\`) to jump between headings and linked children in the current scope.`,
   });
   await makeApprovedUnit(`${base}/structure/ai-dispatch`, {
     title: "AI dispatch",
-    idea: "Optional AI workflow and tw-context CLI.",
-    draft: `Open the **AI dispatch** panel (terminal area or bot icon). Choose draft/revise actions; review output in \`draft.md\`, then approve.
+    idea: "Assistant panel, skills, tw-context CLI.",
+    draft: `Open the **Assistant** panel (sparkle icon, right split). It combines chat, dispatch hot commands, and a collapsible terminal (cwd = \`model/\`).
 
-Enable skills under **Dispatch → Skills**. For extra context from the terminal (cwd usually \`model/\`):
+**Hot commands** build dispatch prompts with system + user skills. **Chat** history: \`papers/{slug}/notes/sessions/chat-*.md\`. Manage skills in Settings → Skills (\`system/\` always on; \`user/\` toggled).
+
+Extra context (cwd usually \`model/\`):
 
 \`\`\`bash
 node ../scripts/tw-context.mjs search "keywords" --root papers/my-study
 node ../scripts/tw-context.mjs read papers/my-study/unit/draft.md
+node ../scripts/tw-context.mjs context papers/my-study/unit --action draft
+node ../scripts/tw-context.mjs health
 \`\`\``,
   });
 

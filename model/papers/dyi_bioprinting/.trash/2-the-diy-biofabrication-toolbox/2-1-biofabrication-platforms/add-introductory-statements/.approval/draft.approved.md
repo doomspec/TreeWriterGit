@@ -1,0 +1,3 @@
+**ADD (introductory statements)**
+**ADD (Other biofabrication techniques? )**
+Electrospinning is one of the traditional biofabrication techniques which uses electric field to draw very thin fibers. In this technique, a syringe pump extrudes a polymer solution into a high-voltage enclosure and a rotating mandrel or plate collector, which has been open-sourced through building the system from off-the-shelf high-voltage power supply, syringe pump, and collector motion components, often controlled by Arduino or a modified desktop 3D-printer frame. A recent open-source near-field electrospinning platform integrated a 3D-printed syringe pump, open-source hardware/software, and a modified printer motion system to precisely control flow rate, voltage, and collector movement.

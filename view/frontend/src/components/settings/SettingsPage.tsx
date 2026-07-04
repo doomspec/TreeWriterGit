@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Bot, Download, GitBranch, Monitor, RefreshCw, RotateCcw, User } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  Download,
+  GitBranch,
+  Info,
+  Keyboard,
+  Monitor,
+  Plug,
+  RefreshCw,
+  RotateCcw,
+  User,
+} from "lucide-react";
 
 import { KeyboardShortcutsSection } from "@/components/settings/KeyboardShortcutsSection";
+import { DispatchIntegrationPanel } from "@/components/dispatch/DispatchIntegrationPanel";
 import { Button } from "@/components/ui/button";
 import { ThemePreferenceSelect } from "@/components/ui/ThemeToggle";
 import {
@@ -16,23 +29,50 @@ import { useReadingTypography } from "@/lib/ReadingTypographyProvider";
 import type { ThemePreference } from "@/lib/themePreferences";
 import {
   fetchSettings,
+  fetchZoteroLocalStatus,
   formatExportDebounceLabel,
   formatInterval,
   runGitSyncNow,
   updateDefaultProvider,
   updateExportSettings,
   updateGitSyncSettings,
+  updateZoteroLocalSettings,
   SYNC_INTERVAL_OPTIONS,
   EXPORT_DEBOUNCE_OPTIONS,
   type AgentSettings,
   type AppSettings,
   type ExportSettings,
   type GitSyncSettings,
+  type ZoteroLocalSettings,
+  type ZoteroLocalStatus,
 } from "@/lib/settingsApi";
 import { saveLastAgentProvider } from "@/lib/lastAgentProvider";
 import { getGitHubHandle, getUserName, setGitHubHandle, setUserName } from "@/lib/userIdentity";
 import { resetAppState } from "@/lib/resetAppState";
 import { cn } from "@/lib/utils";
+
+type SettingsTabId =
+  | "appearance"
+  | "git-sync"
+  | "export"
+  | "ai-harness"
+  | "ai-integration"
+  | "profile"
+  | "shortcuts"
+  | "troubleshooting"
+  | "extensions";
+
+const SETTINGS_TABS: { id: SettingsTabId; label: string; icon: typeof GitBranch }[] = [
+  { id: "appearance", label: "Appearance", icon: Monitor },
+  { id: "git-sync", label: "Git sync", icon: GitBranch },
+  { id: "export", label: "Export", icon: Download },
+  { id: "ai-harness", label: "AI harness", icon: Bot },
+  { id: "ai-integration", label: "AI integration", icon: Info },
+  { id: "profile", label: "Profile", icon: User },
+  { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
+  { id: "troubleshooting", label: "Troubleshooting", icon: RotateCcw },
+  { id: "extensions", label: "Extensions", icon: Plug },
+];
 
 function SettingsSection({
   title,
@@ -130,6 +170,9 @@ export function SettingsPage({
   const [saving, setSaving] = useState<string | null>(null);
   const [gitSync, setGitSync] = useState<GitSyncSettings | null>(null);
   const [exportSettings, setExportSettings] = useState<ExportSettings | null>(null);
+  const [zoteroLocal, setZoteroLocal] = useState<ZoteroLocalSettings | null>(null);
+  const [zoteroStatus, setZoteroStatus] = useState<ZoteroLocalStatus | null>(null);
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
   const [agents, setAgents] = useState<AgentSettings | null>(null);
   const [authorName, setAuthorName] = useState(() => getUserName());
   const [githubHandle, setGithubHandleState] = useState(() => getGitHubHandle());
@@ -147,7 +190,15 @@ export function SettingsPage({
       const settings: AppSettings = await fetchSettings();
       setGitSync(settings.gitSync);
       setExportSettings(settings.export);
+      setZoteroLocal(
+        settings.zoteroLocal ?? { enabled: false, baseUrl: "http://127.0.0.1:23119/api" },
+      );
       setAgents(settings.agents);
+      try {
+        setZoteroStatus(await fetchZoteroLocalStatus());
+      } catch {
+        setZoteroStatus(null);
+      }
       onGitSyncChangeRef.current?.(settings.gitSync);
       hasLoadedRef.current = true;
     } catch (err) {
@@ -294,24 +345,132 @@ export function SettingsPage({
         ? "OK"
         : "Idle";
 
+  const zoteroStatusLabel = !zoteroLocal?.enabled
+    ? "Disabled"
+    : zoteroStatus?.connected
+      ? "Connected"
+      : "Not running";
+
+  const patchZoteroSettings = async (
+    patch: { enabled?: boolean; baseUrl?: string },
+    savingKey: string,
+  ) => {
+    setSaving(savingKey);
+    try {
+      const updated = await updateZoteroLocalSettings(patch);
+      setZoteroLocal(updated);
+      try {
+        setZoteroStatus(await fetchZoteroLocalStatus());
+      } catch {
+        setZoteroStatus(null);
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(null);
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-workspace">
-      <div className="border-b border-border bg-card px-4 py-3">
-        <div className="mx-auto flex max-w-3xl items-center gap-3">
-          <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={onBack}>
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-            Back
-          </Button>
-          <h1 className="text-sm font-semibold">Settings</h1>
-        </div>
+      <div className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-4 py-3">
+        <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={onBack}>
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+          Back
+        </Button>
+        <h1 className="text-sm font-semibold">Settings</h1>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-6">
-        <div className="mx-auto max-w-3xl space-y-4">
-          {loading ? (
+      <div className="flex min-h-0 flex-1">
+        <nav className="flex w-44 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-card px-2 py-3">
+          {SETTINGS_TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={cn(
+                "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium",
+                settingsTab === id
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+              onClick={() => setSettingsTab(id)}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        {loading ? (
+          <div className="flex-1 px-4 py-6">
             <p className="text-sm text-muted-foreground">Loading settings…</p>
-          ) : (
-            <>
+          </div>
+        ) : settingsTab === "ai-integration" ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 border-b border-border px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Info className="h-4 w-4 text-primary" aria-hidden="true" />
+                <h2 className="text-sm font-semibold">AI integration reference</h2>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Copy-paste text for wiring an external agent to this repo: the system prompt,
+                dispatch guide, and tw-context CLI quick reference.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1 p-4">
+              <div className="h-full rounded-md border border-border">
+                <DispatchIntegrationPanel currentPath="" hideCurrentPathHint />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-6">
+            <div className="mx-auto max-w-3xl space-y-4">
+              {settingsTab === "extensions" ? (
+                <>
+              <SettingsSection title="Zotero Local" icon={Plug}>
+                <SettingRow
+                  label="Enable local Zotero"
+                  hint="Search and import from Zotero desktop (localhost only)"
+                >
+                  <Toggle
+                    checked={Boolean(zoteroLocal?.enabled)}
+                    disabled={!zoteroLocal || saving === "zoteroEnabled"}
+                    label="Enable local Zotero"
+                    onChange={(checked) => void patchZoteroSettings({ enabled: checked }, "zoteroEnabled")}
+                  />
+                </SettingRow>
+                <SettingRow
+                  label="Base URL"
+                  hint="Default http://127.0.0.1:23119/api — localhost only"
+                >
+                  <input
+                    type="text"
+                    className="h-8 w-full max-w-xs rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                    value={zoteroLocal?.baseUrl ?? ""}
+                    disabled={!zoteroLocal?.enabled || saving === "zoteroBaseUrl"}
+                    onChange={(event) => setZoteroLocal((prev) => (prev ? { ...prev, baseUrl: event.target.value } : prev))}
+                    onBlur={() => {
+                      if (!zoteroLocal?.baseUrl.trim()) return;
+                      void patchZoteroSettings({ baseUrl: zoteroLocal.baseUrl.trim() }, "zoteroBaseUrl");
+                    }}
+                  />
+                </SettingRow>
+                <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  Status: <strong className="text-foreground">{zoteroStatusLabel}</strong>
+                  {zoteroLocal?.enabled ? (
+                    <p className="mt-2">
+                      Requires Zotero desktop running. Agents can use{" "}
+                      <code className="text-foreground">pnpm tw-zotero</code> when enabled.
+                    </p>
+                  ) : (
+                    <p className="mt-2">Optional — leave off if you do not use Zotero.</p>
+                  )}
+                </div>
+              </SettingsSection>
+                </>
+              ) : null}
+              {settingsTab === "appearance" ? (
               <SettingsSection title="Appearance" icon={Monitor}>
                 <SettingRow
                   label="Color theme"
@@ -359,7 +518,8 @@ export function SettingsPage({
                   </div>
                 </SettingRow>
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "git-sync" ? (
               <SettingsSection title="Git sync" icon={GitBranch}>
                 <SettingRow
                   label="Automatic sync"
@@ -483,7 +643,8 @@ export function SettingsPage({
                   ) : null}
                 </div>
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "export" ? (
               <SettingsSection title="Export" icon={Download}>
                 <SettingRow
                   label="Automatic export"
@@ -579,7 +740,8 @@ export function SettingsPage({
                   ) : null}
                 </div>
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "ai-harness" ? (
               <SettingsSection title="AI harness" icon={Bot}>
                 <SettingRow
                   label="Default provider"
@@ -616,7 +778,8 @@ export function SettingsPage({
                   </div>
                 ) : null}
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "profile" ? (
               <SettingsSection title="Profile" icon={User}>
                 <SettingRow
                   label="Author name"
@@ -655,7 +818,8 @@ export function SettingsPage({
                   </div>
                 </SettingRow>
               </SettingsSection>
-
+              ) : null}
+              {settingsTab === "troubleshooting" ? (
               <SettingsSection title="Troubleshooting" icon={RotateCcw}>
                 <SettingRow
                   label="Reset app state"
@@ -677,11 +841,11 @@ export function SettingsPage({
                   </Button>
                 </SettingRow>
               </SettingsSection>
-
-              <KeyboardShortcutsSection />
-            </>
-          )}
-        </div>
+              ) : null}
+              {settingsTab === "shortcuts" ? <KeyboardShortcutsSection /> : null}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

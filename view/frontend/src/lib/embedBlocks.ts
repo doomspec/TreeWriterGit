@@ -9,6 +9,27 @@ export type ParsedEmbedBlock = {
 
 const FIGURE_ONLY = /^::figure\[([^\]]+)\]\s*$/;
 const EQUATION_ONLY = /^::equation\[([^\]]+)\]\s*$/;
+const FENCE_LINE = /^```/;
+
+function fencedCodeBlockStateBefore(lines: string[], index: number): boolean {
+  let inFence = false;
+  for (let i = 0; i < index; i += 1) {
+    if (FENCE_LINE.test(lines[i]?.trim() ?? "")) {
+      inFence = !inFence;
+    }
+  }
+  return inFence;
+}
+
+function isLineInFencedCodeBlock(lines: string[], index: number): boolean {
+  if (FENCE_LINE.test(lines[index]?.trim() ?? "")) return false;
+  return fencedCodeBlockStateBefore(lines, index);
+}
+
+/** Drop fenced code blocks so documentation examples are not treated as live embeds. */
+function stripFencedCodeBlocks(markdown: string): string {
+  return markdown.replace(/^```[^\n]*\n[\s\S]*?\n```/gm, "");
+}
 
 function neighboringNonEmptyLines(
   lines: string[],
@@ -67,11 +88,17 @@ export function replaceInlineFigureEmbedsWithRefs(markdown: string): {
   figurePaths: string[];
 } {
   const figurePaths: string[] = [];
-  const replaced = markdown.replace(/::figure\[([^\]]+)\]/g, (_full, target: string) => {
-    const path = target.trim();
-    figurePaths.push(path);
-    return `\\ref{${figureRefKeyFromPath(path)}}`;
-  });
+  const parts = markdown.split(/(^```[^\n]*\n[\s\S]*?\n```)/gm);
+  const replaced = parts
+    .map((part) => {
+      if (/^```[^\n]*\n[\s\S]*?\n```$/m.test(part)) return part;
+      return part.replace(/::figure\[([^\]]+)\]/g, (_full, target: string) => {
+        const path = target.trim();
+        figurePaths.push(path);
+        return `\\ref{${figureRefKeyFromPath(path)}}`;
+      });
+    })
+    .join("");
   return { markdown: replaced, figurePaths };
 }
 
@@ -81,6 +108,7 @@ export function listInlineFigureEmbedPaths(markdown: string): string[] {
   const lines = markdown.split("\n");
   const paths: string[] = [];
   for (let i = 0; i < lines.length; i += 1) {
+    if (isLineInFencedCodeBlock(lines, i)) continue;
     const match = FIGURE_ONLY.exec(lines[i]?.trim() ?? "");
     if (match && isInlineEmbedLine(lines, i)) {
       paths.push(match[1].trim());
@@ -119,12 +147,13 @@ export function listFigureWikilinkPaths(markdown: string): string[] {
   if (parseEmbedBlock(markdown)) return [];
   const paths: string[] = [];
   const seen = new Set<string>();
+  const scanTarget = stripFencedCodeBlocks(markdown);
 
-  for (const match of markdown.matchAll(/\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]/g)) {
+  for (const match of scanTarget.matchAll(/\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]/g)) {
     pushUniqueFigurePath(paths, seen, match[1] ?? "");
   }
 
-  for (const match of markdown.matchAll(/\[[^\]]+\]\(figure:\/\/([^)]+)\)/g)) {
+  for (const match of scanTarget.matchAll(/\[[^\]]+\]\(figure:\/\/([^)]+)\)/g)) {
     pushUniqueFigurePath(paths, seen, match[1] ?? "");
   }
 
@@ -150,6 +179,10 @@ export function expandEmbedBlocksInMarkdown(markdown: string): string {
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? "";
     const trimmed = line.trim();
+    if (isLineInFencedCodeBlock(lines, i)) {
+      out.push(line);
+      continue;
+    }
     if ((FIGURE_ONLY.test(trimmed) || EQUATION_ONLY.test(trimmed)) && !isInlineEmbedLine(lines, i)) {
       if (out.length > 0 && out[out.length - 1]?.trim() !== "") {
         out.push("");

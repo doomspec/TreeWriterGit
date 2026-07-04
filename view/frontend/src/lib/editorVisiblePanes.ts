@@ -227,11 +227,17 @@ export function isDraftNotesSplit(visible: EditorVisiblePanes): boolean {
   return visible.draft && visible.notes && !visible.outline;
 }
 
+/** Which editor pane feeds the sidebar document outline for the current layout. */
+export function documentOutlineSourcePane(visible: EditorVisiblePanes): EditorPaneId | null {
+  if (visible.draft) return "draft";
+  if (visible.outline) return "outline";
+  return null;
+}
+
 export function shouldSyncDocumentOutlineForPanes(
   visible: EditorVisiblePanes,
-  activePane: EditorPaneId,
+  pane: EditorPaneId,
 ): boolean {
-  if (!visible.outline) return false;
-  if (countVisibleEditorPanes(visible) === 1) return true;
-  return activePane === "outline";
+  if (pane === "notes") return false;
+  return documentOutlineSourcePane(visible) === pane;
 }

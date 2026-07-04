@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
 import type { SidebarPanel } from "@/lib/workspacePreferences";
-import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import { useCommandPalette } from "@/lib/CommandPaletteProvider";
 import type { AppCommand } from "@/lib/commandPaletteTypes";
 import type { EditorPaneId, EditorPanePresetId } from "@/lib/editorVisiblePanes";
@@ -12,7 +11,6 @@ export type AppView = "workspace" | "settings" | "info";
 
 export type AppCommandsContext = {
   appView: AppView;
-  sidebarTab: WorkspaceNavTab;
   editorLayout: EditorLayout;
   canGoUp: boolean;
   canCreateUnit: boolean;
@@ -21,8 +19,9 @@ export type AppCommandsContext = {
   showSectionViewBack: boolean;
   dualPaneEditorActive: boolean;
   notesPaneAvailable: boolean;
+  pendingAiReviewCount: number;
+  selectedBibCiteKey: string | null;
   onSetAppView: (view: AppView) => void;
-  onSetSidebarTab: (tab: WorkspaceNavTab) => void;
   onSetSidebarPanel: (panel: SidebarPanel) => void;
   onToggleSidebarPanel: () => void;
   onNavigateUp: () => void;
@@ -36,6 +35,10 @@ export type AppCommandsContext = {
   onCycleTheme: () => void;
   onFocusEditorPane: (pane: EditorPaneId) => void;
   onApplyEditorPanePreset: (preset: EditorPanePresetId) => void;
+  onApproveAllAiChanges: () => void;
+  onOpenMainBib: (citeKey?: string) => void;
+  onShowUnverifiedReferences: () => void;
+  onOpenDocxImport?: () => void;
 };
 
 export function AppCommands(context: AppCommandsContext) {
@@ -69,28 +72,52 @@ export function AppCommands(context: AppCommandsContext) {
         run: () => ctx().onSetAppView(ctx().appView === "settings" ? "workspace" : "settings"),
       },
       {
-        id: "workspace.explorer",
-        label: "Switch to Explorer",
-        category: "Navigation",
-        aliases: ["files", "model"],
-        when: () => ctx().appView === "workspace",
-        run: () => ctx().onSetSidebarPanel("explorer"),
-      },
-      {
         id: "workspace.papers",
-        label: "Switch to Papers",
+        label: "Switch to Sections",
         category: "Navigation",
-        aliases: ["manuscript", "paper"],
+        aliases: ["manuscript", "paper", "papers"],
         when: () => ctx().appView === "workspace",
         run: () => ctx().onSetSidebarPanel("papers"),
       },
       {
-        id: "sidebar.outline",
-        label: "Show document outline",
+        id: "sidebar.assets",
+        label: "Show assets panel",
         category: "Navigation",
-        aliases: ["headings", "table of contents", "toc"],
+        aliases: ["figures", "tables", "equations", "assets"],
         when: () => ctx().appView === "workspace",
-        run: () => ctx().onSetSidebarPanel("outline"),
+        run: () => ctx().onSetSidebarPanel("assets"),
+      },
+      {
+        id: "sidebar.removed",
+        label: "Show removed items",
+        category: "Navigation",
+        aliases: ["trash", "deleted", "removed", "restore"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("removed"),
+      },
+      {
+        id: "sidebar.references",
+        label: "Show references library",
+        category: "Navigation",
+        aliases: ["bibtex", "bibliography", "citations", "main.bib", "refs"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("references"),
+      },
+      {
+        id: "references.openMainBib",
+        label: "Open main.bib",
+        category: "References",
+        aliases: ["bibliography editor", "edit references"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onOpenMainBib(ctx().selectedBibCiteKey ?? undefined),
+      },
+      {
+        id: "references.unverified",
+        label: "Show unverified references",
+        category: "References",
+        aliases: ["review references", "verify bibliography"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onShowUnverifiedReferences(),
       },
       {
         id: "sidebar.graph",
@@ -109,12 +136,28 @@ export function AppCommands(context: AppCommandsContext) {
         run: () => ctx().onSetSidebarPanel("export"),
       },
       {
+        id: "sidebar.review",
+        label: "Open review panel",
+        category: "Navigation",
+        aliases: ["review", "pending changes", "track changes", "approve"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("review"),
+      },
+      {
+        id: "review.approveAllAi",
+        label: "Approve all AI changes",
+        category: "Review",
+        aliases: ["accept ai", "approve agent changes", "approve bot"],
+        when: () => ctx().appView === "workspace" && ctx().pendingAiReviewCount > 0,
+        run: () => ctx().onApproveAllAiChanges(),
+      },
+      {
         id: "sidebar.import",
-        label: "Show import panel",
+        label: "Import from Word",
         category: "Navigation",
         aliases: ["import", "docx", "word", "upload document"],
-        when: () => ctx().appView === "workspace",
-        run: () => ctx().onSetSidebarPanel("import"),
+        when: () => ctx().appView === "workspace" && Boolean(ctx().onOpenDocxImport),
+        run: () => ctx().onOpenDocxImport?.(),
       },
       {
         id: "sidebar.toggle",

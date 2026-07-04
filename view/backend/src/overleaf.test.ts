@@ -79,6 +79,8 @@ describe("connectOverleafProject", () => {
     }
   });
 
+  // Bounded so the git pull's own 8s timeout (fail-fast to "linked") lands
+  // first when the sandbox/CI cannot reach git.overleaf.com.
   it("links an existing local git directory without cloning", async () => {
     const clonePath = overleafCloneDir(repoRoot, "vibecount");
     await mkdir(clonePath, { recursive: true });
@@ -101,5 +103,5 @@ describe("connectOverleafProject", () => {
     const status = await getOverleafStatus(modelRoot, "vibecount");
     expect(status.connected).toBe(true);
     expect(status.projectId).toBe(PROJECT_ID);
-  });
+  }, 15_000);
 });

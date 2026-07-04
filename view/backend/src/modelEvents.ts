@@ -15,7 +15,11 @@ let treeVersion = 0;
 export function inferModelEventKind(path: string | null | undefined): ModelEventKind {
   if (!path) return "structure";
   const normalized = path.replace(/\\/g, "/");
-  if (normalized.endsWith("/draft.md") || normalized.endsWith("/outline.md")) {
+  if (
+    normalized.endsWith("/draft.md") ||
+    normalized.endsWith("/outline.md") ||
+    normalized.endsWith("/temp-notes.md")
+  ) {
     return "content";
   }
   return "structure";
@@ -43,7 +47,11 @@ export function getModelTreeVersion(): number {
 export function changeAffectsGraph(path: string | null): boolean {
   if (!path) return true;
   const normalized = path.replace(/\\/g, "/");
-  if (normalized.endsWith("/draft.md") || normalized.endsWith("/draft.approved.md")) {
+  if (
+    normalized.endsWith("/draft.md") ||
+    normalized.endsWith("/draft.approved.md") ||
+    normalized.includes("/.approval/")
+  ) {
     return false;
   }
   if (normalized.includes("/notes/sessions/")) {
@@ -53,6 +61,11 @@ export function changeAffectsGraph(path: string | null): boolean {
 }
 
 function isDuplicateWatchEvent(path: string | null): boolean {
+  return wasRecentApiWrite(path);
+}
+
+/** Skip watch-side effects when the same path was just written via the API. */
+export function wasRecentApiWrite(path: string | null): boolean {
   if (!path || !lastApiBroadcast) return false;
   if (lastApiBroadcast.path !== path) return false;
   return Date.now() - lastApiBroadcast.at < WATCH_DEDUPE_MS;

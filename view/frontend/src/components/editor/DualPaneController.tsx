@@ -16,9 +16,9 @@ import { cn } from "@/lib/utils";
 
 export function shouldSyncDocumentOutline(
   visiblePanes: EditorVisiblePanes,
-  activePane: DualPaneActive,
+  pane: EditorPaneId,
 ): boolean {
-  return shouldSyncDocumentOutlineForPanes(visiblePanes, activePane);
+  return shouldSyncDocumentOutlineForPanes(visiblePanes, pane);
 }
 
 export function DualPanePane({

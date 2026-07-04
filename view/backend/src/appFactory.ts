@@ -9,20 +9,14 @@ import { createGitSyncRunner } from "./gitSyncRunner.js";
 import { loadGitSyncConfig, type GitSyncConfig } from "./gitSyncConfig.js";
 import { createAutoExportRunner } from "./autoExportRunner.js";
 import { loadExportConfig, type ExportConfig, type AutoExportRuntimeState } from "./exportConfig.js";
+import { loadZoteroLocalConfig, type ZoteroLocalConfig } from "./zoteroLocalConfig.js";
 import { resetServerMemoryState } from "./devReset.js";
+import { handleExternalManuscriptWrite } from "./draftApproval.js";
 import { createModelEventBroadcaster } from "./modelEvents.js";
 import { ModelFsError } from "./modelFs.js";
-import {
-  registerAgentRoutes,
-  registerCommentsRoutes,
-  registerExportRoutes,
-  registerImportRoutes,
-  registerModelRoutes,
-  registerPapersRoutes,
-  registerPresenceRoutes,
-  registerSettingsRoutes,
-} from "./routes/index.js";
-import { registerModelAssetRoutes } from "./routes/model/assets.js";
+import { createAgentJobManager, type AgentJobManager } from "./agentJobManager.js";
+import { registerAppRoutes } from "./app/registerRoutes.js";
+import { attachWebSocketUpgrade } from "./app/registerWebSockets.js";
 import type { ServerDeps } from "./routes/types.js";
 import {
   createTerminalSessionManager,
@@ -30,7 +24,6 @@ import {
   type TerminalSessionManager,
 } from "./terminalSessions.js";
 import { parseTerminalClientMessage } from "./terminalMessages.js";
-import { createAgentJobManager, type AgentJobManager } from "./agentJobManager.js";
 
 export type AppConfig = {
   repoRoot: string;
@@ -53,6 +46,7 @@ export type AppRuntime = {
   modelEventsServer: WebSocketServer;
   gitSyncConfigCache: { current: GitSyncConfig | null };
   exportConfigCache: { current: ExportConfig | null };
+  zoteroLocalConfigCache: { current: ZoteroLocalConfig | null };
   autoExportState: AutoExportRuntimeState;
   stopWatch?: () => void;
   stopGitSyncInterval?: () => void;
@@ -94,6 +88,15 @@ export function createApp(config: AppConfig): AppRuntime {
     return exportConfigCache.current;
   };
 
+  const zoteroLocalConfigCache = { current: null as ZoteroLocalConfig | null };
+  const getZoteroLocalConfig = async (): Promise<ZoteroLocalConfig> => {
+    zoteroLocalConfigCache.current = await loadZoteroLocalConfig(repoRoot);
+    return zoteroLocalConfigCache.current;
+  };
+  const invalidateZoteroLocalConfig = (): void => {
+    zoteroLocalConfigCache.current = null;
+  };
+
   const { state: gitSyncState, runGitSync } = createGitSyncRunner(repoRoot, gitSyncEnabled, getGitSyncConfig);
   const agentJobs = createAgentJobManager();
 
@@ -102,9 +105,33 @@ export function createApp(config: AppConfig): AppRuntime {
 
   const json25mb = express.json({ limit: "25mb" });
   app.use("/api/model/figure/upload", json25mb);
+  app.use("/api/model/data/upload", json25mb);
   app.use("/api/model/references/import", json25mb);
+  app.use("/api/model/bib/import", json25mb);
   app.use("/api/import/docx", json25mb);
   app.use(express.json({ limit: "2mb" }));
+
+  const wsToken = process.env.TREEWRITER_WS_TOKEN?.trim();
+  const apiToken =
+    process.env.TREEWRITER_REST_AUTH === "true" ? wsToken : undefined;
+  if (apiToken) {
+    app.use((request, response, next) => {
+      if (request.path === "/health") {
+        next();
+        return;
+      }
+      const headerToken = request.headers["x-treewriter-token"];
+      const queryToken = request.query.token;
+      const token =
+        (typeof headerToken === "string" ? headerToken : "") ||
+        (typeof queryToken === "string" ? queryToken : "");
+      if (token !== apiToken) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      next();
+    });
+  }
 
   const modelEventClients = new Set<WebSocket>();
   const baseBroadcastModelEvent = createModelEventBroadcaster(
@@ -132,21 +159,15 @@ export function createApp(config: AppConfig): AppRuntime {
     runGitSync,
     getGitSyncConfig,
     getExportConfig,
+    getZoteroLocalConfig,
+    invalidateZoteroLocalConfig,
     getAutoExportState: () => autoExportRunner.state,
     runAutoExportNow: autoExportRunner.runAutoExportNow,
     reloadGitSyncSchedule: () => scheduleGitSyncInterval(),
     agentJobs,
   };
 
-  registerSettingsRoutes(app, deps);
-  registerCommentsRoutes(app, deps);
-  registerPresenceRoutes(app, deps);
-  registerPapersRoutes(app, deps);
-  registerExportRoutes(app, deps);
-  registerImportRoutes(app, deps);
-  registerAgentRoutes(app, deps);
-  registerModelAssetRoutes(app, deps);
-  registerModelRoutes(app, deps);
+  registerAppRoutes(app, deps);
 
   const terminalSessions = createTerminalSessionManager({
     command: terminalCommand,
@@ -188,7 +209,9 @@ export function createApp(config: AppConfig): AppRuntime {
   });
 
   terminalServer.on("connection", (socket, request) => {
-    const { sessionId, forceNew } = parseTerminalConnectParams(request.url ?? "/terminal");
+    const { sessionId, forceNew, replayScrollback } = parseTerminalConnectParams(
+      request.url ?? "/terminal",
+    );
     let session;
     try {
       session = terminalSessions.resolveSession(sessionId, forceNew);
@@ -202,7 +225,7 @@ export function createApp(config: AppConfig): AppRuntime {
       socket.close();
       return;
     }
-    terminalSessions.attach(socket, session);
+    terminalSessions.attach(socket, session, { replayScrollback });
 
     socket.on("message", (rawMessage) => {
       const message = parseTerminalClientMessage(rawMessage.toString());
@@ -227,10 +250,18 @@ export function createApp(config: AppConfig): AppRuntime {
     const watcher = fs.watch(modelRoot, { recursive: true }, (_eventType, filename) => {
       clearTimeout(watchDebounce);
       watchDebounce = setTimeout(() => {
-        broadcastModelEvent(
-          { type: "model-changed", path: filename?.toString() ?? null },
-          "watch",
-        );
+        void (async () => {
+          const fileRel = filename?.toString() ?? null;
+          if (fileRel) {
+            for (const sidePath of await handleExternalManuscriptWrite(modelRoot, fileRel, {
+              repoRoot,
+              agentJobs,
+            })) {
+              broadcastModelEvent({ type: "model-changed", path: sidePath });
+            }
+          }
+          broadcastModelEvent({ type: "model-changed", path: fileRel }, "watch");
+        })();
       }, 250);
     });
     stopWatch = () => {
@@ -283,6 +314,7 @@ export function createApp(config: AppConfig): AppRuntime {
     modelEventsServer,
     gitSyncConfigCache,
     exportConfigCache,
+    zoteroLocalConfigCache,
     autoExportState: autoExportRunner.state,
     stopWatch,
     stopGitSyncInterval,
@@ -297,43 +329,21 @@ export type HttpServerRuntime = AppRuntime & {
   close: () => Promise<void>;
 };
 
-export function attachWebSocketUpgrade(runtime: AppRuntime, server: Server): void {
-  const wsToken = process.env.TREEWRITER_WS_TOKEN?.trim();
-  server.on("upgrade", (request, socket, head) => {
-    const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-    if (wsToken) {
-      const token =
-        requestUrl.searchParams.get("token") ??
-        (typeof request.headers["x-treewriter-token"] === "string"
-          ? request.headers["x-treewriter-token"]
-          : "");
-      if (token !== wsToken) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-    }
-    const websocketServer =
-      requestUrl.pathname === "/terminal"
-        ? runtime.terminalServer
-        : requestUrl.pathname === "/model-events"
-          ? runtime.modelEventsServer
-          : null;
-
-    if (!websocketServer) {
-      socket.destroy();
-      return;
-    }
-
-    websocketServer.handleUpgrade(request, socket, head, (websocket) => {
-      websocketServer.emit("connection", websocket, request);
-    });
-  });
-}
+export { attachWebSocketUpgrade } from "./app/registerWebSockets.js";
 
 export function createServer(config: AppConfig, port = Number(process.env.PORT ?? 4000)): HttpServerRuntime {
   const runtime = createApp(config);
   const host = process.env.HOST ?? "127.0.0.1";
+  const wsToken = process.env.TREEWRITER_WS_TOKEN?.trim();
+  const isLoopback =
+    host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  if (!isLoopback && !wsToken) {
+    console.error(
+      `[TreeWriter] Refusing to bind ${host} without TREEWRITER_WS_TOKEN. ` +
+        "Set TREEWRITER_WS_TOKEN and TREEWRITER_REST_AUTH=true for non-loopback hosts.",
+    );
+    process.exit(1);
+  }
   const server = runtime.app.listen(port, host);
   attachWebSocketUpgrade(runtime, server);
 

@@ -235,4 +235,18 @@ describe("comments API contract", () => {
       await server.close();
     }
   });
+
+  it("GET returns empty comments when manuscript file does not exist", async () => {
+    const server = createTestServer({ repoRoot, modelRoot });
+    try {
+      const agent = request(server.app);
+      const listRes = await agent
+        .get("/api/comments")
+        .query({ path: "papers/ml/sections/missing/draft.md" });
+      expect(listRes.status).toBe(200);
+      expect(listRes.body).toEqual({ comments: [] });
+    } finally {
+      await server.close();
+    }
+  });
 });

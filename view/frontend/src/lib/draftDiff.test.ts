@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import { diffLineOps, hasPendingApprovalDiff, pendingChangesRows, pendingLineHighlightRows, pendingLineHighlights } from "@/lib/draftDiff";
+import {
+  diffLineOps,
+  effectiveDiffBaseline,
+  hasPendingApprovalDiff,
+  pendingChangesRows,
+  pendingLineHighlightRows,
+  pendingLineHighlights,
+} from "@/lib/draftDiff";
+
+describe("effectiveDiffBaseline", () => {
+  it("falls back to loaded content when there is no approval record (null)", () => {
+    expect(effectiveDiffBaseline(null, "Loaded text.")).toBe("Loaded text.");
+  });
+
+  it("uses the approved baseline as-is when it is an empty string (explicitly approved empty)", () => {
+    expect(effectiveDiffBaseline("", "Loaded text.")).toBe("");
+  });
+
+  it("uses the approved baseline when it has real content", () => {
+    expect(effectiveDiffBaseline("Approved.", "Loaded text.")).toBe("Approved.");
+  });
+});
 
 describe("draftDiff", () => {
   it("marks inserted and deleted lines", () => {
@@ -45,7 +66,7 @@ describe("draftDiff", () => {
   });
 
   it("uses loaded content as diff baseline when nothing is approved yet", () => {
-    const approved = "";
+    const approved = null;
     const loaded = "Line one\nLine two";
     const current = "Line one\nLine two!";
     const rows = pendingChangesRows(approved, loaded, current);
@@ -55,20 +76,27 @@ describe("draftDiff", () => {
 
   it("hides session diff when current matches loaded and nothing is approved", () => {
     const text = "Full paragraph on disk.";
-    expect(pendingChangesRows("", text, text)).toEqual([]);
+    expect(pendingChangesRows(null, text, text)).toEqual([]);
   });
 
   it("does not treat never-approved content as pending when unchanged on disk", () => {
     const text = "Full paragraph on disk.";
-    expect(hasPendingApprovalDiff("", text, text)).toBe(false);
+    expect(hasPendingApprovalDiff(null, text, text)).toBe(false);
   });
 
   it("treats never-approved content as pending when edited since load", () => {
-    expect(hasPendingApprovalDiff("", "Original", "Original edited")).toBe(true);
+    expect(hasPendingApprovalDiff(null, "Original", "Original edited")).toBe(true);
   });
 
   it("treats empty never-approved content as not pending", () => {
-    expect(hasPendingApprovalDiff("", "", "")).toBe(false);
+    expect(hasPendingApprovalDiff(null, "", "")).toBe(false);
+  });
+
+  it("treats an explicitly-approved empty baseline as a real baseline, not a missing one", () => {
+    // Regression test: approving a unit while its content is still empty must
+    // NOT be indistinguishable from "never approved" — otherwise any later
+    // edit silently fails to show as pending (the reported missing-highlight bug).
+    expect(hasPendingApprovalDiff("", "", "Real content now.")).toBe(true);
   });
 
   it("does not treat highlight-only edits as pending approval", () => {

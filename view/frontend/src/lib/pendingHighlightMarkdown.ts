@@ -113,7 +113,7 @@ export function applyPendingMarksToMarkdown(baseline: string, current: string): 
 }
 
 export function effectivePendingHighlightBaseline(
-  approvedBaseline: string,
+  approvedBaseline: string | null,
   loadedContent: string,
 ): string {
   return effectiveDiffBaseline(approvedBaseline, loadedContent);
@@ -207,7 +207,7 @@ export function alignBaselineBlocksToCurrent(
 }
 
 export function markdownWithPendingHighlights(
-  approvedBaseline: string,
+  approvedBaseline: string | null,
   loadedContent: string,
   current: string,
 ): string | null {
@@ -216,7 +216,7 @@ export function markdownWithPendingHighlights(
 }
 
 export function blockMarkdownWithPendingHighlights(
-  approvedBaseline: string,
+  approvedBaseline: string | null,
   loadedContent: string,
   blockIndex: number,
   blockMarkdown: string,

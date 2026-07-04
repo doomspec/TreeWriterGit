@@ -22,11 +22,14 @@ export function DispatchIntegrationPanel({
   previewPrompt,
   previewCommand,
   className,
+  hideCurrentPathHint = false,
 }: {
   currentPath: string;
   previewPrompt?: string | null;
   previewCommand?: string | null;
   className?: string;
+  /** Suppress the "navigate to a unit" footer — irrelevant outside the dispatch panel (e.g. Settings). */
+  hideCurrentPathHint?: boolean;
 }) {
   const [tab, setTab] = useState<IntegrationTab>("system-prompt");
   const [copied, setCopied] = useState(false);
@@ -118,7 +121,7 @@ export function DispatchIntegrationPanel({
           aria-label={activeLabel}
         />
 
-        {currentPath ? (
+        {hideCurrentPathHint ? null : currentPath ? (
           <p className="shrink-0 text-[11px] text-muted-foreground">
             Context path: <span className="font-mono">{currentPath}</span>
           </p>

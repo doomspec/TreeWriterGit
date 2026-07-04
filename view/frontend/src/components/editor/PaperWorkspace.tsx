@@ -1,17 +1,20 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
 import {
-  DualPaneController,
   DualPanePane,
   shouldSyncDocumentOutline,
 } from "@/components/editor/DualPaneController";
+import { ManuscriptWorkspaceLayout } from "@/components/editor/workspace/ManuscriptWorkspaceLayout";
+import { useManuscriptCompose } from "@/components/editor/workspace/useManuscriptCompose";
+import { WorkspaceLoadingState } from "@/components/editor/workspace/WorkspaceLoadingState";
 import { useReadingFocusSplitPaneTitles } from "@/components/editor/ReadingFocusNavBar";
 import { SectionApproveChildrenButton } from "@/components/editor/SectionApproveChildrenButton";
 import { outlinePathFor, tempNotesPathFor, type NavigateTarget } from "@/lib/modelTree";
+import type { OpenFileOptions } from "@/lib/useWorkspaceNavigation";
 import { normalizeComposedDraftBody } from "@/lib/sectionCompose";
-import { useSectionCompose } from "@/lib/hooks/useSectionCompose";
+import { refreshPaperPendingPaths } from "@/lib/refreshPaperPending";
 import type { DualPaneActive, EditorVisiblePanes } from "@/lib/workspacePreferences";
 
 export function PaperWorkspace({
@@ -36,7 +39,7 @@ export function PaperWorkspace({
   paperPath: string;
   refreshVersion: number;
   onNavigate: (path: string) => void;
-  onOpenFile: (path: string) => void;
+  onOpenFile: (path: string, options?: OpenFileOptions) => void;
   onError: (message: string) => void;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
@@ -51,13 +54,21 @@ export function PaperWorkspace({
   onSendToTerminal?: (command: string) => void;
   onBeforeDispatch?: () => void;
 }) {
-  const { compose, loading, loadCompose } = useSectionCompose(paperPath, onError, refreshVersion);
+  const { compose, loading, loadCompose } = useManuscriptCompose(paperPath, onError, refreshVersion);
   const showSplitPaneTitles = useReadingFocusSplitPaneTitles(visiblePanes);
   const outlinePath = outlinePathFor(paperPath);
   const notesPath = tempNotesPathFor(paperPath);
 
+  useEffect(() => {
+    void refreshPaperPendingPaths(paperPath);
+  }, [paperPath, refreshVersion]);
+
   const handleLinkNavigate = useCallback(
     (target: NavigateTarget) => {
+      if (target.type === "bib") {
+        onOpenFile("main.bib", { citeKey: target.citeKey });
+        return;
+      }
       if (target.type === "file") {
         onOpenFile(target.path);
         return;
@@ -74,9 +85,11 @@ export function PaperWorkspace({
 
   if (loading || !compose) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-        {loading ? "Composing paper draft…" : "Could not load paper draft."}
-      </div>
+      <WorkspaceLoadingState
+        loading={loading}
+        loadingMessage="Composing paper draft…"
+        errorMessage="Could not load paper draft."
+      />
     );
   }
 
@@ -93,7 +106,7 @@ export function PaperWorkspace({
         layout="preview"
         compact
         splitPaneTitle={showSplitPaneTitles ? "Outline" : undefined}
-        syncDocumentOutline={shouldSyncDocumentOutline(visiblePanes, activePane)}
+        syncDocumentOutline={shouldSyncDocumentOutline(visiblePanes, "outline")}
         paneLabel="Paper outline"
         defaultPaneMode="rendered"
         className="min-h-0 flex-1"
@@ -130,7 +143,7 @@ export function PaperWorkspace({
         pendingAiProvider={compose.pendingAiProvider ?? null}
         refreshVersion={refreshVersion}
         splitPaneTitle={showSplitPaneTitles ? "Draft" : undefined}
-        syncDocumentOutline={shouldSyncDocumentOutline(visiblePanes, activePane)}
+        syncDocumentOutline={shouldSyncDocumentOutline(visiblePanes, "draft")}
         linkContextPath={paperPath}
         onNavigate={handleLinkNavigate}
         onError={onError}
@@ -177,18 +190,18 @@ export function PaperWorkspace({
   );
 
   return (
-    <DualPaneController
-      splitPercent={dualPaneSplit}
-      onSplitChange={onDualPaneSplitChange}
+    <ManuscriptWorkspaceLayout
+      dualPaneSplit={dualPaneSplit}
+      onDualPaneSplitChange={onDualPaneSplitChange}
       visiblePanes={visiblePanes}
       onVisiblePanesChange={onVisiblePanesChange}
       activePane={activePane}
       onActivePaneChange={onActivePaneChange}
+      notesSplitPercent={notesSplitPercent}
+      onNotesSplitChange={onNotesSplitChange}
       outlinePane={outlinePane}
       draftPane={draftPane}
       notesPane={notesPane}
-      notesSplitPercent={notesSplitPercent}
-      onNotesSplitChange={onNotesSplitChange}
     />
   );
 }

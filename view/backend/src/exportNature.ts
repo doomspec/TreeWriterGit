@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdir, readdir } from "node:fs/promises";
 
 import type { JournalExportStyle } from "./journalExportStyle.js";
+import type { AuthorEntry } from "@treewriter/shared";
+import { authorFullName, authorInitials } from "@treewriter/shared";
 
 const ABSTRACT_SLUGS = new Set(["abstract", "summary"]);
 const METHODS_SLUGS = new Set(["methods", "experimental-procedures", "materials-and-methods"]);
@@ -53,17 +55,93 @@ function latexInput(relativePath: string): string {
   return `\\input{${relativePath.replace(/\\/g, "/")}}`;
 }
 
+/** LaTeX-escape author/affiliation free text (title uses its own escaper). */
+function escapeLatexInline(text: string): string {
+  return text.replace(/([#%&_{}])/g, "\\$1");
+}
+
+const AFFILIATION_TBD = "Affiliation TBD — edit main.tex or add author metadata to the paper INDEX.";
+
+/** Superscript marks for one author: affiliation numbers, then † (equal) and * (corresponding). */
+function authorMarks(author: AuthorEntry): string {
+  const marks: string[] = author.affiliations.map(String);
+  if (author.equalContribution) marks.push("\\dagger");
+  if (author.corresponding) marks.push("*");
+  return marks.length > 0 ? `$^{${marks.join(",")}}$` : "";
+}
+
+/**
+ * Build the `\author{...}` body and the `\begin{affiliations}` items from
+ * structured authors. Each author gets superscript affiliation numbers plus
+ * †/* markers. Falls back to a legacy single `author` string / TBD placeholders
+ * so older papers still export.
+ */
+export function buildAuthorBlock(input: {
+  authors?: AuthorEntry[];
+  affiliations?: string[];
+  legacyAuthor?: string;
+}): { authorLine: string; affiliationItems: string[] } {
+  const authors = input.authors ?? [];
+  const affiliations = (input.affiliations ?? []).map((a) => a.trim()).filter(Boolean);
+  const affiliationItems = affiliations.length > 0 ? affiliations.map(escapeLatexInline) : [AFFILIATION_TBD];
+
+  if (authors.length === 0) {
+    return { authorLine: input.legacyAuthor?.trim() || "Author names TBD", affiliationItems };
+  }
+
+  const authorLine = authors
+    .map((author) => `${escapeLatexInline(authorFullName(author))}${authorMarks(author)}`)
+    .join(", ");
+  return { authorLine, affiliationItems };
+}
+
+/** Addendum `\item[...]` note lines: equal-contribution, correspondence (name + email), ORCID. */
+export function buildAuthorNotes(authors: AuthorEntry[]): string[] {
+  const notes: string[] = [];
+  if (authors.some((a) => a.equalContribution)) {
+    notes.push("\\item[$\\dagger$] These authors contributed equally.");
+  }
+  for (const a of authors.filter((a) => a.corresponding)) {
+    const name = escapeLatexInline(authorFullName(a));
+    const email = a.email ? ` (${escapeLatexInline(a.email)})` : "";
+    notes.push(`\\item[$*$] Correspondence: ${name}${email}.`);
+  }
+  for (const a of authors.filter((a) => a.orcid)) {
+    notes.push(`\\item[ORCID] ${escapeLatexInline(authorFullName(a))} — ${escapeLatexInline(a.orcid ?? "")}`);
+  }
+  return notes;
+}
+
+/** CRediT "Author contributions" section, or "" when no author has roles. */
+export function buildCreditStatement(authors: AuthorEntry[]): string {
+  const withRoles = authors.filter((a) => a.credit && a.credit.length > 0);
+  if (withRoles.length === 0) return "";
+  const sentences = withRoles.map(
+    (a) => `${escapeLatexInline(authorInitials(a))}: ${(a.credit ?? []).map(escapeLatexInline).join(", ")}.`,
+  );
+  return ["\\section*{Author contributions}", sentences.join(" ")].join("\n");
+}
+
 /** Build main.tex following sedimentorc/nature-template structure. */
 export function buildNatureMainTexDocument(input: {
   title: string;
+  /** @deprecated legacy single-string author; prefer `authors`. */
   author?: string;
+  authors?: AuthorEntry[];
+  affiliations?: string[];
   abstractSection?: string;
   bodySections: string[];
   methodsSection?: string;
   supplementarySection?: string;
   bibBaseName?: string;
 }): string {
-  const author = input.author?.trim() || "Author names TBD";
+  const { authorLine, affiliationItems } = buildAuthorBlock({
+    authors: input.authors,
+    affiliations: input.affiliations,
+    legacyAuthor: input.author,
+  });
+  const authorNotes = buildAuthorNotes(input.authors ?? []);
+  const creditStatement = buildCreditStatement(input.authors ?? []);
   const bibBase = input.bibBaseName?.trim() || "references";
   const lines: string[] = [
     "% Nature preprint layout — sedimentorc/nature-template",
@@ -75,14 +153,14 @@ export function buildNatureMainTexDocument(input: {
     "",
     `\\title{${escapeLatexTitle(input.title)}}`,
     "",
-    `\\author{${author}}`,
+    `\\author{${authorLine}}`,
     "",
     "\\begin{document}",
     "",
     "\\maketitle",
     "",
     "\\begin{affiliations}",
-    "\\item Affiliation TBD — edit main.tex or add author metadata to the paper INDEX.",
+    ...affiliationItems.map((item) => `\\item ${item}`),
     "\\end{affiliations}",
     "",
   ];
@@ -101,6 +179,10 @@ export function buildNatureMainTexDocument(input: {
     lines.push(latexInput(`sections/${input.methodsSection}`), "");
   }
 
+  if (creditStatement) {
+    lines.push(creditStatement, "");
+  }
+
   lines.push(
     "\\noindent{\\bfseries References}\\setlength{\\parskip}{12pt}%",
     "",
@@ -109,7 +191,9 @@ export function buildNatureMainTexDocument(input: {
     "\\begin{addendum}",
     "\\item [Acknowledgments] Add acknowledgments in the paper INDEX or a dedicated section.",
     "\\item[Competing Interests] The authors declare no competing interests.",
-    "\\item[Correspondence] Correspondence should be addressed to the corresponding author.",
+    ...(authorNotes.length > 0
+      ? authorNotes
+      : ["\\item[Correspondence] Correspondence should be addressed to the corresponding author."]),
     "\\end{addendum}",
     "",
   );

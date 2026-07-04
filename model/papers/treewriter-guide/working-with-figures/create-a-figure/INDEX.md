@@ -1,8 +1,13 @@
 ---
-kind: "unit"
-title: "Create a figure in the UI"
-status: "approved"
+kind: unit
+title: Create a figure in the UI
+status: approved
 links: []
-approved_at: "2026-06-25T02:12:40.470Z"
-approved_by: "treewriter-guide-scaffold"
+approved_at: '2026-06-29T13:25:27.382Z'
+approved_by: yakavetsiv
+edited_by: null
+edited_at: null
+ai_assisted: false
+ai_provider: null
 ---
+

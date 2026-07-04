@@ -16,6 +16,7 @@ export function EditorCommentsOverlay({
   onClose,
   onError,
   onUnresolvedChange,
+  onCommentsChange,
   onNavigateToLine,
 }: {
   open: boolean;
@@ -27,6 +28,7 @@ export function EditorCommentsOverlay({
   onClose: () => void;
   onError?: (message: string) => void;
   onUnresolvedChange: (count: number) => void;
+  onCommentsChange?: (comments: import("@/modelApi").CommentRecord[]) => void;
   onNavigateToLine?: (line: number) => void;
 }) {
   if (!open) return null;
@@ -49,6 +51,7 @@ export function EditorCommentsOverlay({
         onError={onError}
         onClose={onClose}
         onUnresolvedChange={onUnresolvedChange}
+        onCommentsChange={onCommentsChange}
         onNavigateToLine={onNavigateToLine}
       />
     </>

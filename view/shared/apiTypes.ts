@@ -1,5 +1,37 @@
 /** Shared API contracts — keep frontend and backend in sync. */
 
+export * from "./credit.js";
+export * from "./contributorsRegistry.js";
+export * from "./markdownWordCount.js";
+import type { AuthorEntry } from "./credit.js";
+
+export type DocumentType = "paper" | "grant" | "report";
+
+export type ContributionMode = "kernel" | "repository";
+
+export type ExportPrimaryFormat = "latex" | "docx" | "pdf";
+
+export type ManuscriptTemplate = {
+  templateId: string;
+  docType: DocumentType;
+  label: string;
+  description: string;
+  journal?: string;
+  targetWords: number;
+  targetPages?: number;
+  sectionOrder: string[];
+  statusOptions: string[];
+  assetDirs: string[];
+  notesDirs: string[];
+  requiredFields: string[];
+  exportPrimaryFormat: ExportPrimaryFormat;
+  /** LaTeX/export styling from template frontmatter (backend-only detail). */
+  export?: Record<string, unknown>;
+};
+
+/** @deprecated Use ManuscriptTemplate */
+export type JournalTemplate = ManuscriptTemplate & { journal: string };
+
 export type UnitStatusCounts = {
   approved: number;
   drafted: number;
@@ -7,32 +39,83 @@ export type UnitStatusCounts = {
   total: number;
 };
 
-export type PaperSummary = {
+export type ManuscriptSummary = {
   slug: string;
   path: string;
   title: string;
+  docType: DocumentType;
   journal: string;
   status: string;
   lastExport: string | null;
+  tags: string[];
+  project: string | null;
   counts: UnitStatusCounts;
 };
+
+/** @deprecated Use ManuscriptSummary */
+export type PaperSummary = ManuscriptSummary;
 
 export type SectionRollup = {
   path: string;
   title: string;
   counts: UnitStatusCounts;
+  /** Combined draft word count for units under this section. */
+  draftWordCount: number;
 };
 
-export type PaperDetail = PaperSummary & {
+export type PendingReviewChangeSummary = {
+  addedLines: number;
+  removedLines: number;
+  changedWords: number;
+};
+
+export type PendingReviewItem = {
+  path: string;
+  kind: "draft" | "outline";
+  unitPath: string;
+  unitTitle: string;
+  sectionPath: string | null;
+  editedBy: string | null;
+  editedAt: string | null;
+  aiAssisted: boolean;
+  aiProvider: string | null;
+  changeSummary: PendingReviewChangeSummary;
+};
+
+export type ManuscriptDetail = ManuscriptSummary & {
+  templateId: string | null;
+  /** Structured authors (name parts, ORCID, affiliations, flags, CRediT roles). */
+  authorDetails: AuthorEntry[];
+  /** @deprecated Derived full-name strings from `authorDetails` — kept for back-compat. */
   authors: string[];
+  /** Affiliation lines, in order; numbered by position (1-based) in the LaTeX title block. */
+  affiliations: string[];
+  /** @deprecated Derived from `authorDetails[].affiliations` — kept for back-compat. */
+  authorAffiliations: number[][];
   targetWords: number;
+  /** Combined unit draft word count (all statuses). */
+  draftWordCount: number;
+  /** Human-readable template label from template_id, when set. */
+  templateLabel: string | null;
   sectionOrder: string[];
   overleafRepoPath: string | null;
   overleafGitUrl: string | null;
+  funder: string | null;
+  program: string | null;
+  deadline: string | null;
+  audience: string | null;
+  contributionMode: ContributionMode | null;
+  agentSummary: string | null;
   sections: SectionRollup[];
   containerCounts: Record<string, UnitStatusCounts>;
+  /** Combined draft word count per folder path (paper, sections, subsections, units). */
+  containerWordCounts: Record<string, number>;
   pendingApprovalPaths: string[];
+  pendingReviews: PendingReviewItem[];
 };
+
+/** @deprecated Use ManuscriptDetail */
+export type PaperDetail = ManuscriptDetail;
 
 export type DraftEditMeta = {
   editedBy: string | null;
@@ -41,6 +124,9 @@ export type DraftEditMeta = {
   aiProvider: string | null;
   approvedBy: string | null;
   approvedAt: string | null;
+  contentHash?: string | null;
+  gitCommit?: string | null;
+  approvers?: string[];
 };
 
 export type DraftSaveMeta = {
@@ -86,6 +172,36 @@ export type DocxImportResult = {
   paths: string[];
   paperTitle?: string;
   notice?: string;
+};
+
+export type DocxImportPreviewNode = {
+  title: string;
+  slug: string;
+  kind: "section" | "subsection" | "unit";
+  /** Unit draft text shown in the import preview editor. */
+  body?: string;
+  children?: DocxImportPreviewNode[];
+};
+
+export type DocxImportTargetOption = {
+  /** Empty string selects the paper root. */
+  slug: string;
+  path: string;
+  title: string;
+  existingNodeCount: number;
+};
+
+export type DocxImportPreview = {
+  importTargetPath: string;
+  importTargetSlug: string;
+  importTargetTitle: string;
+  replaceExisting: boolean;
+  importedPaperTitle?: string;
+  existing: DocxImportPreviewNode[];
+  imported: DocxImportPreviewNode[];
+  sectionsCreated: number;
+  unitsCreated: number;
+  availableTargets: DocxImportTargetOption[];
 };
 
 export type CommentAssigneeType = "human" | "ai";

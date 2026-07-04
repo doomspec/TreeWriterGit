@@ -13,6 +13,7 @@ export const WORKSPACE_STORAGE_KEYS = {
 
 const LEGACY_KEY_MAP: Record<string, string> = {
   "treewriter.workspace.preferences.v1": WORKSPACE_STORAGE_KEYS.preferences,
+  "treewriter.readingFocus.v1": WORKSPACE_STORAGE_KEYS.readingFocus,
 };
 
 export function migrateWorkspaceStorage(): void {
