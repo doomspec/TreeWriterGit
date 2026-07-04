@@ -111,6 +111,14 @@ export function createAutoExportRunner(options: {
 
       const timer = setTimeout(() => {
         pendingByPaper.delete(paperSlug);
+        if (state.running && state.lastPaperSlug === paperSlug) {
+          const retry = setTimeout(() => {
+            pendingByPaper.delete(paperSlug);
+            void runForPaper(paperSlug).catch(() => {});
+          }, 500);
+          pendingByPaper.set(paperSlug, retry);
+          return;
+        }
         void runForPaper(paperSlug).catch(() => {
           // error recorded in state
         });

@@ -1,7 +1,11 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 
-import { gatherDispatchSkillBlock } from "../dispatchSkills.js";
+import {
+  gatherDispatchSkillBlock,
+  loadDispatchActionTemplate,
+  renderDispatchActionTemplate,
+} from "../dispatchSkills.js";
 import { ModelFsError, readIndexData, shellQuote } from "../modelFs.js";
 import { stripInlineComments } from "../inlineComments.js";
 import { stripInlineNotes } from "../inlineNotes.js";
@@ -130,18 +134,22 @@ export async function buildPreview(
     : "";
   const notes = actionNeedsNotes(action) ? await readNotesForDispatch(modelRoot, unitPath) : "";
 
-  let prompt = TEMPLATES[action]
-    .replace("{idea}", idea || "(no overview defined)")
-    .replace("{draft}", draft || "(no draft yet)")
-    .replace("{notes}", notes || "(no notes yet)")
-    .replace("{context}", context)
-    .replace("{outputPath}", outputRelPath)
-    .replace("{outlinePath}", outlineRelPath)
-    .replace("{figureSourcePath}", figureSourceRel)
-    .replace("{captionPath}", `${unitPath}/draft.md`)
-    .replace("{customPrompt}", customPrompt ?? "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const templateVars = {
+    idea: idea || "(no overview defined)",
+    draft: draft || "(no draft yet)",
+    notes: notes || "(no notes yet)",
+    context,
+    outputPath: outputRelPath,
+    outlinePath: outlineRelPath,
+    figureSourcePath: figureSourceRel,
+    captionPath: `${unitPath}/draft.md`,
+    customPrompt: customPrompt ?? "",
+  };
+
+  const actionTemplate = await loadDispatchActionTemplate(repoRoot, action);
+  let prompt = actionTemplate
+    ? renderDispatchActionTemplate(actionTemplate, templateVars)
+    : renderDispatchActionTemplate(TEMPLATES[action], templateVars);
 
   const skillBlock = await gatherDispatchSkillBlock(repoRoot);
   if (skillBlock) {

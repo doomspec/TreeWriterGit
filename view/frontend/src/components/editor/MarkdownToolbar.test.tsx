@@ -40,4 +40,19 @@ describe("MarkdownToolbar", () => {
     expect(screen.getByRole("menuitemcheckbox", { name: "Bold" })).toBeTruthy();
     expect(screen.getByRole("menuitemcheckbox", { name: "Italic" })).toBeTruthy();
   });
+
+  it("hides highlight when onInsertHighlight is not provided", () => {
+    render(<MarkdownToolbar onFormat={vi.fn()} hideComments />);
+    expect(screen.queryByRole("button", { name: "Highlight selection" })).not.toBeTruthy();
+  });
+
+  it("uses a single-row nowrap control strip when embedded", () => {
+    const { container } = render(
+      <MarkdownToolbar embedded onFormat={vi.fn()} onToggleComments={vi.fn()} />,
+    );
+    const controls = container.querySelector(".markdown-toolbar__controls");
+    expect(controls?.className).toContain("flex-nowrap");
+    expect(controls?.className).not.toContain("flex-wrap");
+    expect(controls?.className).toContain("w-max");
+  });
 });

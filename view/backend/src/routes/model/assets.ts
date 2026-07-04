@@ -1,4 +1,6 @@
 import type { Express } from "express";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import {
   addMainBibEntryFromCrossref,
@@ -13,7 +15,7 @@ import {
 } from "../../bibLibrary.js";
 import { uploadFigureImage } from "../../figures.js";
 import { removeCiteKeyFromPaperDrafts } from "../../paperCitations.js";
-import { resolveModelPath } from "../../modelFs.js";
+import { resolveModelPath, resolvePaperRel } from "../../modelFs.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { bodyString, requireBody } from "../params.js";
 import type { ServerDeps } from "../types.js";
@@ -41,6 +43,41 @@ export function registerModelAssetRoutes(app: Express, deps: ServerDeps): void {
       const result = await uploadFigureImage(deps.modelRoot, figurePath, filename, buffer, role);
       deps.broadcastModelEvent({ type: "model-changed", path: result.assetPath });
       response.status(201).json(result);
+    }),
+  );
+
+  app.post(
+    "/api/model/data/upload",
+    asyncHandler(async (request, response) => {
+      const paperSlug = requireBody(request, "paperSlug");
+      const filename = requireBody(request, "filename");
+      const dataBase64 = bodyString(request, "data");
+      if (!dataBase64) {
+        response.status(400).json({ error: "Empty file data" });
+        return;
+      }
+      const safeName = path.basename(filename.trim());
+      if (!safeName || safeName === "." || safeName === "..") {
+        response.status(400).json({ error: "Invalid filename" });
+        return;
+      }
+      const paperRel = resolvePaperRel(deps.modelRoot, paperSlug);
+      const dataRel = `${paperRel}/notes/data/${safeName}`;
+      resolveModelPath(deps.modelRoot, dataRel);
+      const buffer = Buffer.from(dataBase64, "base64");
+      if (buffer.length === 0) {
+        response.status(400).json({ error: "Empty file data" });
+        return;
+      }
+      if (buffer.length > 20 * 1024 * 1024) {
+        response.status(400).json({ error: "File too large (max 20MB)" });
+        return;
+      }
+      const dataAbs = path.join(deps.modelRoot, dataRel);
+      await mkdir(path.dirname(dataAbs), { recursive: true });
+      await writeFile(dataAbs, buffer);
+      deps.broadcastModelEvent({ type: "model-changed", path: dataRel });
+      response.status(201).json({ path: dataRel });
     }),
   );
 

@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
+
+import type { AuthorEntry } from "@treewriter/shared";
 
 import { Button } from "@/components/ui/button";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { AuthorsAffiliationsEditor } from "@/components/paper/AuthorsAffiliationsEditor";
+import { ContributionsEditor } from "@/components/paper/ContributionsEditor";
+import { DocxImportPanel } from "@/components/paper/DocxImportPanel";
 import {
   applyTemplateSettings,
   buildCreateManuscriptPayload,
@@ -36,15 +40,18 @@ const DEFAULT_PAPER_TEMPLATE: ManuscriptTemplate = {
   exportPrimaryFormat: "latex",
 };
 
-type WizardStep = 1 | 2 | 3;
+type WizardStep = 1 | 3;
+type DetailsTab = "details" | "authors" | "contributions" | "structure" | "advanced";
 
 export function NewManuscriptModal({
   editSlug,
+  initialTab,
   onClose,
   onCreated,
   onError,
 }: {
   editSlug?: string;
+  initialTab?: DetailsTab;
   onClose: () => void;
   onCreated: (path: string) => void;
   onError: (message: string) => void;
@@ -55,9 +62,10 @@ export function NewManuscriptModal({
   const [templates, setTemplates] = useState<ManuscriptTemplate[]>([DEFAULT_PAPER_TEMPLATE]);
   const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_PAPER_TEMPLATE.templateId);
   const [title, setTitle] = useState("");
-  const [authors, setAuthors] = useState<string[]>([]);
+  const [authorEntries, setAuthorEntries] = useState<AuthorEntry[]>([]);
   const [affiliations, setAffiliations] = useState<string[]>([]);
-  const [authorAffiliations, setAuthorAffiliations] = useState<number[][]>([]);
+  const [detailsTab, setDetailsTab] = useState<DetailsTab>(initialTab ?? "details");
+  const [importTarget, setImportTarget] = useState<{ slug: string; path: string } | null>(null);
   const [slug, setSlug] = useState("");
   const [targetWords, setTargetWords] = useState(String(DEFAULT_PAPER_TEMPLATE.targetWords));
   const [sectionOrderText, setSectionOrderText] = useState(
@@ -73,7 +81,6 @@ export function NewManuscriptModal({
   const [project, setProject] = useState("");
   const [contributionMode, setContributionMode] = useState<"" | "kernel" | "repository">("");
   const [agentSummary, setAgentSummary] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(isEdit);
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useModalFocusTrap(true, onClose);
@@ -118,9 +125,8 @@ export function NewManuscriptModal({
         if (cancelled) return;
         setDocType(paper.docType ?? "paper");
         setTitle(paper.title);
-        setAuthors(paper.authors);
+        setAuthorEntries(paper.authorDetails ?? []);
         setAffiliations(paper.affiliations ?? []);
-        setAuthorAffiliations(paper.authorAffiliations ?? []);
         setSlug(paper.slug);
         setTargetWords(String(paper.targetWords));
         setSectionOrderText(paper.sectionOrder.join("\n"));
@@ -148,9 +154,12 @@ export function NewManuscriptModal({
     };
   }, [editSlug, isEdit, onClose, onError]);
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const validationError = validateManuscriptCreate({
+  useEffect(() => {
+    if (isEdit) setDetailsTab(initialTab ?? "details");
+  }, [editSlug, initialTab, isEdit]);
+
+  const validate = (): string | null =>
+    validateManuscriptCreate({
       title,
       targetWords,
       sectionOrderText,
@@ -159,50 +168,23 @@ export function NewManuscriptModal({
       audience,
       template: selectedTemplate,
     });
+
+  /** Runs the create-manuscript request only; used by both normal submit and "create & import". */
+  const submitCreate = async (): Promise<{ slug: string; path: string } | null> => {
+    const validationError = validate();
     if (validationError) {
       onError(validationError);
-      return;
+      return null;
     }
     setSubmitting(true);
     try {
-      if (isEdit) {
-        const cleanAuthors = authors.map((a) => a.trim()).filter(Boolean);
-        const cleanAffiliations = affiliations.map((a) => a.trim()).filter(Boolean);
-        const result = await updateManuscript({
-          slug: editSlug ?? slug.trim(),
-          title: title.trim(),
-          authors: cleanAuthors,
-          affiliations: cleanAffiliations,
-          authorAffiliations:
-            cleanAffiliations.length > 0 && authorAffiliations.some((a) => a.length > 0)
-              ? authorAffiliations
-              : undefined,
-          journal: docType === "paper" ? selectedTemplate?.journal ?? selectedTemplate?.label : undefined,
-          templateId: selectedTemplateId,
-          targetWords: Number(targetWords),
-          sectionOrder: sectionOrderText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean),
-          status,
-          overleafRepoPath: docType === "paper" ? overleafRepoPath.trim() || null : null,
-          funder: funder.trim() || null,
-          program: program.trim() || null,
-          deadline: deadline.trim() || null,
-          audience: audience.trim() || null,
-          tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-          project: project.trim() || null,
-          contributionMode: contributionMode || null,
-          agentSummary: agentSummary.trim() || null,
-        });
-        onCreated(result.path);
-        return;
-      }
       const payload = buildCreateManuscriptPayload({
         title,
         docType,
         templateId: selectedTemplateId,
         journal: selectedTemplate?.journal ?? selectedTemplate?.label,
-        authors,
+        authors: authorEntries,
         affiliations,
-        authorAffiliations,
         slug,
         targetWords,
         sectionOrderText,
@@ -218,12 +200,66 @@ export function NewManuscriptModal({
         agentSummary,
       });
       const result = await createManuscript(payload);
+      return result;
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+      return null;
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!isEdit) {
+      const result = await submitCreate();
+      if (result) onCreated(result.path);
+      return;
+    }
+    const validationError = validate();
+    if (validationError) {
+      onError(validationError);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const cleanAffiliations = affiliations.map((a) => a.trim()).filter(Boolean);
+      const result = await updateManuscript({
+        slug: editSlug ?? slug.trim(),
+        title: title.trim(),
+        authors: authorEntries,
+        affiliations: cleanAffiliations,
+        journal: docType === "paper" ? selectedTemplate?.journal ?? selectedTemplate?.label : undefined,
+        templateId: selectedTemplateId,
+        targetWords: Number(targetWords),
+        sectionOrder: sectionOrderText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean),
+        status,
+        overleafRepoPath: docType === "paper" ? overleafRepoPath.trim() || null : null,
+        funder: funder.trim() || null,
+        program: program.trim() || null,
+        deadline: deadline.trim() || null,
+        audience: audience.trim() || null,
+        tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        project: project.trim() || null,
+        contributionMode: contributionMode || null,
+        agentSummary: agentSummary.trim() || null,
+      });
       onCreated(result.path);
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleImportClick = async () => {
+    if (isEdit) {
+      if (!editSlug) return;
+      setImportTarget({ slug: editSlug, path: `papers/${editSlug}` });
+      return;
+    }
+    const result = await submitCreate();
+    if (result) setImportTarget(result);
   };
 
   const structurePreview = selectedTemplate ? structurePreviewFolders(selectedTemplate) : [];
@@ -266,7 +302,7 @@ export function NewManuscriptModal({
                       }`}
                       onClick={() => {
                         setDocType(type);
-                        setStep(2);
+                        setStep(3);
                       }}
                     >
                       {DOC_TYPE_LABELS[type]}
@@ -276,61 +312,46 @@ export function NewManuscriptModal({
               </div>
             ) : null}
 
-            {!isEdit && step === 2 ? (
-              <div className="space-y-3">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => setStep(1)}
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                  Back to type
-                </button>
-                <p className="text-xs text-muted-foreground">
-                  Templates for {DOC_TYPE_LABELS[docType].toLowerCase()}s
-                </p>
-                <div className="max-h-48 space-y-2 overflow-y-auto">
-                  {templates.map((template) => (
-                    <button
-                      key={template.templateId}
-                      type="button"
-                      className={`w-full rounded-md border px-3 py-2 text-left text-xs ${
-                        selectedTemplateId === template.templateId
-                          ? "border-primary bg-primary/10"
-                          : "border-border hover:bg-accent/50"
-                      }`}
-                      onClick={() => applyTemplate(template)}
-                    >
-                      <div className="font-medium">{template.label}</div>
-                      {template.description ? (
-                        <div className="text-[11px] text-muted-foreground">{template.description}</div>
-                      ) : null}
-                      <div className="mt-1 text-[10px] text-muted-foreground">
-                        {template.sectionOrder.length} sections · {template.targetWords.toLocaleString()} words ·{" "}
-                        {template.exportPrimaryFormat.toUpperCase()}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-                <Button type="button" className="h-8 w-full text-xs" onClick={() => setStep(3)}>
-                  Continue
-                </Button>
-              </div>
-            ) : null}
-
-            {(isEdit || step === 3) && (
+            {(isEdit || step === 3) && !importTarget && (
               <>
                 {!isEdit ? (
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => setStep(2)}
+                    onClick={() => setStep(1)}
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
-                    Back to templates
+                    Back to type
                   </button>
                 ) : null}
 
+                <div className="flex flex-wrap gap-1 border-b border-border">
+                  {(
+                    [
+                      ["details", "Details"],
+                      ["authors", "Authors & affiliations"],
+                      ["contributions", "Contributions"],
+                      ["structure", "Structure"],
+                      ["advanced", "Advanced"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`-mb-px border-b-2 px-2 py-1.5 text-xs font-medium ${
+                        detailsTab === id
+                          ? "border-primary text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground"
+                      }`}
+                      onClick={() => setDetailsTab(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {detailsTab === "details" ? (
+                  <>
                 <label className="block text-xs">
                   <span className="mb-1 block font-medium">Title</span>
                   <input
@@ -341,7 +362,29 @@ export function NewManuscriptModal({
                   />
                 </label>
 
-                {docType === "paper" ? (
+                {!isEdit && templates.length > 0 ? (
+                  <label className="block text-xs">
+                    <span className="mb-1 block font-medium">
+                      {docType === "paper" ? "Journal / venue" : "Template"}
+                    </span>
+                    <select
+                      className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm"
+                      value={selectedTemplateId}
+                      onChange={(e) => {
+                        const next = templates.find((t) => t.templateId === e.target.value);
+                        if (next) applyTemplate(next);
+                      }}
+                    >
+                      {templates.map((template) => (
+                        <option key={template.templateId} value={template.templateId}>
+                          {docType === "paper" ? template.journal ?? template.label : template.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                {isEdit && docType === "paper" ? (
                   <label className="block text-xs">
                     <span className="mb-1 block font-medium">Journal / venue</span>
                     <input
@@ -395,17 +438,6 @@ export function NewManuscriptModal({
                   </label>
                 ) : null}
 
-                <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
-                  <AuthorsAffiliationsEditor
-                    value={{ authors, affiliations, authorAffiliations }}
-                    onChange={(next) => {
-                      setAuthors(next.authors);
-                      setAffiliations(next.affiliations);
-                      setAuthorAffiliations(next.authorAffiliations);
-                    }}
-                  />
-                </div>
-
                 <label className="block text-xs">
                   <span className="mb-1 block font-medium">Tags (comma-separated, optional)</span>
                   <input
@@ -426,17 +458,6 @@ export function NewManuscriptModal({
                   />
                 </label>
 
-                {!isEdit ? (
-                  <div className="rounded-sm border border-border bg-muted/30 px-3 py-2 text-[11px]">
-                    <div className="mb-1 font-medium">Structure preview</div>
-                    <ul className="font-mono text-muted-foreground">
-                      {structurePreview.map((folder) => (
-                        <li key={folder}>{folder}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
                 <label className="block text-xs">
                   <span className="mb-1 block font-medium">Slug {isEdit ? "" : "(optional)"}</span>
                   <input
@@ -448,88 +469,116 @@ export function NewManuscriptModal({
                   />
                 </label>
 
-                <div className="rounded-sm border border-border">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium hover:bg-accent/50"
-                    aria-expanded={settingsOpen}
-                    onClick={() => setSettingsOpen((open) => !open)}
-                  >
-                    Advanced settings
-                    <ChevronDown
-                      className={`h-3.5 w-3.5 shrink-0 transition-transform ${settingsOpen ? "rotate-180" : ""}`}
-                    />
-                  </button>
-                  {settingsOpen ? (
-                    <div className="space-y-3 border-t border-border px-3 py-3">
-                      <label className="block text-xs">
-                        <span className="mb-1 block font-medium">Target words</span>
-                        <input
-                          type="number"
-                          min={1}
-                          className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm"
-                          value={targetWords}
-                          onChange={(e) => setTargetWords(e.target.value)}
-                        />
-                      </label>
-                      <label className="block text-xs">
-                        <span className="mb-1 block font-medium">Section order</span>
-                        <textarea
-                          className="min-h-28 w-full rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs"
-                          value={sectionOrderText}
-                          onChange={(e) => setSectionOrderText(e.target.value)}
-                        />
-                      </label>
-                      <label className="block text-xs">
-                        <span className="mb-1 block font-medium">Status</span>
-                        <select
-                          className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm"
-                          value={status}
-                          onChange={(e) => setStatus(e.target.value)}
-                        >
-                          {(selectedTemplate?.statusOptions ?? ["Planning"]).map((value) => (
-                            <option key={value} value={value}>
-                              {value}
-                            </option>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 w-full text-xs"
+                  disabled={submitting}
+                  onClick={() => void handleImportClick()}
+                >
+                  {isEdit ? "Import from Word…" : "Create & import from Word…"}
+                </Button>
+                  </>
+                ) : null}
+
+                {detailsTab === "authors" ? (
+                  <AuthorsAffiliationsEditor
+                    value={{ authors: authorEntries, affiliations }}
+                    onChange={(next) => {
+                      setAuthorEntries(next.authors);
+                      setAffiliations(next.affiliations);
+                    }}
+                  />
+                ) : null}
+
+                {detailsTab === "contributions" ? (
+                  <ContributionsEditor authors={authorEntries} onChange={setAuthorEntries} />
+                ) : null}
+
+                {detailsTab === "structure" ? (
+                  <div className="space-y-3">
+                    <label className="block text-xs">
+                      <span className="mb-1 block font-medium">Target words</span>
+                      <input
+                        type="number"
+                        min={1}
+                        className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm"
+                        value={targetWords}
+                        onChange={(e) => setTargetWords(e.target.value)}
+                      />
+                    </label>
+                    <label className="block text-xs">
+                      <span className="mb-1 block font-medium">Section order</span>
+                      <textarea
+                        className="min-h-28 w-full rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-xs"
+                        value={sectionOrderText}
+                        onChange={(e) => setSectionOrderText(e.target.value)}
+                      />
+                    </label>
+                    {!isEdit ? (
+                      <div className="rounded-sm border border-border bg-muted/30 px-3 py-2 text-[11px]">
+                        <div className="mb-1 font-medium">Structure preview</div>
+                        <ul className="font-mono text-muted-foreground">
+                          {structurePreview.map((folder) => (
+                            <li key={folder}>{folder}</li>
                           ))}
-                        </select>
-                      </label>
-                      {docType === "paper" ? (
-                        <label className="block text-xs">
-                          <span className="mb-1 block font-medium">Overleaf path (optional)</span>
-                          <input
-                            className="h-8 w-full rounded-sm border border-border bg-background px-2 font-mono text-sm"
-                            value={overleafRepoPath}
-                            onChange={(e) => setOverleafRepoPath(e.target.value)}
-                          />
-                        </label>
-                      ) : null}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {detailsTab === "advanced" ? (
+                  <div className="space-y-3">
+                    <label className="block text-xs">
+                      <span className="mb-1 block font-medium">Status</span>
+                      <select
+                        className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm"
+                        value={status}
+                        onChange={(e) => setStatus(e.target.value)}
+                      >
+                        {(selectedTemplate?.statusOptions ?? ["Planning"]).map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {docType === "paper" ? (
                       <label className="block text-xs">
-                        <span className="mb-1 block font-medium">Agent contribution mode</span>
-                        <select
-                          className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm"
-                          value={contributionMode}
-                          onChange={(e) =>
-                            setContributionMode(e.target.value as "" | "kernel" | "repository")
-                          }
-                        >
-                          <option value="">Default</option>
-                          <option value="kernel">Kernel (core modules only)</option>
-                          <option value="repository">Repository (full codebase)</option>
-                        </select>
-                      </label>
-                      <label className="block text-xs">
-                        <span className="mb-1 block font-medium">Agent summary (optional)</span>
-                        <textarea
-                          className="min-h-16 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-xs"
-                          value={agentSummary}
-                          onChange={(e) => setAgentSummary(e.target.value)}
-                          placeholder="Short triage blurb for AI dispatch (~500 tokens)"
+                        <span className="mb-1 block font-medium">Overleaf path (optional)</span>
+                        <input
+                          className="h-8 w-full rounded-sm border border-border bg-background px-2 font-mono text-sm"
+                          value={overleafRepoPath}
+                          onChange={(e) => setOverleafRepoPath(e.target.value)}
                         />
                       </label>
-                    </div>
-                  ) : null}
-                </div>
+                    ) : null}
+                    <label className="block text-xs">
+                      <span className="mb-1 block font-medium">Agent contribution mode</span>
+                      <select
+                        className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm"
+                        value={contributionMode}
+                        onChange={(e) =>
+                          setContributionMode(e.target.value as "" | "kernel" | "repository")
+                        }
+                      >
+                        <option value="">Default</option>
+                        <option value="kernel">Kernel (core modules only)</option>
+                        <option value="repository">Repository (full codebase)</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs">
+                      <span className="mb-1 block font-medium">Agent summary (optional)</span>
+                      <textarea
+                        className="min-h-16 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-xs"
+                        value={agentSummary}
+                        onChange={(e) => setAgentSummary(e.target.value)}
+                        placeholder="Short triage blurb for AI dispatch (~500 tokens)"
+                      />
+                    </label>
+                  </div>
+                ) : null}
 
                 <div className="flex justify-end gap-2 pt-2">
                   <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={onClose}>
@@ -547,6 +596,35 @@ export function NewManuscriptModal({
                 </div>
               </>
             )}
+
+            {importTarget ? (
+              <div className="flex min-h-0 flex-col">
+                <button
+                  type="button"
+                  className="mb-2 inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setImportTarget(null)}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Back
+                </button>
+                <DocxImportPanel
+                  paperSlug={importTarget.slug}
+                  paperPath={importTarget.path}
+                  onError={onError}
+                  onComplete={() => onCreated(importTarget.path)}
+                />
+                <div className="flex justify-end pt-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => onCreated(importTarget.path)}
+                  >
+                    {isEdit ? "Done" : "Skip import"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </form>
         )}
       </div>

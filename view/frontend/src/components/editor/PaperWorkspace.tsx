@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 import { MarkdownEditor } from "@/components/editor/MarkdownEditor";
 import { ComposedDraftEditor } from "@/components/editor/ComposedDraftEditor";
@@ -14,6 +14,7 @@ import { SectionApproveChildrenButton } from "@/components/editor/SectionApprove
 import { outlinePathFor, tempNotesPathFor, type NavigateTarget } from "@/lib/modelTree";
 import type { OpenFileOptions } from "@/lib/useWorkspaceNavigation";
 import { normalizeComposedDraftBody } from "@/lib/sectionCompose";
+import { refreshPaperPendingPaths } from "@/lib/refreshPaperPending";
 import type { DualPaneActive, EditorVisiblePanes } from "@/lib/workspacePreferences";
 
 export function PaperWorkspace({
@@ -57,6 +58,10 @@ export function PaperWorkspace({
   const showSplitPaneTitles = useReadingFocusSplitPaneTitles(visiblePanes);
   const outlinePath = outlinePathFor(paperPath);
   const notesPath = tempNotesPathFor(paperPath);
+
+  useEffect(() => {
+    void refreshPaperPendingPaths(paperPath);
+  }, [paperPath, refreshVersion]);
 
   const handleLinkNavigate = useCallback(
     (target: NavigateTarget) => {

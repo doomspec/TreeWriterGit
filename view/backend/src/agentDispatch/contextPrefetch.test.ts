@@ -29,11 +29,9 @@ describe("extractSearchTerms", () => {
 });
 
 describe("buildDispatchContextCliBlock", () => {
-  it("includes tw-context and import commands", async () => {
+  it("returns empty when Zotero local is disabled (CLI ref lives in treewriter-context-cli skill)", async () => {
     const block = await buildDispatchContextCliBlock(repoRoot);
-    expect(block).toContain("tw-context.mjs");
-    expect(block).toContain("import-docx");
-    expect(block).toContain("model/");
+    expect(block).toBe("");
   });
 });
 

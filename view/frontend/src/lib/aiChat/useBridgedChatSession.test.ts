@@ -190,6 +190,117 @@ describe("useBridgedChatSession", () => {
     ]);
   });
 
+  it("resume restores turns, agent session id, and reuses the trace file", async () => {
+    const sessionFile = {
+      provider: "codex",
+      mode: "bridged" as const,
+      startedAt: "2026-07-02T09:00:00.000Z",
+      unitPath: "papers/demo/1-intro",
+      agentSessionId: "sess-resume",
+      id: "1",
+      filename: "chat-resume.md",
+      wikiPath: "papers/demo/notes/sessions/chat-resume.md",
+      turns: [
+        { role: "user" as const, text: "Earlier question", at: "2026-07-02T09:00:05.000Z" },
+        { role: "assistant" as const, text: "Earlier answer", at: "2026-07-02T09:00:10.000Z" },
+      ],
+    };
+    const runTurnSpy = vi
+      .spyOn(bridgedChatClient, "runBridgedTurn")
+      .mockResolvedValue({ text: "Follow-up", sessionId: "sess-resume" });
+    const createSpy = vi.spyOn(sessionClient, "createChatSession");
+    const appendSpy = vi.spyOn(sessionClient, "appendChatTurn").mockResolvedValue({ ok: true });
+
+    const { result } = renderHook(() =>
+      useBridgedChatSession({ unitPath: "papers/demo/1-intro" }),
+    );
+
+    act(() => {
+      expect(result.current.resume(sessionFile)).toBe(true);
+    });
+
+    expect(result.current.status).toBe("attached");
+    expect(result.current.turns).toHaveLength(2);
+    expect(result.current.provider).toBe("codex");
+
+    await act(async () => {
+      await result.current.send("Next question");
+    });
+
+    expect(runTurnSpy).toHaveBeenCalledWith(
+      "codex",
+      "Next question",
+      "sess-resume",
+      undefined,
+      "papers/demo/1-intro",
+      undefined,
+    );
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(appendSpy).toHaveBeenCalledWith("papers/demo/1-intro", "chat-resume.md", expect.any(Object));
+    expect(result.current.turns).toHaveLength(4);
+  });
+
+  it("retries without session id when resume fails with an expired session error", async () => {
+    const runTurnSpy = vi
+      .spyOn(bridgedChatClient, "runBridgedTurn")
+      .mockRejectedValueOnce(new Error("session expired"))
+      .mockResolvedValueOnce({ text: "Fresh start", sessionId: "sess-new" });
+    vi.spyOn(sessionClient, "createChatSession").mockResolvedValue({
+      provider: "codex",
+      mode: "bridged",
+      startedAt: "2026-07-02T09:00:00.000Z",
+      unitPath: "papers/demo/1-intro",
+      id: "1",
+      filename: "chat-1.md",
+      wikiPath: "papers/demo/notes/sessions/chat-1.md",
+      turns: [],
+    });
+    vi.spyOn(sessionClient, "appendChatTurn").mockResolvedValue({ ok: true });
+
+    const { result } = renderHook(() =>
+      useBridgedChatSession({ unitPath: "papers/demo/1-intro" }),
+    );
+
+    act(() => {
+      result.current.resume({
+        provider: "codex",
+        mode: "bridged",
+        startedAt: "2026-07-02T09:00:00.000Z",
+        unitPath: "papers/demo/1-intro",
+        agentSessionId: "sess-stale",
+        id: "1",
+        filename: "chat-1.md",
+        wikiPath: "papers/demo/notes/sessions/chat-1.md",
+        turns: [{ role: "user", text: "Hi", at: "2026-07-02T09:00:05.000Z" }],
+      });
+    });
+
+    await act(async () => {
+      await result.current.send("Continue please");
+    });
+
+    expect(runTurnSpy).toHaveBeenNthCalledWith(
+      1,
+      "codex",
+      "Continue please",
+      "sess-stale",
+      undefined,
+      "papers/demo/1-intro",
+      undefined,
+    );
+    expect(runTurnSpy).toHaveBeenNthCalledWith(
+      2,
+      "codex",
+      "Continue please",
+      null,
+      undefined,
+      "papers/demo/1-intro",
+      undefined,
+    );
+    expect(result.current.resumeNotice).toContain("expired");
+    expect(result.current.status).toBe("attached");
+  });
+
   it("detach resets provider, turns, and the trace session", async () => {
     vi.spyOn(bridgedChatClient, "runBridgedTurn").mockResolvedValue({
       text: "PONG",

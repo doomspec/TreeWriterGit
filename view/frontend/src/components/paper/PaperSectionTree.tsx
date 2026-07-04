@@ -21,13 +21,14 @@ import {
 
 export type SectionRow = PaperSectionItem & {
   counts?: UnitStatusCounts;
+  draftWordCount?: number;
 };
 
 function sectionTreeDragHandleClass(compact = false): string {
   return cn(
-    "flex shrink-0 cursor-grab items-center justify-center rounded-l-md text-muted-foreground transition-colors",
+    "flex h-5 shrink-0 cursor-grab items-center justify-center self-center rounded-l-md text-muted-foreground transition-colors",
     "hover:bg-muted/80 hover:text-foreground active:cursor-grabbing",
-    compact ? "w-5" : "w-7",
+    compact ? "w-4" : "w-4",
   );
 }
 
@@ -39,7 +40,7 @@ function sectionTreeNavButtonClass(options: {
 }): string {
   const { active, highlight, textSize, rowPad } = options;
   return cn(
-    "section-tree-row__nav flex items-center gap-1.5 rounded-md px-2 text-left transition-colors",
+    "section-tree-row__nav flex min-h-0 items-start gap-1 rounded-md px-1 py-0 text-left leading-tight transition-colors",
     textSize,
     rowPad,
     highlight
@@ -54,8 +55,8 @@ function sectionTreeNavButtonClass(options: {
 
 function nestedChildrenIndentClass(depth: number): string {
   return cn(
-    "border-l border-border/60 pl-2",
-    depth === 0 ? "ml-6" : "ml-3 border-border/40",
+    "border-l border-border/60 pl-1.5",
+    depth === 0 ? "ml-5" : "ml-2.5 border-border/40",
   );
 }
 
@@ -66,6 +67,7 @@ function FolderChildrenList({
   tree,
   childOrders,
   containerCounts,
+  containerWordCounts,
   reordering,
   depth = 0,
   isBranchExpanded,
@@ -83,6 +85,7 @@ function FolderChildrenList({
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
   containerCounts: Record<string, UnitStatusCounts>;
+  containerWordCounts: Record<string, number>;
   reordering: boolean;
   depth?: number;
   isBranchExpanded: (folderPath: string) => boolean;
@@ -119,6 +122,7 @@ function FolderChildrenList({
           tree={tree}
           childOrders={childOrders}
           containerCounts={containerCounts}
+          containerWordCounts={containerWordCounts}
           reordering={reordering}
           depth={depth}
           isBranchExpanded={isBranchExpanded}
@@ -144,6 +148,7 @@ function ChildOrderList({
   tree,
   childOrders,
   containerCounts,
+  containerWordCounts,
   reordering,
   depth,
   isBranchExpanded,
@@ -163,6 +168,7 @@ function ChildOrderList({
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
   containerCounts: Record<string, UnitStatusCounts>;
+  containerWordCounts: Record<string, number>;
   reordering: boolean;
   depth: number;
   isBranchExpanded: (folderPath: string) => boolean;
@@ -195,8 +201,8 @@ function ChildOrderList({
 
   const renderItem = (child: PaperSectionItem, index: number, dragEnabled: boolean) => {
     const childActive = currentPath === child.path || currentPath.startsWith(`${child.path}/`);
-    const textSize = depth === 0 ? "text-[11px]" : "text-[10px]";
-    const rowPad = depth === 0 ? "py-1" : "py-0.5";
+    const textSize = "text-[10px]";
+    const rowPad = "py-0";
     const { highlight, pending, unapproved } = sectionNeedsHighlight(
       child.path,
       containerCounts[child.path],
@@ -206,7 +212,7 @@ function ChildOrderList({
       <>
         <div
           className={cn(
-            "section-tree-row group flex items-stretch gap-0.5 rounded-md",
+            "section-tree-row group flex items-center gap-0.5 rounded-md",
             unapprovedSectionRowClass({ highlight, pending, active: childActive, compact: true }),
             dragEnabled && dragIndex === index ? "opacity-50" : undefined,
             dragEnabled &&
@@ -238,7 +244,7 @@ function ChildOrderList({
               title="Drag to reorder"
               aria-hidden="true"
             >
-              <GripVertical className="h-3 w-3" />
+              <GripVertical className="h-2.5 w-2.5" />
             </div>
           ) : null}
           <button
@@ -272,6 +278,8 @@ function ChildOrderList({
             tree={tree}
             title={child.title}
             rowPath={child.path}
+            counts={containerCounts[child.path]}
+            wordCount={containerWordCounts[child.path]}
             disabled={reordering}
             onCreate={onCreate}
             onRename={() => onRename(child.path, child.title)}
@@ -289,6 +297,7 @@ function ChildOrderList({
           tree={tree}
           childOrders={childOrders}
           containerCounts={containerCounts}
+          containerWordCounts={containerWordCounts}
           reordering={reordering}
           depth={depth + 1}
           isBranchExpanded={isBranchExpanded}
@@ -320,6 +329,7 @@ function ChildOrderList({
                   tree={tree}
                   childOrders={childOrders}
                   containerCounts={containerCounts}
+                  containerWordCounts={containerWordCounts}
                   reordering={reordering}
                   depth={depth + 1}
                   isBranchExpanded={isBranchExpanded}
@@ -354,6 +364,7 @@ export function SectionOrderList({
   tree,
   childOrders,
   containerCounts,
+  containerWordCounts,
   reordering,
   isBranchExpanded,
   onTreeItemClick,
@@ -371,6 +382,7 @@ export function SectionOrderList({
   tree: ModelNode[];
   childOrders: Record<string, string[]>;
   containerCounts: Record<string, UnitStatusCounts>;
+  containerWordCounts: Record<string, number>;
   reordering: boolean;
   isBranchExpanded: (folderPath: string) => boolean;
   onTreeItemClick: (path: string) => void;
@@ -410,6 +422,7 @@ export function SectionOrderList({
         tree={tree}
         childOrders={childOrders}
         containerCounts={containerCounts}
+        containerWordCounts={containerWordCounts}
         reordering={reordering}
         isBranchExpanded={isBranchExpanded}
         onTreeItemClick={onTreeItemClick}
@@ -424,7 +437,7 @@ export function SectionOrderList({
   };
 
   return (
-    <ul className="space-y-1" aria-label="Paper sections">
+    <ul className="space-y-0.5" aria-label="Paper sections">
       {sections.map((section, index) => {
         const active =
           currentPath === section.path || currentPath.startsWith(`${section.path}/`);
@@ -436,7 +449,7 @@ export function SectionOrderList({
           <li key={section.path}>
             <div
               className={cn(
-                "section-tree-row group flex items-stretch gap-1 rounded-md border border-border/60 bg-background transition-colors",
+                "section-tree-row group flex items-center gap-0.5 rounded-md border border-border/60 bg-background transition-colors",
                 unapprovedSectionRowClass({ highlight, pending, active }),
                 active && !highlight ? "border-primary/40 bg-accent/50" : undefined,
                 dragIndex === index ? "opacity-50" : undefined,
@@ -465,15 +478,15 @@ export function SectionOrderList({
                 title="Drag to reorder"
                 aria-hidden="true"
               >
-                <GripVertical className="h-3.5 w-3.5" />
+                <GripVertical className="h-2.5 w-2.5" />
               </div>
               <button
                 type="button"
                 className={sectionTreeNavButtonClass({
                   active,
                   highlight,
-                  textSize: "text-xs",
-                  rowPad: "py-1.5",
+                  textSize: "text-[11px]",
+                  rowPad: "py-0",
                 })}
                 onClick={() => onTreeItemClick(section.path)}
               >
@@ -489,6 +502,7 @@ export function SectionOrderList({
                 title={section.title}
                 rowPath={section.path}
                 counts={section.counts}
+                wordCount={section.draftWordCount ?? containerWordCounts[section.path]}
                 disabled={reordering}
                 onCreate={onCreate}
                 onRename={() => onRename(section.path, section.title)}

@@ -30,5 +30,5 @@ export function usePaperDetail(slug: string | null, refreshVersion = 0, onError?
     void reload();
   }, [reload, refreshVersion]);
 
-  return { detail, loading, reload };
+  return { detail, loading, detailLoading: loading, reload, reloadDetail: reload };
 }

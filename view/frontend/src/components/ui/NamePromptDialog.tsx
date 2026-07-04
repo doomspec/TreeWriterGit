@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -112,6 +113,7 @@ export function ConfirmDialog({
   message,
   confirmLabel = "Confirm",
   destructive = false,
+  loading = false,
   onConfirm,
   onCancel,
 }: {
@@ -120,17 +122,19 @@ export function ConfirmDialog({
   message: string;
   confirmLabel?: string;
   destructive?: boolean;
+  /** Keeps the dialog open with actions disabled and a spinner while an async confirm runs. */
+  loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   useEffect(() => {
-    if (!open) return;
+    if (!open || loading) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel, open]);
+  }, [loading, onCancel, open]);
 
   if (!open) return null;
 
@@ -139,6 +143,7 @@ export function ConfirmDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/50 p-4 backdrop-blur-[2px]"
       role="presentation"
       onMouseDown={(event) => {
+        if (loading) return;
         if (event.target === event.currentTarget) onCancel();
       }}
     >
@@ -146,15 +151,17 @@ export function ConfirmDialog({
         <h2 className="text-sm font-semibold">{title}</h2>
         <p className="mt-2 text-sm text-muted-foreground">{message}</p>
         <div className="mt-4 flex justify-end gap-2">
-          <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={onCancel}>
+          <Button type="button" variant="outline" className="h-8 px-3 text-xs" onClick={onCancel} disabled={loading}>
             Cancel
           </Button>
           <Button
             type="button"
             variant={destructive ? "outline" : "default"}
-            className={cn("h-8 px-3 text-xs", destructive && "border-destructive text-destructive")}
+            className={cn("h-8 gap-1.5 px-3 text-xs", destructive && "border-destructive text-destructive")}
             onClick={onConfirm}
+            disabled={loading}
           >
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
             {confirmLabel}
           </Button>
         </div>

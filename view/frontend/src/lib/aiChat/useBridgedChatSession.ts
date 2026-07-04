@@ -4,10 +4,12 @@ import {
   addChatSessionContextFiles,
   appendChatTurn,
   createChatSession,
+  type ChatSessionFile,
   type ChatTurn,
 } from "@/lib/aiChat/sessionClient";
 import { runBridgedTurn } from "@/lib/aiChat/bridgedChatClient";
-import type { BridgedProvider } from "@/lib/aiChat/providers";
+import { isBridgedProvider, type BridgedProvider } from "@/lib/aiChat/providers";
+import { isBridgedResumeError } from "@/lib/aiChat/resumeErrors";
 import { getGitHubHandle } from "@/lib/userIdentity";
 
 /**
@@ -20,6 +22,11 @@ import { getGitHubHandle } from "@/lib/userIdentity";
 
 export type BridgedChatStatus = "idle" | "attaching" | "attached" | "sending" | "error";
 
+const NO_AGENT_SESSION_NOTICE =
+  "No provider session id on record — the next message starts a fresh CLI session but prior turns are shown above.";
+const EXPIRED_SESSION_NOTICE =
+  "Provider session expired — continuing with a fresh CLI session. Prior turns are shown above.";
+
 export function useBridgedChatSession(options: {
   unitPath: string;
   onError?: (message: string) => void;
@@ -28,6 +35,7 @@ export function useBridgedChatSession(options: {
   const [status, setStatus] = useState<BridgedChatStatus>("idle");
   const [provider, setProvider] = useState<BridgedProvider | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [resumeNotice, setResumeNotice] = useState<string | null>(null);
 
   const providerRef = useRef<BridgedProvider | null>(null);
   const agentSessionIdRef = useRef<string | null>(null);
@@ -63,10 +71,62 @@ export function useBridgedChatSession(options: {
     providerRef.current = chosenProvider;
     agentSessionIdRef.current = null;
     traceSessionRef.current = null;
+    setResumeNotice(null);
     setProvider(chosenProvider);
     setTurns([]);
     setStatus("attached");
   }, []);
+
+  const resume = useCallback((session: ChatSessionFile): boolean => {
+    if (session.mode !== "bridged" || !isBridgedProvider(session.provider)) {
+      onErrorRef.current?.("Only bridged sessions can be resumed from history.");
+      return false;
+    }
+
+    providerRef.current = session.provider;
+    agentSessionIdRef.current = session.agentSessionId ?? null;
+    traceSessionRef.current = { filename: session.filename };
+    setProvider(session.provider);
+    setTurns(session.turns);
+    setResumeNotice(session.agentSessionId ? null : NO_AGENT_SESSION_NOTICE);
+    setStatus("attached");
+    return true;
+  }, []);
+
+  const runTurn = useCallback(
+    async (
+      chosenProvider: BridgedProvider,
+      trimmed: string,
+      contextPaths?: string[],
+    ): Promise<{ text: string; sessionId: string | null }> => {
+      try {
+        return await runBridgedTurn(
+          chosenProvider,
+          trimmed,
+          agentSessionIdRef.current,
+          contextPaths,
+          unitPath,
+          getGitHubHandle() || undefined,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (!agentSessionIdRef.current || !isBridgedResumeError(message)) {
+          throw err;
+        }
+        agentSessionIdRef.current = null;
+        setResumeNotice(EXPIRED_SESSION_NOTICE);
+        return runBridgedTurn(
+          chosenProvider,
+          trimmed,
+          null,
+          contextPaths,
+          unitPath,
+          getGitHubHandle() || undefined,
+        );
+      }
+    },
+    [unitPath],
+  );
 
   const send = useCallback(
     async (text: string, contextPaths?: string[]) => {
@@ -79,14 +139,7 @@ export function useBridgedChatSession(options: {
       setStatus("sending");
 
       try {
-        const result = await runBridgedTurn(
-          chosenProvider,
-          trimmed,
-          agentSessionIdRef.current,
-          contextPaths,
-          unitPath,
-          getGitHubHandle() || undefined,
-        );
+        const result = await runTurn(chosenProvider, trimmed, contextPaths);
         agentSessionIdRef.current = result.sessionId ?? agentSessionIdRef.current;
         const session = await ensureTraceSession(chosenProvider);
         persistTurn(session.filename, userTurn);
@@ -109,7 +162,7 @@ export function useBridgedChatSession(options: {
         onErrorRef.current?.(err instanceof Error ? err.message : String(err));
       }
     },
-    [ensureTraceSession, persistTurn, status, unitPath],
+    [ensureTraceSession, persistTurn, runTurn, status],
   );
 
   const stop = useCallback(() => {
@@ -122,9 +175,14 @@ export function useBridgedChatSession(options: {
     providerRef.current = null;
     agentSessionIdRef.current = null;
     traceSessionRef.current = null;
+    setResumeNotice(null);
     setProvider(null);
     setTurns([]);
     setStatus("idle");
+  }, []);
+
+  const clearResumeNotice = useCallback(() => {
+    setResumeNotice(null);
   }, []);
 
   return {
@@ -132,9 +190,12 @@ export function useBridgedChatSession(options: {
     provider: provider ?? "unknown",
     turns,
     pendingText: status === "sending" ? "…" : "",
+    resumeNotice,
     attach,
+    resume,
     send,
     stop,
     detach,
+    clearResumeNotice,
   };
 }

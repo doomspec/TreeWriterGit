@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Database,
   FileText,
   Loader2,
   Paperclip,
@@ -17,7 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { PopoverMenu, PopoverMenuSection } from "@/components/ui/PopoverMenu";
 import { ChatHistoryPanel } from "@/components/assistant/ChatHistoryPanel";
-import type { ChatTurn } from "@/lib/aiChat/sessionClient";
+import { paperRootFromPath, paperSlugFromPath } from "@/components/nav/PaperSelect";
+import { paperHistoryScopeLabel, shortPathLabel } from "@/lib/shortPathLabel";
+import type { ChatSessionFile, ChatTurn } from "@/lib/aiChat/sessionClient";
+import { segmentChatText } from "@/lib/aiChat/chatPathLinks";
 import type { PtyChatStatus } from "@/lib/aiChat/usePtyChatSession";
 import type { BridgedChatStatus } from "@/lib/aiChat/useBridgedChatSession";
 import { KNOWN_PROVIDERS } from "@/lib/aiChat/providers";
@@ -29,6 +33,7 @@ import {
   type AgentDispatchAction,
 } from "@/lib/agentDispatchClient";
 import { cn } from "@/lib/utils";
+import { readFileAsBase64, uploadPaperData } from "@/lib/dataUpload";
 
 type ChatStatus = PtyChatStatus | BridgedChatStatus;
 
@@ -61,11 +66,6 @@ function fileLabel(path: string): string {
   return path.split("/").pop() ?? path;
 }
 
-function shortPathLabel(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
-}
-
 /**
  * Always-visible pointer to which section/unit the chat is scoped to. Also
  * hosts the session-level controls (attach files, history, end session) so
@@ -73,28 +73,30 @@ function shortPathLabel(path: string): string {
  */
 function ContextPointer({
   currentPath,
+  scopeLabel,
   onOpenHistory,
   actions,
 }: {
   currentPath: string;
+  /** When set (e.g. paper-wide history), replaces the path display. */
+  scopeLabel?: string;
   onOpenHistory?: () => void;
   /** Extra icon controls (attach-files, end session) — only relevant once attached. */
   actions?: React.ReactNode;
 }) {
+  const displayLabel = scopeLabel ?? (currentPath ? shortPathLabel(currentPath) : "No section or unit open");
   return (
     <div
       className="flex shrink-0 items-center gap-1 border-b border-border/60 bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground"
-      title={currentPath || undefined}
+      title={scopeLabel ? undefined : currentPath || undefined}
     >
       <FileText className="h-3 w-3 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate">
-        {currentPath ? shortPathLabel(currentPath) : "No section or unit open"}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{displayLabel}</span>
       {actions}
       {onOpenHistory ? (
         <button
           type="button"
-          title="Past sessions for this unit"
+          title="Past sessions for this paper"
           aria-label="Open session history"
           onClick={onOpenHistory}
           className="shrink-0 rounded-sm p-0.5 hover:bg-accent/60 hover:text-foreground"
@@ -128,6 +130,12 @@ export function AiChatThread({
   isUnit,
   canFanOut,
   onError,
+  onOpenFile,
+  requestedHistoryOpenAt,
+  requestedDispatchAction,
+  resumeNotice,
+  onClearResumeNotice,
+  onResumeSession,
 }: {
   status: ChatStatus;
   terminalConnected: boolean;
@@ -143,6 +151,17 @@ export function AiChatThread({
   isUnit: boolean;
   canFanOut: boolean;
   onError: (message: string) => void;
+  /** Open a model-relative file path when a link in a chat message is clicked. */
+  onOpenFile?: (path: string) => void;
+  /** Bumped externally to open the session history view. */
+  requestedHistoryOpenAt?: number;
+  /** Externally triggered dispatch hot action — stages prompt in chat composer. */
+  requestedDispatchAction?: { action: AgentDispatchAction } | null;
+  /** Non-blocking notice after resuming a history session (expired/missing CLI id). */
+  resumeNotice?: string | null;
+  onClearResumeNotice?: () => void;
+  /** Continue a bridged session from history into the live chat. */
+  onResumeSession?: (session: ChatSessionFile) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [providerChoice, setProviderChoice] = useState(suggestedProvider ?? "unknown");
@@ -154,7 +173,9 @@ export function AiChatThread({
   const [attachedPaths, setAttachedPaths] = useState<string[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [hotActionsOpen, setHotActionsOpen] = useState(false);
+  const [uploadingData, setUploadingData] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const dataFileInputRef = useRef<HTMLInputElement | null>(null);
   const isBridgedChoice = providerChoice !== "unknown";
   const isBusy = status === "capturing" || status === "sending";
   const canSend = status === "attached";
@@ -162,6 +183,10 @@ export function AiChatThread({
   useEffect(() => {
     if (status === "idle") setProviderChoice(suggestedProvider ?? "unknown");
   }, [status, suggestedProvider]);
+
+  useEffect(() => {
+    if (requestedHistoryOpenAt) setHistoryOpen(true);
+  }, [requestedHistoryOpenAt]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -200,24 +225,52 @@ export function AiChatThread({
     setPromptExpanded(false);
   };
 
-  const runHotAction = async (action: AgentDispatchAction) => {
-    if (!currentPath && action !== "refresh-index") return;
-    setBuildingAction(action);
-    try {
-      const preview = await previewAgentDispatch({ unitPath: currentPath, action });
-      if (autoRun) {
-        onSend(preview.prompt);
-      } else {
-        setDraft(preview.prompt);
-        setPromptLabel(dispatchHotActionLabel(action));
-        // Expanded by default — the whole point of staging (vs. auto-run) is
-        // to actually read/edit the built prompt before sending it.
-        setPromptExpanded(true);
+  const runHotAction = useCallback(
+    async (action: AgentDispatchAction) => {
+      if (!currentPath && action !== "refresh-index") return;
+      setBuildingAction(action);
+      try {
+        const preview = await previewAgentDispatch({ unitPath: currentPath, action });
+        if (autoRun) {
+          onSend(preview.prompt);
+        } else {
+          setDraft(preview.prompt);
+          setPromptLabel(dispatchHotActionLabel(action));
+          setPromptExpanded(true);
+        }
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBuildingAction(null);
       }
+    },
+    [autoRun, currentPath, onError, onSend],
+  );
+
+  useEffect(() => {
+    if (requestedDispatchAction) void runHotAction(requestedDispatchAction.action);
+  }, [requestedDispatchAction, runHotAction]);
+
+  const activePaperSlug = paperSlugFromPath(currentPath);
+  const paperPath = paperRootFromPath(currentPath) ?? "";
+
+  const handleDataFilePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!activePaperSlug) {
+      onError("Open a paper to upload data files.");
+      return;
+    }
+    setUploadingData(true);
+    try {
+      const data = await readFileAsBase64(file);
+      const { path: savedPath } = await uploadPaperData(activePaperSlug, file.name, data);
+      setAttachedPaths((prev) => (prev.includes(savedPath) ? prev : [...prev, savedPath]));
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBuildingAction(null);
+      setUploadingData(false);
     }
   };
 
@@ -228,11 +281,17 @@ export function AiChatThread({
   if (historyOpen) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <ContextPointer currentPath={currentPath} />
+        <ContextPointer
+          currentPath={currentPath}
+          scopeLabel={paperPath ? paperHistoryScopeLabel(currentPath) : undefined}
+        />
         <ChatHistoryPanel
-          unitPath={currentPath}
+          paperPath={paperPath}
+          unitPath={currentPath || paperPath}
           onClose={() => setHistoryOpen(false)}
           onError={onError}
+          onOpenFile={onOpenFile}
+          onResumeSession={onResumeSession}
         />
       </div>
     );
@@ -358,6 +417,32 @@ export function AiChatThread({
         onOpenHistory={() => setHistoryOpen(true)}
         actions={
           <>
+            <input
+              ref={dataFileInputRef}
+              type="file"
+              accept=".csv,.tsv,.xlsx,.xls,.json,.txt,.parquet"
+              className="hidden"
+              aria-hidden="true"
+              onChange={(event) => void handleDataFilePick(event)}
+            />
+            <button
+              type="button"
+              title={
+                activePaperSlug
+                  ? "Add data file to papers/…/notes/data/"
+                  : "Open a paper to upload data"
+              }
+              aria-label="Add data file"
+              disabled={uploadingData || !activePaperSlug}
+              onClick={() => dataFileInputRef.current?.click()}
+              className="shrink-0 rounded-sm p-0.5 hover:bg-accent/60 hover:text-foreground disabled:opacity-40"
+            >
+              {uploadingData ? (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              ) : (
+                <Database className="h-3 w-3" aria-hidden="true" />
+              )}
+            </button>
             {attachMenu}
             <button
               type="button"
@@ -371,6 +456,21 @@ export function AiChatThread({
           </>
         }
       />
+      {resumeNotice ? (
+        <div className="flex shrink-0 items-start gap-1.5 border-b border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[10px] text-amber-950 dark:text-amber-100">
+          <span className="min-w-0 flex-1">{resumeNotice}</span>
+          {onClearResumeNotice ? (
+            <button
+              type="button"
+              aria-label="Dismiss notice"
+              className="shrink-0 rounded-sm p-0.5 hover:bg-amber-500/20"
+              onClick={onClearResumeNotice}
+            >
+              <X className="h-3 w-3" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2.5 py-2">
         {turns.length === 0 && !pendingText ? (
           <p className="mt-4 text-center text-xs text-muted-foreground">
@@ -378,12 +478,17 @@ export function AiChatThread({
           </p>
         ) : null}
         {turns.map((turn, index) => (
-          <ChatBubble key={index} turn={turn} />
+          <ChatBubble key={index} turn={turn} currentPath={currentPath} onOpenFile={onOpenFile} />
         ))}
         {pendingText ? (
-          <ChatBubble turn={{ role: "assistant", text: pendingText, at: "" }} pending />
+          <ChatBubble
+            turn={{ role: "assistant", text: pendingText, at: "" }}
+            currentPath={currentPath}
+            onOpenFile={onOpenFile}
+            pending
+          />
         ) : isBusy ? (
-          <ChatBubble turn={{ role: "assistant", text: "…", at: "" }} pending />
+          <ChatBubble turn={{ role: "assistant", text: "…", at: "" }} currentPath={currentPath} pending />
         ) : null}
       </div>
 
@@ -541,12 +646,62 @@ export function AiChatThread({
 
 const LONG_MESSAGE_THRESHOLD = 320;
 
+/** Render chat text with model-relative file paths as clickable links. */
+function ChatText({
+  text,
+  currentPath,
+  onOpenFile,
+  isUser,
+}: {
+  text: string;
+  currentPath: string;
+  onOpenFile?: (path: string) => void;
+  isUser: boolean;
+}) {
+  if (!onOpenFile) return <>{text}</>;
+  const segments = segmentChatText(text, currentPath);
+  if (segments.length === 1 && segments[0].type === "text") return <>{text}</>;
+  return (
+    <>
+      {segments.map((seg, index) =>
+        seg.type === "text" ? (
+          <span key={index}>{seg.value}</span>
+        ) : (
+          <button
+            key={index}
+            type="button"
+            title={`Open ${seg.path}`}
+            className={cn(
+              "underline decoration-dotted underline-offset-2 hover:decoration-solid",
+              isUser ? "text-primary-foreground" : "text-primary",
+            )}
+            onClick={() => onOpenFile(seg.path)}
+          >
+            {seg.value}
+          </button>
+        ),
+      )}
+    </>
+  );
+}
+
 /** Long messages (typically a hot-command-built prompt) collapse behind a toggle. */
-export function ChatBubble({ turn, pending = false }: { turn: ChatTurn; pending?: boolean }) {
+export function ChatBubble({
+  turn,
+  pending = false,
+  currentPath = "",
+  onOpenFile,
+}: {
+  turn: ChatTurn;
+  pending?: boolean;
+  currentPath?: string;
+  onOpenFile?: (path: string) => void;
+}) {
   const isUser = turn.role === "user";
   const isLong = turn.text.length > LONG_MESSAGE_THRESHOLD;
   const [expanded, setExpanded] = useState(false);
-  const collapsedPreview = isLong ? `${turn.text.slice(0, LONG_MESSAGE_THRESHOLD).trimEnd()}…` : turn.text;
+  const shownText =
+    isLong && !expanded ? `${turn.text.slice(0, LONG_MESSAGE_THRESHOLD).trimEnd()}…` : turn.text;
 
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
@@ -559,7 +714,7 @@ export function ChatBubble({ turn, pending = false }: { turn: ChatTurn; pending?
           pending && "opacity-70",
         )}
       >
-        {isLong && !expanded ? collapsedPreview : turn.text}
+        <ChatText text={shownText} currentPath={currentPath} onOpenFile={onOpenFile} isUser={isUser} />
         {isLong ? (
           <button
             type="button"

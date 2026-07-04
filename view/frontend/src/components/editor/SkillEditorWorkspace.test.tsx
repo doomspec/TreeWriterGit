@@ -5,6 +5,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { SkillEditorWorkspace } from "@/components/editor/SkillEditorWorkspace";
 import * as dispatchSkillsApi from "@/lib/dispatchSkillsApi";
 
+const USER_SKILL = "user/style.md";
+
 describe("SkillEditorWorkspace", () => {
   afterEach(() => {
     cleanup();
@@ -16,7 +18,7 @@ describe("SkillEditorWorkspace", () => {
 
     await act(async () => {
       render(
-        <SkillEditorWorkspace filename="style.md" onClose={vi.fn()} onError={vi.fn()} />,
+        <SkillEditorWorkspace skillPath={USER_SKILL} onClose={vi.fn()} onError={vi.fn()} />,
       );
     });
 
@@ -29,7 +31,7 @@ describe("SkillEditorWorkspace", () => {
     vi.spyOn(dispatchSkillsApi, "fetchDispatchSkillContent").mockResolvedValue("# Style\n");
 
     await act(async () => {
-      render(<SkillEditorWorkspace filename="style.md" onClose={vi.fn()} onError={vi.fn()} />);
+      render(<SkillEditorWorkspace skillPath={USER_SKILL} onClose={vi.fn()} onError={vi.fn()} />);
     });
 
     const saveButton = screen.getByRole("button", { name: /^Save$/i });
@@ -48,7 +50,7 @@ describe("SkillEditorWorkspace", () => {
     await act(async () => {
       render(
         <SkillEditorWorkspace
-          filename="style.md"
+          skillPath={USER_SKILL}
           onClose={onClose}
           onError={vi.fn()}
           onSkillsChanged={onSkillsChanged}
@@ -57,13 +59,13 @@ describe("SkillEditorWorkspace", () => {
     });
 
     fireEvent.change(screen.getByLabelText("Skill content"), { target: { value: "# Style v2\n" } });
-    fireEvent.change(screen.getByLabelText("Skill filename"), { target: { value: "style-v2.md" } });
+    fireEvent.change(screen.getByLabelText("Skill path"), { target: { value: "user/style-v2.md" } });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
     });
 
-    expect(updateSpy).toHaveBeenCalledWith("style.md", {
+    expect(updateSpy).toHaveBeenCalledWith(USER_SKILL, {
       content: "# Style v2\n",
       newFilename: "style-v2.md",
     });
@@ -78,7 +80,7 @@ describe("SkillEditorWorkspace", () => {
     const onClose = vi.fn();
 
     await act(async () => {
-      render(<SkillEditorWorkspace filename="style.md" onClose={onClose} onError={vi.fn()} />);
+      render(<SkillEditorWorkspace skillPath={USER_SKILL} onClose={onClose} onError={vi.fn()} />);
     });
 
     fireEvent.change(screen.getByLabelText("Skill content"), { target: { value: "# Style v2\n" } });
@@ -95,7 +97,7 @@ describe("SkillEditorWorkspace", () => {
     const onClose = vi.fn();
 
     await act(async () => {
-      render(<SkillEditorWorkspace filename="style.md" onClose={onClose} onError={vi.fn()} />);
+      render(<SkillEditorWorkspace skillPath={USER_SKILL} onClose={onClose} onError={vi.fn()} />);
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Back/i }));
@@ -111,15 +113,32 @@ describe("SkillEditorWorkspace", () => {
     const onClose = vi.fn();
 
     await act(async () => {
-      render(<SkillEditorWorkspace filename="style.md" onClose={onClose} onError={vi.fn()} />);
+      render(<SkillEditorWorkspace skillPath={USER_SKILL} onClose={onClose} onError={vi.fn()} />);
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Delete style\.md/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Delete user\/style\.md/i }));
     });
 
-    expect(deleteSpy).toHaveBeenCalledWith("style.md");
+    expect(deleteSpy).toHaveBeenCalledWith(USER_SKILL);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("hides delete for system skills", async () => {
+    vi.spyOn(dispatchSkillsApi, "fetchDispatchSkillContent").mockResolvedValue("# Draft\n");
+
+    await act(async () => {
+      render(
+        <SkillEditorWorkspace
+          skillPath="system/dispatch-draft.md"
+          onClose={vi.fn()}
+          onError={vi.fn()}
+        />,
+      );
+    });
+
+    expect(screen.queryByRole("button", { name: /Delete/i })).not.toBeTruthy();
+    expect((screen.getByLabelText("Skill path") as HTMLInputElement).readOnly).toBe(true);
   });
 
   it("surfaces a load failure via onError", async () => {
@@ -127,7 +146,7 @@ describe("SkillEditorWorkspace", () => {
     const onError = vi.fn();
 
     await act(async () => {
-      render(<SkillEditorWorkspace filename="style.md" onClose={vi.fn()} onError={onError} />);
+      render(<SkillEditorWorkspace skillPath={USER_SKILL} onClose={vi.fn()} onError={onError} />);
     });
 
     expect(onError).toHaveBeenCalledWith("disk error");

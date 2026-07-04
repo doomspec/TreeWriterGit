@@ -1,7 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 
 import type { CommentRecord, CommentSummary } from "@treewriter/shared";
-import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import type { GraphScope } from "@/lib/graphLocal";
 import type { AgentDispatchIntent } from "@/lib/agentDispatchPanel";
 import type { NodeKind } from "@/lib/api/modelApi";
@@ -12,12 +11,12 @@ import type { OpenFileOptions } from "@/lib/useWorkspaceNavigation";
 import type { findNode } from "@/lib/modelTree";
 
 export type WorkspaceNavigationContextValue = {
-  sidebarTab: WorkspaceNavTab;
   sidebarPanel: SidebarPanel;
   sidebarPanelOpen: boolean;
   setSidebarPanel: (panel: SidebarPanel) => void;
   setSidebarPanelOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
   toggleSidebarPanel: () => void;
+  cycleSidebarPanelLayout: () => void;
   sidebarPinned: boolean;
   setSidebarPinned: (pinned: boolean | ((prev: boolean) => boolean)) => void;
   toggleSidebarPin: () => void;
@@ -71,7 +70,8 @@ export type WorkspaceNavigationContextValue = {
   navigateTo: ReturnType<typeof useWorkspaceNavigation>["navigateTo"];
   handleMarkdownNavigate: ReturnType<typeof useWorkspaceNavigation>["handleMarkdownNavigate"];
   backToSectionView: ReturnType<typeof useWorkspaceNavigation>["backToSectionView"];
-  handleSidebarTabChange: (tab: WorkspaceNavTab) => void;
+  focusSectionsPanel: () => void;
+  focusPaperInfoPanel: () => void;
   handleSearchSelect: ReturnType<typeof useWorkspaceNavigation>["handleSearchSelect"];
   submitCreateChild: (name: string) => Promise<void>;
   lastPaperPath: string | null;

@@ -7,10 +7,15 @@ import {
 } from "@/lib/workspacePreferences";
 import { cn } from "@/lib/utils";
 
+/** Minimum main-column width before the assistant panel stacks as an overlay. */
+const MIN_MAIN_COLUMN_PX = 320;
+const NARROW_SPLIT_THRESHOLD = AI_PANEL_WIDTH_MIN + MIN_MAIN_COLUMN_PX + 8;
+
 /**
  * Horizontal split hosting the main editor column on the left and the AI
  * assistant panel on the right, with a keyboard-accessible drag handle.
  * When closed, children render full-width with zero overhead.
+ * On narrow viewports the panel becomes a fixed overlay so the editor keeps room.
  */
 export function AiAssistantSplit({
   open,
@@ -27,6 +32,7 @@ export function AiAssistantSplit({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [overlayMode, setOverlayMode] = useState(false);
 
   const onPointerMove = useCallback(
     (event: PointerEvent) => {
@@ -51,8 +57,42 @@ export function AiAssistantSplit({
     };
   }, [dragging, onPointerMove]);
 
+  useEffect(() => {
+    if (!open) {
+      setOverlayMode(false);
+      return;
+    }
+    const el = containerRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const available = el.clientWidth;
+      setOverlayMode(available < NARROW_SPLIT_THRESHOLD);
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open]);
+
   if (!open) {
     return <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>;
+  }
+
+  if (overlayMode) {
+    const overlayWidth = Math.min(width, AI_PANEL_WIDTH_MAX);
+    return (
+      <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+        <div
+          className="absolute inset-y-0 right-0 z-40 flex min-h-0 flex-col border-l border-border bg-card shadow-lg"
+          style={{ width: overlayWidth }}
+        >
+          {panel}
+        </div>
+      </div>
+    );
   }
 
   return (

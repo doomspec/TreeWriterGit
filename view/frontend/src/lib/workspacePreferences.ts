@@ -1,14 +1,12 @@
-export type WorkspaceNavTab = "explorer" | "papers";
-
-/** Left rail panel: explorer/papers reuse WorkspaceNav; dedicated panels for graph, outline, references, etc. */
+/** Left rail panel ids — see sidebarPanelNavItems.ts */
 export type SidebarPanel =
-  | "explorer"
   | "papers"
+  | "paperInfo"
+  | "assets"
+  | "removed"
   | "graph"
-  | "outline"
   | "references"
   | "export"
-  | "import"
   | "review";
 
 export type DualPaneActive = "outline" | "draft" | "notes";
@@ -40,12 +38,6 @@ export function clampDualPaneNotesSplit(
   return Math.min(max, Math.max(min, Math.round(percent)));
 }
 
-export type PapersSidebarPanels = {
-  sectionsOpen: boolean;
-  assetsOpen: boolean;
-  removedOpen: boolean;
-};
-
 export const BIB_PREVIEW_SPLIT_MIN = 20;
 export const BIB_PREVIEW_SPLIT_MAX = 45;
 export const BIB_PREVIEW_SPLIT_DEFAULT = 32;
@@ -71,7 +63,6 @@ export function clampAssetPreviewSplit(
 }
 
 export type WorkspacePreferences = {
-  sidebarTab: WorkspaceNavTab;
   currentPath: string;
   activeFile: string | null;
   editorLayout: "source" | "split" | "preview";
@@ -102,7 +93,6 @@ export type WorkspacePreferences = {
   editorPanePrefsByScope: Record<string, EditorPaneScopePrefs>;
   /** When true, main.bib split view loads the full raw file instead of entry-only source. */
   loadLargeBibSource: boolean;
-  papersSidebar: PapersSidebarPanels;
   /** When true, the app shows the IDE-style Explorer workspace instead of the authoring workspace. */
   explorerMode: boolean;
   /** Open file paths (project-root-relative) for Explorer mode tabs. */
@@ -139,14 +129,26 @@ export function clampBottomPanelHeight(height: number): number {
 
 const STORAGE_KEY = "treewriter.workspace.v1";
 
-const DEFAULT_PAPERS_SIDEBAR: PapersSidebarPanels = {
-  sectionsOpen: true,
-  assetsOpen: true,
-  removedOpen: false,
+const LEGACY_SIDEBAR_TAB_TO_PANEL: Record<string, SidebarPanel> = {
+  papers: "papers",
+  graph: "graph",
+  explorer: "papers",
 };
 
+function isSidebarPanel(value: string | undefined): value is SidebarPanel {
+  return (
+    value === "papers" ||
+    value === "paperInfo" ||
+    value === "assets" ||
+    value === "removed" ||
+    value === "graph" ||
+    value === "export" ||
+    value === "review" ||
+    value === "references"
+  );
+}
+
 const DEFAULTS: WorkspacePreferences = {
-  sidebarTab: "papers",
   currentPath: "papers",
   activeFile: null,
   editorLayout: "split",
@@ -161,7 +163,7 @@ const DEFAULTS: WorkspacePreferences = {
   assetPreviewSplit: ASSET_PREVIEW_SPLIT_DEFAULT,
   bibPreviewSplit: BIB_PREVIEW_SPLIT_DEFAULT,
   sidebarWidth: 240,
-  sidebarPanel: "papers",
+  sidebarPanel: "paperInfo",
   sidebarPanelOpen: true,
   sidebarPinned: true,
   reviewRailOpen: true,
@@ -169,7 +171,6 @@ const DEFAULTS: WorkspacePreferences = {
   lastPaperPath: null,
   editorPanePrefsByScope: {},
   loadLargeBibSource: false,
-  papersSidebar: DEFAULT_PAPERS_SIDEBAR,
   explorerMode: false,
   explorerOpenTabs: [],
   explorerActiveTab: null,
@@ -184,10 +185,13 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
-    const parsed = JSON.parse(raw) as Partial<WorkspacePreferences>;
-    if ((parsed as { sidebarTab?: string }).sidebarTab === "graph") {
-      parsed.sidebarTab = "papers";
+    const parsed = JSON.parse(raw) as Partial<WorkspacePreferences> & { sidebarTab?: string };
+    if (!(parsed as { sidebarPanel?: string }).sidebarPanel && parsed.sidebarTab) {
+      const legacyTab = String(parsed.sidebarTab);
+      (parsed as { sidebarPanel?: SidebarPanel }).sidebarPanel =
+        LEGACY_SIDEBAR_TAB_TO_PANEL[legacyTab] ?? "paperInfo";
     }
+    delete parsed.sidebarTab;
     if (typeof parsed.dualPaneSplit === "number") {
       parsed.dualPaneSplit = Math.min(80, Math.max(20, parsed.dualPaneSplit));
     }
@@ -223,16 +227,11 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
       parsed.sidebarWidth = Math.min(520, Math.max(180, Math.round(parsed.sidebarWidth)));
     }
     const panel = (parsed as { sidebarPanel?: string }).sidebarPanel;
-    if (
-      panel !== "explorer" &&
-      panel !== "papers" &&
-      panel !== "graph" &&
-      panel !== "outline" &&
-      panel !== "export" &&
-      panel !== "import" &&
-      panel !== "review" &&
-      panel !== "references"
-    ) {
+    if (panel === "findPaper" || panel === "import" || panel === "outline") {
+      (parsed as { sidebarPanel?: SidebarPanel }).sidebarPanel = "paperInfo";
+    }
+    const normalizedPanel = (parsed as { sidebarPanel?: string }).sidebarPanel;
+    if (!isSidebarPanel(normalizedPanel)) {
       delete (parsed as { sidebarPanel?: string }).sidebarPanel;
     }
     if (typeof (parsed as { sidebarPanelOpen?: boolean }).sidebarPanelOpen !== "boolean") {
@@ -244,9 +243,6 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     if (typeof (parsed as { reviewRailOpen?: boolean }).reviewRailOpen !== "boolean") {
       delete (parsed as { reviewRailOpen?: boolean }).reviewRailOpen;
     }
-    if (!(parsed as { sidebarPanel?: string }).sidebarPanel && parsed.sidebarTab) {
-      (parsed as { sidebarPanel?: SidebarPanel }).sidebarPanel = parsed.sidebarTab;
-    }
     if (typeof parsed.bottomPanelHeight === "number") {
       parsed.bottomPanelHeight = clampBottomPanelHeight(parsed.bottomPanelHeight);
     }
@@ -257,12 +253,6 @@ export function loadWorkspacePreferences(): Partial<WorkspacePreferences> {
     }
     if (typeof (parsed as { loadLargeBibSource?: boolean }).loadLargeBibSource !== "boolean") {
       delete (parsed as { loadLargeBibSource?: boolean }).loadLargeBibSource;
-    }
-    if (parsed.papersSidebar && typeof parsed.papersSidebar === "object") {
-      parsed.papersSidebar = {
-        ...DEFAULT_PAPERS_SIDEBAR,
-        ...parsed.papersSidebar,
-      };
     }
     if (
       typeof parsed.lastPaperPath === "string" &&
@@ -308,11 +298,6 @@ export function saveWorkspacePreferences(prefs: Partial<WorkspacePreferences>): 
     const merged = mergeWorkspaceDefaults({
       ...current,
       ...prefs,
-      papersSidebar: {
-        ...DEFAULT_PAPERS_SIDEBAR,
-        ...current.papersSidebar,
-        ...prefs.papersSidebar,
-      },
     });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
   } catch {

@@ -1,6 +1,6 @@
 /** @vitest-environment happy-dom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import {
   ensureBibLibrarySummary,
@@ -16,7 +16,11 @@ describe("bibLibraryStore", () => {
     invalidateBibLibrary();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    cleanup();
     vi.restoreAllMocks();
     invalidateBibLibrary();
   });
@@ -79,7 +83,7 @@ describe("bibLibraryStore", () => {
       ],
     });
 
-    const { result, rerender } = renderHook(
+    const { result, rerender, unmount } = renderHook(
       ({ query }) => useBibSearchResults(query, "all", 500),
       { initialProps: { query: "smith" } },
     );
@@ -93,6 +97,7 @@ describe("bibLibraryStore", () => {
 
     await waitFor(() => expect(result.current.refreshing).toBe(false));
     expect(paperAssets.fetchBibSearch).toHaveBeenCalledTimes(2);
+    unmount();
   });
 
   it("reloads search results on invalidate but not on summary-only update", async () => {
@@ -108,7 +113,7 @@ describe("bibLibraryStore", () => {
       mtime: 1,
     });
 
-    const { result } = renderHook(() => useBibSearchResults("", "all", 500));
+    const { result, unmount } = renderHook(() => useBibSearchResults("", "all", 500));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(fetchSearch).toHaveBeenCalledTimes(1);
 
@@ -119,6 +124,7 @@ describe("bibLibraryStore", () => {
 
     invalidateBibLibrary();
     await waitFor(() => expect(fetchSearch.mock.calls.length).toBeGreaterThan(1));
+    unmount();
   });
 
   it("returns a stable reload callback from useBibLibrarySummary", () => {
@@ -130,9 +136,10 @@ describe("bibLibraryStore", () => {
       mtime: 1,
     });
 
-    const { result, rerender } = renderHook(() => useBibLibrarySummary());
+    const { result, rerender, unmount } = renderHook(() => useBibLibrarySummary());
     const firstReload = result.current.reload;
     rerender();
     expect(result.current.reload).toBe(firstReload);
+    unmount();
   });
 });

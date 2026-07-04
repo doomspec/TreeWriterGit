@@ -5,6 +5,8 @@ import matter from "gray-matter";
 
 import { ModelFsError, createNode, deleteNode, resolveModelPath, resolvePaperRel, isUnitDir, orderedChildren, readIndexData, resolveChildPath, resolveManuscriptSectionsRoot, PAPER_ASSET_DIRS } from "./modelFs.js";
 import { collectPendingReviewItems } from "./draftApproval.js";
+import { buildCombinedMarkdown } from "./export/assembly.js";
+import { countMarkdownWords } from "@treewriter/shared";
 
 import {
   loadJournalTemplate,
@@ -17,9 +19,12 @@ import {
 } from "./papers/templates.js";
 import { isManuscriptRoot, docTypeFromIndex, contributionModeFromIndex } from "./model/manuscriptKind.js";
 import { normalizeManuscriptTags, normalizeProjectSlug } from "./model/manuscriptTags.js";
+import { syncContributorsAfterManuscriptSave } from "./contributorsRegistry.js";
 
 import type {
+  AuthorEntry,
   ContributionMode,
+  CreditRole,
   DocumentType,
   ManuscriptDetail,
   ManuscriptSummary,
@@ -28,6 +33,7 @@ import type {
   SectionRollup,
   UnitStatusCounts,
 } from "@treewriter/shared";
+import { CREDIT_ROLES, authorFullName } from "@treewriter/shared";
 
 export type { ManuscriptDetail, ManuscriptSummary, PaperDetail, PaperSummary, SectionRollup, UnitStatusCounts };
 export type UnitStatus = "outline" | "drafted" | "approved";
@@ -43,9 +49,9 @@ export {
 export interface UpdateManuscriptInput {
   slug: string;
   title: string;
-  authors: string[];
+  /** Structured authors; legacy `string[]` names still accepted (normalized on write). */
+  authors: (AuthorEntry | string)[];
   affiliations?: string[];
-  authorAffiliations?: number[][];
   journal?: string;
   templateId?: string;
   targetWords?: number;
@@ -67,9 +73,9 @@ export type UpdatePaperInput = UpdateManuscriptInput & { journal: string };
 
 export interface ScaffoldManuscriptInput {
   title: string;
-  authors: string[];
+  /** Structured authors; legacy `string[]` names still accepted (normalized on write). */
+  authors: (AuthorEntry | string)[];
   affiliations?: string[];
-  authorAffiliations?: number[][];
   slug?: string;
   docType?: DocumentType;
   templateId?: string;
@@ -171,6 +177,106 @@ export function normalizeAuthorAffiliations(
   });
 }
 
+const ORCID_RE = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/;
+const CREDIT_SET = new Set<string>(CREDIT_ROLES);
+
+function normalizeCredit(raw: unknown): CreditRole[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<CreditRole>();
+  for (const entry of raw) {
+    const role = String(entry).trim();
+    if (CREDIT_SET.has(role)) seen.add(role as CreditRole);
+  }
+  return CREDIT_ROLES.filter((role) => seen.has(role));
+}
+
+function normalizeAffiliationIndices(raw: unknown, affiliationCount: number): number[] {
+  if (!Array.isArray(raw)) return [];
+  const valid = raw
+    .map((n) => Number(n))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= affiliationCount);
+  return [...new Set(valid)].sort((a, b) => a - b);
+}
+
+/** Split a legacy single-string author name into structured parts (first / middle / last). */
+function splitLegacyName(full: string): Pick<AuthorEntry, "firstName" | "middleName" | "lastName"> {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return {
+    firstName: parts[0],
+    lastName: parts[parts.length - 1],
+    middleName: parts.slice(1, -1).join(" ") || undefined,
+  };
+}
+
+/**
+ * Structured authors from frontmatter. Accepts the new object shape and the
+ * legacy `authors: string[]` shape (splitting names and pulling per-author
+ * affiliations from a parallel `author_affiliations` list) so existing papers
+ * keep working. Affiliation indices are clamped to the real affiliation count.
+ */
+export function normalizeAuthors(
+  raw: unknown,
+  affiliationCount: number,
+  legacyAuthorAffiliations?: unknown,
+): AuthorEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const legacyAff = normalizeAuthorAffiliations(
+    legacyAuthorAffiliations,
+    raw.length,
+    affiliationCount,
+  );
+  const entries: AuthorEntry[] = [];
+  raw.forEach((item, index) => {
+    if (typeof item === "string") {
+      const name = item.trim();
+      if (!name) return;
+      entries.push({ ...splitLegacyName(name), affiliations: legacyAff[index] ?? [] });
+      return;
+    }
+    if (!item || typeof item !== "object") return;
+    const obj = item as Record<string, unknown>;
+    const firstName = String(obj.firstName ?? obj.first_name ?? "").trim();
+    const middleName = String(obj.middleName ?? obj.middle_name ?? "").trim();
+    const lastName = String(obj.lastName ?? obj.last_name ?? "").trim();
+    if (!firstName && !lastName && !middleName) return;
+    const orcid = String(obj.orcid ?? "").trim();
+    const email = String(obj.email ?? "").trim();
+    const author: AuthorEntry = {
+      firstName,
+      lastName,
+      affiliations: normalizeAffiliationIndices(obj.affiliations, affiliationCount),
+    };
+    if (middleName) author.middleName = middleName;
+    if (ORCID_RE.test(orcid)) author.orcid = orcid;
+    if (obj.equalContribution === true || obj.equal_contribution === true) {
+      author.equalContribution = true;
+    }
+    if (obj.corresponding === true) author.corresponding = true;
+    if (email) author.email = email;
+    const credit = normalizeCredit(obj.credit);
+    if (credit.length > 0) author.credit = credit;
+    entries.push(author);
+  });
+  return entries;
+}
+
+/** Serialize structured authors to plain frontmatter objects (drop empty optionals). */
+export function authorsToFrontmatter(authors: AuthorEntry[]): Record<string, unknown>[] {
+  return authors.map((author) => {
+    const record: Record<string, unknown> = { firstName: author.firstName, lastName: author.lastName };
+    if (author.middleName) record.middleName = author.middleName;
+    if (author.orcid) record.orcid = author.orcid;
+    if (author.affiliations.length > 0) record.affiliations = author.affiliations;
+    if (author.equalContribution) record.equalContribution = true;
+    if (author.corresponding) record.corresponding = true;
+    if (author.email) record.email = author.email;
+    if (author.credit && author.credit.length > 0) record.credit = author.credit;
+    return record;
+  });
+}
+
 function bumpCounts(counts: UnitStatusCounts, status: UnitStatus): void {
   counts[status] += 1;
   counts.total += 1;
@@ -252,6 +358,53 @@ export async function collectContainerCounts(
       if (!childRel) continue;
       await walk(childRel);
     }
+  }
+
+  await walk(paperRel);
+  return result;
+}
+
+async function readUnitDraftWordCount(modelRoot: string, unitRel: string): Promise<number> {
+  const draftPath = path.join(modelRoot, unitRel, "draft.md");
+  if (!existsSync(draftPath)) return 0;
+  try {
+    const raw = await readFile(draftPath, "utf8");
+    const parsed = matter(raw);
+    const body = typeof parsed.content === "string" ? parsed.content : raw;
+    return countMarkdownWords(body);
+  } catch {
+    return 0;
+  }
+}
+
+/** Roll up draft word counts for each folder under a paper (including unit leaves). */
+export async function collectContainerWordCounts(
+  modelRoot: string,
+  paperRel: string,
+): Promise<Record<string, number>> {
+  const result: Record<string, number> = {};
+
+  async function walk(dirRel: string): Promise<number> {
+    if (dirRel.includes("/notes/") || dirRel.endsWith("/notes")) return 0;
+    const base = path.posix.basename(dirRel);
+    if (CONTAINER_SKIP.has(base)) return 0;
+    if (!existsSync(path.join(modelRoot, dirRel))) return 0;
+
+    if (await isUnitDir(modelRoot, dirRel)) {
+      const words = await readUnitDraftWordCount(modelRoot, dirRel);
+      result[dirRel] = words;
+      return words;
+    }
+
+    let sum = 0;
+    for (const child of await orderedChildren(modelRoot, dirRel)) {
+      if (CONTAINER_SKIP.has(child)) continue;
+      const childRel = resolveChildPath(modelRoot, dirRel, child);
+      if (!childRel) continue;
+      sum += await walk(childRel);
+    }
+    result[dirRel] = sum;
+    return sum;
   }
 
   await walk(paperRel);
@@ -348,7 +501,6 @@ export async function scaffoldManuscript(
     title: input.title,
     slug,
     status,
-    authors: input.authors,
     target_words: targetWords,
     section_order: sectionOrder,
     last_export: null,
@@ -356,16 +508,12 @@ export async function scaffoldManuscript(
     project,
   };
   const scaffoldAffiliations = normalizeAffiliations(input.affiliations);
+  const scaffoldAuthors = normalizeAuthors(input.authors, scaffoldAffiliations.length);
+  if (scaffoldAuthors.length > 0) {
+    paperFrontmatter.authors = authorsToFrontmatter(scaffoldAuthors);
+  }
   if (scaffoldAffiliations.length > 0) {
     paperFrontmatter.affiliations = scaffoldAffiliations;
-    const authorAff = normalizeAuthorAffiliations(
-      input.authorAffiliations,
-      input.authors.length,
-      scaffoldAffiliations.length,
-    );
-    if (authorAff.some((entry) => entry.length > 0)) {
-      paperFrontmatter.author_affiliations = authorAff;
-    }
   }
   if (docType === "paper" && (template.journal || input.journal)) {
     paperFrontmatter.journal = template.journal ?? input.journal;
@@ -434,6 +582,8 @@ export async function scaffoldManuscript(
       "utf8",
     );
   }
+
+  await syncContributorsAfterManuscriptSave(modelRoot, scaffoldAuthors, scaffoldAffiliations);
 
   return { slug, path: paperRel };
 }
@@ -506,7 +656,6 @@ export async function updateManuscript(
     title: nextTitle,
     slug,
     status: input.status?.trim() || String(data.status ?? "Planning"),
-    authors: input.authors,
     target_words: targetWords ?? Number(data.target_words ?? template.targetWords),
     section_order: sectionOrder ?? paperSectionOrder(data),
     tags,
@@ -521,26 +670,25 @@ export async function updateManuscript(
         : data.overleaf_repo_path ?? null;
   }
 
-  if (input.affiliations !== undefined) {
-    const affiliations = normalizeAffiliations(input.affiliations);
-    if (affiliations.length > 0) {
-      nextFrontmatter.affiliations = affiliations;
-      const authorAff = normalizeAuthorAffiliations(
-        input.authorAffiliations,
-        input.authors.length,
-        affiliations.length,
-      );
-      if (authorAff.some((entry) => entry.length > 0)) {
-        nextFrontmatter.author_affiliations = authorAff;
-      } else {
-        delete nextFrontmatter.author_affiliations;
-      }
-    } else {
-      // Cleared — drop both so stale mappings don't linger from the `...data` spread.
-      delete nextFrontmatter.affiliations;
-      delete nextFrontmatter.author_affiliations;
-    }
+  // Affiliations (the shared numbered list) and structured authors are rewritten
+  // together — author affiliation indices are clamped to the effective list.
+  const nextAffiliations =
+    input.affiliations !== undefined
+      ? normalizeAffiliations(input.affiliations)
+      : normalizeAffiliations(data.affiliations);
+  if (nextAffiliations.length > 0) {
+    nextFrontmatter.affiliations = nextAffiliations;
+  } else {
+    delete nextFrontmatter.affiliations;
   }
+  const nextAuthors = normalizeAuthors(input.authors, nextAffiliations.length);
+  if (nextAuthors.length > 0) {
+    nextFrontmatter.authors = authorsToFrontmatter(nextAuthors);
+  } else {
+    delete nextFrontmatter.authors;
+  }
+  // Legacy parallel mapping is superseded by per-author affiliations; drop it.
+  delete nextFrontmatter.author_affiliations;
 
   if (input.funder !== undefined) nextFrontmatter.funder = input.funder?.trim() || null;
   if (input.program !== undefined) nextFrontmatter.program = input.program?.trim() || null;
@@ -558,6 +706,8 @@ export async function updateManuscript(
     matter.stringify(updatePaperBodyTitle(parsed.content, nextTitle), nextFrontmatter),
     "utf8",
   );
+
+  await syncContributorsAfterManuscriptSave(modelRoot, nextAuthors, nextAffiliations);
 
   return { slug, path: paperRel };
 }
@@ -644,17 +794,18 @@ export async function getManuscriptDetail(modelRoot: string, slug: string): Prom
   const indexPath = path.join(modelRoot, paperRel, "INDEX.md");
   const parsed = matter(await readFile(indexPath, "utf8"));
   const data = parsed.data as Record<string, unknown>;
-  const authors = Array.isArray(data.authors) ? (data.authors as string[]) : [];
   const affiliations = normalizeAffiliations(data.affiliations);
-  const authorAffiliations = normalizeAuthorAffiliations(
-    data.author_affiliations,
-    authors.length,
-    affiliations.length,
-  );
+  const authorDetails = normalizeAuthors(data.authors, affiliations.length, data.author_affiliations);
+  // Back-compat derived views for older consumers / export fallbacks.
+  const authors = authorDetails.map((a) => authorFullName(a));
+  const authorAffiliations = authorDetails.map((a) => a.affiliations);
   const targetWords = Number(data.target_words ?? 5000);
   const sectionOrder = paperSectionOrder(data);
   const overleafRepoPath = data.overleaf_repo_path ? String(data.overleaf_repo_path) : null;
   const overleafGitUrl = data.overleaf_git_url ? String(data.overleaf_git_url) : null;
+
+  const containerCounts = await collectContainerCounts(modelRoot, paperRel);
+  const containerWordCounts = await collectContainerWordCounts(modelRoot, paperRel);
 
   const sections: SectionRollup[] = [];
   for (const section of await topLevelSections(modelRoot, paperRel)) {
@@ -663,20 +814,41 @@ export async function getManuscriptDetail(modelRoot: string, slug: string): Prom
       path: section.path,
       title: section.title,
       counts: await countUnitsUnder(modelRoot, section.path),
+      draftWordCount: containerWordCounts[section.path] ?? 0,
     });
   }
 
-  const containerCounts = await collectContainerCounts(modelRoot, paperRel);
   const pendingReviews = await collectPendingReviewItems(modelRoot, paperRel);
   const pendingApprovalPaths = pendingReviews.map((item) => item.path);
 
+  let draftWordCount = 0;
+  try {
+    const { markdown } = await buildCombinedMarkdown(modelRoot, paperRel, true);
+    draftWordCount = countMarkdownWords(markdown);
+  } catch {
+    draftWordCount = 0;
+  }
+
+  const templateId = data.template_id ? String(data.template_id) : null;
+  let templateLabel: string | null = null;
+  if (templateId) {
+    try {
+      templateLabel = (await loadTemplate(modelRoot, templateId)).label;
+    } catch {
+      templateLabel = null;
+    }
+  }
+
   return {
     ...summary,
-    templateId: data.template_id ? String(data.template_id) : null,
+    templateId,
+    templateLabel,
+    authorDetails,
     authors,
     affiliations,
     authorAffiliations,
     targetWords,
+    draftWordCount,
     sectionOrder,
     overleafRepoPath,
     overleafGitUrl,
@@ -688,6 +860,7 @@ export async function getManuscriptDetail(modelRoot: string, slug: string): Prom
     agentSummary: data.agent_summary ? String(data.agent_summary) : null,
     sections,
     containerCounts,
+    containerWordCounts,
     pendingApprovalPaths,
     pendingReviews,
   };

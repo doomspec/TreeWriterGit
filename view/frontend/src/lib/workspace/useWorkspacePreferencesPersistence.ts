@@ -2,7 +2,6 @@ import { useEffect } from "react";
 
 import type { EditorLayout } from "@/lib/editor/layout";
 import type { GraphScope } from "@/lib/graphLocal";
-import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import {
   scheduleSaveWorkspacePreferences,
   type SidebarPanel,
@@ -10,7 +9,6 @@ import {
 import type { EditorPaneScopePrefs } from "@/lib/editorPaneScopePrefs";
 
 export type WorkspacePreferencesSnapshot = {
-  sidebarTab: WorkspaceNavTab;
   currentPath: string;
   activeFile: string | null;
   editorLayout: EditorLayout;
@@ -59,7 +57,6 @@ export function useWorkspacePreferencesPersistence(snapshot: WorkspacePreference
     snapshot.editorPanePrefsByScope,
     snapshot.lastPaperPath,
     snapshot.searchQuery,
-    snapshot.sidebarTab,
     snapshot.sidebarPanel,
     snapshot.sidebarPanelOpen,
     snapshot.sidebarPinned,

@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
  * TreeWriter context CLI — on-demand manuscript lookup for AI dispatch.
- * Prefer this over project MCP: zero always-on context cost; pay only when invoked.
  *
  * Usage (from repo root or model/):
- *   node scripts/tw-context.mjs search "viability" --root papers/demo
- *   node scripts/tw-context.mjs read papers/demo/intro/draft.md
- *   node scripts/tw-context.mjs tree papers/demo --depth 1
- *   node scripts/tw-context.mjs compose papers/demo/sections/intro
+ *   pnpm tw-context search "viability" --root papers/demo
+ *   pnpm tw-context read papers/demo/intro/draft.md
+ *   pnpm tw-context tree papers/demo --depth 1
+ *   pnpm tw-context compose papers/demo/sections/intro
+ *   pnpm tw-context context papers/demo/intro/unit --action draft
+ *   pnpm tw-context graph papers/demo/intro/unit
+ *   pnpm tw-context sessions papers/demo --kind chat
+ *   pnpm tw-context health
  */
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -25,12 +28,16 @@ Commands:
   read <path>                                Read a model file (direct FS)
   tree [path] [--depth N]                    Subtree listing (API; falls back to FS)
   compose <sectionPath> [--approved]         Section compose view (API)
+  context <unitPath> [--action draft]        Context file checklist (API)
+  graph <path>                               Wikilink neighbourhood (API)
+  sessions <paperPath> [--kind chat|dispatch|all]  Session trace files (FS)
+  health                                     Backend health check (API)
 
 Options:
   --json                                     JSON output
   --api URL                                  Backend base URL (default: ${DEFAULT_API})
 
-Run from repo root or model/. Requires backend for search/compose when using API.
+Run from repo root or model/. Keep pnpm dev running for API-backed commands.
 `);
   process.exit(exitCode);
 }
@@ -53,7 +60,16 @@ function findRepoRoot(startDir) {
 
 function parseArgs(argv) {
   const positional = [];
-  const flags = { json: false, api: DEFAULT_API, root: "", depth: undefined, limit: 20, approved: false };
+  const flags = {
+    json: false,
+    api: DEFAULT_API,
+    root: "",
+    depth: undefined,
+    limit: 20,
+    approved: false,
+    action: "draft",
+    kind: "all",
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--json") flags.json = true;
@@ -62,6 +78,8 @@ function parseArgs(argv) {
     else if (arg === "--depth") flags.depth = Number(argv[++i]);
     else if (arg === "--limit") flags.limit = Number(argv[++i]);
     else if (arg === "--api") flags.api = argv[++i] ?? DEFAULT_API;
+    else if (arg === "--action") flags.action = argv[++i] ?? "draft";
+    else if (arg === "--kind") flags.kind = argv[++i] ?? "all";
     else if (arg === "--help" || arg === "-h") usage(0);
     else if (arg.startsWith("-")) {
       process.stderr.write(`Unknown option: ${arg}\n`);
@@ -181,7 +199,13 @@ function listTreeFs(modelRoot, rootRel, depth) {
       const prefix = entry.isDirectory() ? `${childRel}/` : childRel;
       lines.push(prefix);
       if (entry.isDirectory() && remaining !== 0) {
-        lines.push(...walk(path.join(abs, entry.name), childRel, remaining === undefined ? undefined : remaining - 1));
+        lines.push(
+          ...walk(
+            path.join(abs, entry.name),
+            childRel,
+            remaining === undefined ? undefined : remaining - 1,
+          ),
+        );
       }
     }
     return lines;
@@ -226,6 +250,81 @@ async function cmdCompose(sectionPath, flags) {
   if (data.outlineMarkdown) parts.push("## Outline\n", data.outlineMarkdown.trim(), "");
   if (data.draftMarkdown) parts.push("## Draft\n", data.draftMarkdown.trim(), "");
   return parts.join("\n").trim();
+}
+
+async function cmdContext(unitPath, flags) {
+  const normalized = assertSafeModelPath(unitPath);
+  const data = await fetchJson(flags.api, "/api/agent/context", {
+    unitPath: normalized,
+    action: flags.action,
+  });
+  if (flags.json) return data;
+  const files = data.files ?? [];
+  if (files.length === 0) return "No context files.";
+  return files
+    .map((f) => `${f.defaultIncluded ? "*" : " "} ${f.path}  (${f.category}) ${f.label}`)
+    .join("\n");
+}
+
+async function cmdGraph(nodePath, flags) {
+  const normalized = assertSafeModelPath(nodePath);
+  const data = await fetchJson(flags.api, "/api/model/graph", {
+    root: flags.root || normalized,
+  });
+  if (flags.json) return data;
+  const nodes = data.nodes ?? [];
+  const edges = data.edges ?? [];
+  const lines = [`Graph (${nodes.length} nodes, ${edges.length} edges)`, ""];
+  for (const edge of edges.slice(0, 50)) {
+    lines.push(`${edge.from} → ${edge.to}${edge.label ? ` (${edge.label})` : ""}`);
+  }
+  if (edges.length > 50) lines.push(`… and ${edges.length - 50} more edges`);
+  return lines.join("\n");
+}
+
+function paperSlugFromPath(paperPath) {
+  const match = normalizeModelPath(paperPath).match(/^papers\/([^/]+)/);
+  return match?.[1] ?? null;
+}
+
+function walkSessionFiles(absDir, relPrefix, acc, kind) {
+  if (!existsSync(absDir)) return;
+  for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".") && entry.name !== ".sessions") continue;
+    const abs = path.join(absDir, entry.name);
+    const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      if (entry.name === ".sessions" && (kind === "all" || kind === "dispatch")) {
+        for (const file of readdirSync(abs).filter((n) => n.endsWith(".md"))) {
+          acc.push(`${rel}/${file}`);
+        }
+      }
+      walkSessionFiles(abs, rel, acc, kind);
+    } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      if (rel.includes("/notes/sessions/") && (kind === "all" || kind === "chat")) {
+        acc.push(rel);
+      }
+    }
+  }
+}
+
+function cmdSessions(paperPath, flags, modelRoot) {
+  const normalized = assertSafeModelPath(paperPath);
+  const slug = paperSlugFromPath(normalized);
+  if (!slug) throw new Error("sessions requires a path under papers/{slug}");
+  const paperAbs = path.join(modelRoot, "papers", slug);
+  const files = [];
+  walkSessionFiles(paperAbs, `papers/${slug}`, files, flags.kind);
+  files.sort();
+  if (flags.json) return { paper: `papers/${slug}`, sessions: files };
+  if (files.length === 0) return "No session files found.";
+  return files.join("\n");
+}
+
+async function cmdHealth(flags) {
+  const data = await fetchJson(flags.api, "/health", {});
+  if (flags.json) return data;
+  return data.status === "ok" ? "ok" : JSON.stringify(data);
 }
 
 async function main() {
@@ -274,6 +373,37 @@ async function main() {
       result = await cmdCompose(sectionPath, flags);
       break;
     }
+    case "context": {
+      const unitPath = positional[1];
+      if (!unitPath) {
+        process.stderr.write("context requires a unit path.\n");
+        usage();
+      }
+      result = await cmdContext(unitPath, flags);
+      break;
+    }
+    case "graph": {
+      const nodePath = positional[1];
+      if (!nodePath) {
+        process.stderr.write("graph requires a path.\n");
+        usage();
+      }
+      result = await cmdGraph(nodePath, flags);
+      break;
+    }
+    case "sessions": {
+      const paperPath = positional[1];
+      if (!paperPath) {
+        process.stderr.write("sessions requires a paper path.\n");
+        usage();
+      }
+      result = cmdSessions(paperPath, flags, modelRoot);
+      break;
+    }
+    case "health": {
+      result = await cmdHealth(flags);
+      break;
+    }
     default:
       process.stderr.write(`Unknown command: ${command}\n`);
       usage();
@@ -283,7 +413,23 @@ async function main() {
   process.stdout.write(`${output}\n`);
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+const isDirectRun =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isDirectRun) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+}
+
+export {
+  assertSafeModelPath,
+  cmdContext,
+  cmdHealth,
+  cmdRead,
+  cmdSessions,
+  normalizeModelPath,
+  paperSlugFromPath,
+};

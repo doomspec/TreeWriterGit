@@ -1,14 +1,9 @@
 import type { PendingReviewChangeSummary } from "@treewriter/shared";
+import { countMarkdownWords } from "@treewriter/shared";
 
 function splitLines(text: string): string[] {
   if (!text) return [""];
   return text.split("\n");
-}
-
-function countWords(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed) return 0;
-  return trimmed.split(/\s+/).length;
 }
 
 /** Line-level LCS diff counts between approved baseline and current manuscript. */
@@ -40,22 +35,22 @@ export function summarizeManuscriptChanges(
       j += 1;
     } else if (dp[i + 1][j] >= dp[i][j + 1]) {
       removedLines += 1;
-      changedWords += countWords(a[i] ?? "");
+      changedWords += countMarkdownWords(a[i] ?? "");
       i += 1;
     } else {
       addedLines += 1;
-      changedWords += countWords(b[j] ?? "");
+      changedWords += countMarkdownWords(b[j] ?? "");
       j += 1;
     }
   }
   while (i < m) {
     removedLines += 1;
-    changedWords += countWords(a[i] ?? "");
+    changedWords += countMarkdownWords(a[i] ?? "");
     i += 1;
   }
   while (j < n) {
     addedLines += 1;
-    changedWords += countWords(b[j] ?? "");
+    changedWords += countMarkdownWords(b[j] ?? "");
     j += 1;
   }
 

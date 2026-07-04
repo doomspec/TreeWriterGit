@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,12 +8,14 @@ import { buildPreview } from "./agentDispatch.js";
 import {
   gatherDispatchSkillBlock,
   listDispatchSkills,
+  loadDispatchActionTemplate,
   readDispatchSkillContent,
   renameDispatchSkill,
   sanitizeSkillFilename,
   saveDispatchSkill,
   saveDispatchSkillsEnabled,
   updateDispatchSkillContent,
+  deleteDispatchSkill,
 } from "./dispatchSkills.js";
 
 let repoRoot: string;
@@ -60,11 +63,35 @@ describe("dispatchSkills", () => {
     const skills = await listDispatchSkills(repoRoot);
     const guide = skills.find((skill) => skill.filename === "treewriter-structure-and-assets.md");
     expect(guide).toBeDefined();
+    expect(guide?.tier).toBe("system");
     expect(guide?.title).toMatch(/TreeWriter Repository Guide/i);
 
     const deslop = skills.find((skill) => skill.filename === "writing-deslop-basics.md");
     expect(deslop).toBeDefined();
+    expect(deslop?.tier).toBe("user");
     expect(deslop?.title).toMatch(/Deslop Basics/i);
+  });
+
+  it("excludes dispatch action templates from the global skill block", async () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../..");
+    const block = await gatherDispatchSkillBlock(repoRoot);
+    expect(block).not.toContain("dispatch-draft.md");
+    expect(block).toContain("treewriter-context-cli");
+  });
+
+  it("loads dispatch action template from system skills", async () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../..");
+    const body = await loadDispatchActionTemplate(repoRoot, "draft");
+    expect(body).toBeTruthy();
+    expect(body).toContain("{outputPath}");
+  });
+
+  it("forbids deleting system skills", async () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../..");
+    if (!existsSync(path.join(repoRoot, ".treewriter-skills", "system"))) return;
+    await expect(
+      deleteDispatchSkill(repoRoot, "system/treewriter-context-cli.md"),
+    ).rejects.toMatchObject({ statusCode: 403 });
   });
 
   it("deduplicates repeated SKILL.md uploads", async () => {

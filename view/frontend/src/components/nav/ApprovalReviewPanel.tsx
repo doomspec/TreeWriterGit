@@ -11,6 +11,7 @@ import {
   type PendingReviewAuthorGroup,
 } from "@/lib/pendingReviews";
 import { usePaperPendingReviews } from "@/lib/usePaperPendingReviews";
+import { resolveActivePaperSlug } from "@/lib/activePaperSlug";
 import { cn } from "@/lib/utils";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 import type { PendingReviewItem } from "@treewriter/shared";
@@ -180,8 +181,9 @@ function AuthorGroupSection({
 
 export function ApprovalReviewPanel({ className }: { className?: string }) {
   const nav = useWorkspaceNavigationContext();
+  const reviewPaperSlug = resolveActivePaperSlug(nav.paperSlug, nav.lastPaperPath);
   const { items, groups, loading, reload, totalCount } = usePaperPendingReviews(
-    nav.paperSlug,
+    reviewPaperSlug,
     nav.refreshVersion,
   );
   const [filter, setFilter] = useState<ReviewFilter>("all");
@@ -270,7 +272,7 @@ export function ApprovalReviewPanel({ className }: { className?: string }) {
     [nav, reload],
   );
 
-  if (!nav.paperSlug) {
+  if (!reviewPaperSlug) {
     return (
       <div className={cn("p-3 text-xs text-muted-foreground", className)}>
         Open a paper to review pending changes.

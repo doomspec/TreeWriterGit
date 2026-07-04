@@ -12,7 +12,6 @@ import {
   type NavigateTarget,
 } from "@/lib/modelTree";
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
-import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 
 export type OpenFileOptions = {
   citeKey?: string;
@@ -57,12 +56,10 @@ export function navigateFromTarget(
 
 type UseWorkspaceNavigationOptions = {
   tree: ModelNode[];
-  sidebarTab: WorkspaceNavTab;
   lastPaperPath: string | null;
   setCurrentPath: Dispatch<SetStateAction<string>>;
   setActiveFile: Dispatch<SetStateAction<string | null>>;
   setEditorLayout: Dispatch<SetStateAction<EditorLayout>>;
-  setSidebarTab: Dispatch<SetStateAction<WorkspaceNavTab>>;
   setSearchQuery: Dispatch<SetStateAction<string>>;
   setSelectedBibCiteKey: Dispatch<SetStateAction<string | null>>;
 };
@@ -77,12 +74,10 @@ type UseWorkspaceNavigationOptions = {
  */
 export function useWorkspaceNavigation({
   tree,
-  sidebarTab,
   lastPaperPath,
   setCurrentPath,
   setActiveFile,
   setEditorLayout,
-  setSidebarTab,
   setSearchQuery,
   setSelectedBibCiteKey,
 }: UseWorkspaceNavigationOptions) {
@@ -98,8 +93,7 @@ export function useWorkspaceNavigation({
           if (lastPaperPath && isUnderPapers(lastPaperPath)) return lastPaperPath;
           return PAPERS_ROOT;
         }
-        const nextPath =
-          sidebarTab === "papers" && folder !== "" && !isUnderPapers(folder) ? PAPERS_ROOT : folder;
+        const nextPath = folder !== "" && !isUnderPapers(folder) ? PAPERS_ROOT : folder;
         if (folder !== current && current) {
           focusReturnPathRef.current = current;
         }
@@ -111,14 +105,13 @@ export function useWorkspaceNavigation({
         setSelectedBibCiteKey(options.citeKey);
       }
     },
-    [lastPaperPath, setActiveFile, setCurrentPath, setEditorLayout, setSelectedBibCiteKey, sidebarTab],
+    [lastPaperPath, setActiveFile, setCurrentPath, setEditorLayout, setSelectedBibCiteKey],
   );
 
   const navigateTo = useCallback(
     (path: string) => {
       focusReturnPathRef.current = null;
-      const normalized =
-        sidebarTab === "papers" && path !== "" && !isUnderPapers(path) ? PAPERS_ROOT : path;
+      const normalized = path !== "" && !isUnderPapers(path) ? PAPERS_ROOT : path;
       const target = resolveModelPathTarget(tree, normalized);
       if (!target) return;
       if (target.type === "file") {
@@ -134,7 +127,7 @@ export function useWorkspaceNavigation({
         setActiveFile(null);
       }
     },
-    [openFile, setActiveFile, setCurrentPath, setEditorLayout, sidebarTab, tree],
+    [openFile, setActiveFile, setCurrentPath, setEditorLayout, tree],
   );
 
   const handleMarkdownNavigate = useCallback(
@@ -153,18 +146,6 @@ export function useWorkspaceNavigation({
     }
   }, [setActiveFile, setCurrentPath]);
 
-  const handleSidebarTabChange = useCallback(
-    (tab: WorkspaceNavTab) => {
-      focusReturnPathRef.current = null;
-      setSidebarTab(tab);
-      if (tab === "papers") {
-        setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
-        setActiveFile(null);
-      }
-    },
-    [setActiveFile, setCurrentPath, setSidebarTab],
-  );
-
   const handleSearchSelect = useCallback(
     (hit: { path: string }) => {
       if (hit.path.endsWith(".md")) {
@@ -182,7 +163,6 @@ export function useWorkspaceNavigation({
     navigateTo,
     handleMarkdownNavigate,
     backToSectionView,
-    handleSidebarTabChange,
     handleSearchSelect,
   };
 }

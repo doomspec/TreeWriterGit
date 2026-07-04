@@ -160,7 +160,7 @@ export function registerExportRoutes(app: Express, deps: ServerDeps) {
         response.status(400).json({ error: "paperSlug required" });
         return;
       }
-      const result = await importOverleafFeedback(deps.modelRoot, paperSlug.trim());
+      const result = await importOverleafFeedback(deps.modelRoot, deps.repoRoot, paperSlug.trim());
       if (result.paths.length) {
         for (const rel of result.paths) {
           deps.broadcastModelEvent({ type: "model-changed", path: rel });

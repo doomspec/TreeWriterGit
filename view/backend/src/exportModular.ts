@@ -32,7 +32,7 @@ import {
   copyJournalTemplateBundle,
   usesNatureLatexTemplate,
 } from "./exportNature.js";
-import { listPaperSections, loadJournalTemplate } from "./papers.js";
+import { listPaperSections, loadJournalTemplate, normalizeAffiliations, normalizeAuthors } from "./papers.js";
 import {
   assertExportAllowed,
   paperHasUnapprovedUnits,
@@ -397,21 +397,8 @@ export async function exportModularPaper(
     await copyJournalTemplateBundle(modelRoot, exportStyle.templateBundle, bundleDir);
     const roles = classifyNatureSectionSlugs(sectionSlugs);
     const legacyAuthor = typeof paperData.author === "string" ? paperData.author : undefined;
-    const authors = Array.isArray(paperData.authors)
-      ? paperData.authors.map((a) => String(a).trim()).filter(Boolean)
-      : [];
-    const affiliations = Array.isArray(paperData.affiliations)
-      ? paperData.affiliations.map((a) => String(a).trim()).filter(Boolean)
-      : [];
-    const authorAffiliations = Array.isArray(paperData.author_affiliations)
-      ? (paperData.author_affiliations as unknown[]).map((entry) =>
-          Array.isArray(entry)
-            ? entry
-                .map((n) => Number(n))
-                .filter((n) => Number.isInteger(n) && n >= 1 && n <= affiliations.length)
-            : [],
-        )
-      : [];
+    const affiliations = normalizeAffiliations(paperData.affiliations);
+    const authors = normalizeAuthors(paperData.authors, affiliations.length, paperData.author_affiliations);
     await writeFile(
       mainTexPath,
       buildNatureMainTexDocument({
@@ -419,7 +406,6 @@ export async function exportModularPaper(
         author: legacyAuthor,
         authors,
         affiliations,
-        authorAffiliations,
         abstractSection: roles.abstract,
         bodySections: roles.body,
         methodsSection: roles.methods,

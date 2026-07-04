@@ -1,4 +1,4 @@
-import { MoreHorizontal, RefreshCw, Sparkles, TerminalSquare, Wand2 } from "lucide-react";
+import { History, MoreHorizontal, RefreshCw, Sparkles, TerminalSquare, Wand2 } from "lucide-react";
 
 import { ReadingFocusToggleButton } from "@/components/editor/ReadingFocusToggleButton";
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,14 @@ export function WorkspaceChromeActions({
   aiPanelOpen = false,
   onToggleAiPanel,
   onOpenTerminal,
+  onOpenHistory,
   onOpenSkills,
 }: {
   onRefreshModel: () => void;
   aiPanelOpen?: boolean;
   onToggleAiPanel?: () => void;
   onOpenTerminal?: () => void;
+  onOpenHistory?: () => void;
   onOpenSkills?: () => void;
 }) {
   return (
@@ -45,6 +47,12 @@ export function WorkspaceChromeActions({
           <PopoverMenuItem onClick={onOpenTerminal}>
             <TerminalSquare className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span className="flex-1">Terminal</span>
+          </PopoverMenuItem>
+        ) : null}
+        {onOpenHistory ? (
+          <PopoverMenuItem onClick={onOpenHistory}>
+            <History className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="flex-1">History</span>
           </PopoverMenuItem>
         ) : null}
         {onOpenSkills ? (

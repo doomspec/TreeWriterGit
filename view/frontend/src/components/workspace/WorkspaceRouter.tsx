@@ -23,16 +23,6 @@ type WorkspaceRouterProps = {
   onDispatchComplete: () => void;
 };
 
-/**
- * Workspace route switcher — maps navigation state to the main editor shell.
- *
- * Priority (see also {@link resolveWorkspaceView}):
- * 1. PaperWorkspace — paper root (+ paper-level outline/draft)
- * 2. TableWorkspace — table builder folder
- * 3. SectionWorkspace — section container (composed draft, approve-children)
- * 4. EditorWorkspace — unit / figure / equation / loose `.md` file
- * 5. FolderBrowse — directory listing
- */
 export function WorkspaceRouter({
   onError,
   onSendToTerminal,
@@ -57,10 +47,18 @@ export function WorkspaceRouter({
     onNotesSplitChange: layout.setDualPaneNotesSplitPercent,
   };
 
-  if (nav.paperWorkspacePath) {
+  const view = resolveWorkspaceView({
+    paperWorkspacePath: nav.paperWorkspacePath,
+    tablePath: nav.tablePath,
+    sectionPath: nav.sectionPath,
+    unitPath: nav.unitPath,
+    activeFile: nav.activeFile,
+  });
+
+  if (view.kind === "paper") {
     return (
       <PaperWorkspace
-        paperPath={nav.paperWorkspacePath}
+        paperPath={view.path}
         refreshVersion={nav.refreshVersion}
         onNavigate={nav.navigateTo}
         onOpenFile={nav.openFile}
@@ -78,10 +76,10 @@ export function WorkspaceRouter({
     );
   }
 
-  if (nav.tablePath) {
+  if (view.kind === "table") {
     return (
       <TableWorkspace
-        tablePath={nav.tablePath}
+        tablePath={view.path}
         tableTitle={nav.tableTitle}
         refreshVersion={nav.refreshVersion}
         onError={onError}
@@ -99,14 +97,6 @@ export function WorkspaceRouter({
       />
     );
   }
-
-  const view = resolveWorkspaceView({
-    paperWorkspacePath: nav.paperWorkspacePath,
-    tablePath: nav.tablePath,
-    sectionPath: nav.sectionPath,
-    unitPath: nav.unitPath,
-    activeFile: nav.activeFile,
-  });
 
   if (view.kind === "section") {
     return (

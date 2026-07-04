@@ -14,23 +14,29 @@ function estimateTokens(text: string): string {
   return tokens < 1000 ? `~${tokens} tokens` : `~${(tokens / 1000).toFixed(1)}k tokens`;
 }
 
+function userSkillBasename(pathOrName: string): string {
+  const base = pathOrName.replace(/^user\//, "").trim();
+  return /\.md$/i.test(base) ? base : `${base}.md`;
+}
+
 /**
  * Full-width source editor for a dispatch skill (.treewriter-skills/*.md),
  * opened in the main content area — skills live outside model/ so they
  * can't go through the normal WorkspaceRouter/model-tree editors.
  */
 export function SkillEditorWorkspace({
-  filename,
+  skillPath,
   onClose,
   onError,
   onSkillsChanged,
 }: {
-  filename: string;
+  skillPath: string;
   onClose: () => void;
   onError: (message: string) => void;
   onSkillsChanged?: () => void;
 }) {
-  const [name, setName] = useState(filename);
+  const isSystem = skillPath.startsWith("system/");
+  const [name, setName] = useState(skillPath);
   const [content, setContent] = useState("");
   const [loadedContent, setLoadedContent] = useState("");
   const [loading, setLoading] = useState(true);
@@ -39,23 +45,22 @@ export function SkillEditorWorkspace({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const text = await fetchDispatchSkillContent(filename);
+      const text = await fetchDispatchSkillContent(skillPath);
       setContent(text);
       setLoadedContent(text);
-      setName(filename);
+      setName(skillPath);
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filename]);
+  }, [skillPath, onError]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const dirty = content !== loadedContent || name.trim() !== filename;
+  const dirty = content !== loadedContent || (!isSystem && name.trim() !== skillPath);
 
   const handleClose = () => {
     if (dirty && !window.confirm("Discard unsaved changes to this skill?")) return;
@@ -67,9 +72,14 @@ export function SkillEditorWorkspace({
     if (!trimmedName || !content.trim()) return;
     setSaving(true);
     try {
-      await updateDispatchSkill(filename, {
+      const newFilename =
+        !isSystem && trimmedName !== skillPath
+          ? userSkillBasename(trimmedName)
+          : undefined;
+      await updateDispatchSkill(skillPath, {
         content,
-        newFilename: trimmedName !== filename ? trimmedName : undefined,
+        newFilename:
+          newFilename && newFilename !== userSkillBasename(skillPath) ? newFilename : undefined,
       });
       onSkillsChanged?.();
       onClose();
@@ -81,10 +91,11 @@ export function SkillEditorWorkspace({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Delete skill "${filename}"?`)) return;
+    if (isSystem) return;
+    if (!window.confirm(`Delete skill "${skillPath}"?`)) return;
     setSaving(true);
     try {
-      await deleteDispatchSkill(filename);
+      await deleteDispatchSkill(skillPath);
       onSkillsChanged?.();
       onClose();
     } catch (err) {
@@ -110,23 +121,26 @@ export function SkillEditorWorkspace({
           type="text"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          aria-label="Skill filename"
-          className="h-7 min-w-0 flex-1 max-w-xs rounded-md border border-border bg-background px-2 font-mono text-xs"
+          aria-label="Skill path"
+          readOnly={isSystem}
+          className="h-7 min-w-0 flex-1 max-w-md rounded-md border border-border bg-background px-2 font-mono text-xs"
         />
         <span className="text-[11px] text-muted-foreground">{estimateTokens(content)}</span>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-            title={`Delete ${filename}`}
-            aria-label={`Delete ${filename}`}
-            disabled={saving}
-            onClick={() => void handleDelete()}
-          >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-          </Button>
+          {!isSystem ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              title={`Delete ${skillPath}`}
+              aria-label={`Delete ${skillPath}`}
+              disabled={saving}
+              onClick={() => void handleDelete()}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="default"

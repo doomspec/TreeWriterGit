@@ -206,6 +206,28 @@ describe("agent API contract", () => {
     }
   });
 
+  it("GET /api/contributors returns the global registry", async () => {
+    const server = createTestServer({ repoRoot, modelRoot });
+    try {
+      const empty = await request(server.app).get("/api/contributors");
+      expect(empty.status).toBe(200);
+      expect(empty.body).toEqual({
+        registry: { affiliations: [], authors: [] },
+      });
+
+      const { writeContributorsRegistry } = await import("../contributorsRegistry.js");
+      await writeContributorsRegistry(modelRoot, {
+        affiliations: ["MIT"],
+        authors: [{ firstName: "Grace", lastName: "Hopper", affiliationTexts: ["MIT"] }],
+      });
+      const seeded = await request(server.app).get("/api/contributors");
+      expect(seeded.body.registry.affiliations).toEqual(["MIT"]);
+      expect(seeded.body.registry.authors[0].lastName).toBe("Hopper");
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/agent/context requires unitPath", async () => {
     const server = createTestServer({ repoRoot, modelRoot });
     try {

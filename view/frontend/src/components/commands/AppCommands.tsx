@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 
 import type { EditorLayout } from "@/components/editor/MarkdownEditor";
 import type { SidebarPanel } from "@/lib/workspacePreferences";
-import type { WorkspaceNavTab } from "@/components/nav/WorkspaceNav";
 import { useCommandPalette } from "@/lib/CommandPaletteProvider";
 import type { AppCommand } from "@/lib/commandPaletteTypes";
 import type { EditorPaneId, EditorPanePresetId } from "@/lib/editorVisiblePanes";
@@ -12,7 +11,6 @@ export type AppView = "workspace" | "settings" | "info";
 
 export type AppCommandsContext = {
   appView: AppView;
-  sidebarTab: WorkspaceNavTab;
   editorLayout: EditorLayout;
   canGoUp: boolean;
   canCreateUnit: boolean;
@@ -24,7 +22,6 @@ export type AppCommandsContext = {
   pendingAiReviewCount: number;
   selectedBibCiteKey: string | null;
   onSetAppView: (view: AppView) => void;
-  onSetSidebarTab: (tab: WorkspaceNavTab) => void;
   onSetSidebarPanel: (panel: SidebarPanel) => void;
   onToggleSidebarPanel: () => void;
   onNavigateUp: () => void;
@@ -41,6 +38,7 @@ export type AppCommandsContext = {
   onApproveAllAiChanges: () => void;
   onOpenMainBib: (citeKey?: string) => void;
   onShowUnverifiedReferences: () => void;
+  onOpenDocxImport?: () => void;
 };
 
 export function AppCommands(context: AppCommandsContext) {
@@ -74,20 +72,28 @@ export function AppCommands(context: AppCommandsContext) {
         run: () => ctx().onSetAppView(ctx().appView === "settings" ? "workspace" : "settings"),
       },
       {
-        id: "workspace.explorer",
-        label: "Switch to Explorer",
-        category: "Navigation",
-        aliases: ["files", "model"],
-        when: () => ctx().appView === "workspace",
-        run: () => ctx().onSetSidebarPanel("explorer"),
-      },
-      {
         id: "workspace.papers",
-        label: "Switch to Manuscripts",
+        label: "Switch to Sections",
         category: "Navigation",
         aliases: ["manuscript", "paper", "papers"],
         when: () => ctx().appView === "workspace",
         run: () => ctx().onSetSidebarPanel("papers"),
+      },
+      {
+        id: "sidebar.assets",
+        label: "Show assets panel",
+        category: "Navigation",
+        aliases: ["figures", "tables", "equations", "assets"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("assets"),
+      },
+      {
+        id: "sidebar.removed",
+        label: "Show removed items",
+        category: "Navigation",
+        aliases: ["trash", "deleted", "removed", "restore"],
+        when: () => ctx().appView === "workspace",
+        run: () => ctx().onSetSidebarPanel("removed"),
       },
       {
         id: "sidebar.references",
@@ -112,14 +118,6 @@ export function AppCommands(context: AppCommandsContext) {
         aliases: ["review references", "verify bibliography"],
         when: () => ctx().appView === "workspace",
         run: () => ctx().onShowUnverifiedReferences(),
-      },
-      {
-        id: "sidebar.outline",
-        label: "Show document outline",
-        category: "Navigation",
-        aliases: ["headings", "table of contents", "toc"],
-        when: () => ctx().appView === "workspace",
-        run: () => ctx().onSetSidebarPanel("outline"),
       },
       {
         id: "sidebar.graph",
@@ -155,11 +153,11 @@ export function AppCommands(context: AppCommandsContext) {
       },
       {
         id: "sidebar.import",
-        label: "Show import panel",
+        label: "Import from Word",
         category: "Navigation",
         aliases: ["import", "docx", "word", "upload document"],
-        when: () => ctx().appView === "workspace",
-        run: () => ctx().onSetSidebarPanel("import"),
+        when: () => ctx().appView === "workspace" && Boolean(ctx().onOpenDocxImport),
+        run: () => ctx().onOpenDocxImport?.(),
       },
       {
         id: "sidebar.toggle",

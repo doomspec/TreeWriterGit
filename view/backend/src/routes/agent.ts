@@ -40,9 +40,11 @@ import {
 import { isBridgedProvider, runBridgedTurn } from "../aiChat/bridgedAdapters.js";
 import {
   deleteDispatchSkill,
+  DispatchSkillError,
   listDispatchSkills,
   readDispatchSkillContent,
   renameDispatchSkill,
+  resetSystemSkill,
   saveDispatchSkill,
   saveDispatchSkillsEnabled,
   updateDispatchSkillContent,
@@ -143,13 +145,35 @@ export function registerAgentRoutes(app: Express, deps: ServerDeps) {
       let current = filename;
       if (typeof newFilename === "string" && newFilename.trim() && newFilename.trim() !== filename) {
         const renamed = await renameDispatchSkill(deps.repoRoot, filename, newFilename);
-        current = renamed.filename;
+        current = renamed.skillPath;
       }
       if (typeof content === "string") {
         await updateDispatchSkillContent(deps.repoRoot, current, content);
       }
       response.json({ ok: true, skills: await listDispatchSkills(deps.repoRoot) });
     } catch (error) {
+      if (error instanceof DispatchSkillError) {
+        response.status(error.statusCode).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
+  });
+
+  app.post("/api/agent/skills/system/:filename/reset", async (request, response, next) => {
+    try {
+      const filename = String(request.params.filename ?? "");
+      if (!filename) {
+        response.status(400).json({ error: "filename required" });
+        return;
+      }
+      const skill = await resetSystemSkill(deps.repoRoot, filename);
+      response.json({ ok: true, skill, skills: await listDispatchSkills(deps.repoRoot) });
+    } catch (error) {
+      if (error instanceof DispatchSkillError) {
+        response.status(error.statusCode).json({ error: error.message });
+        return;
+      }
       next(error);
     }
   });

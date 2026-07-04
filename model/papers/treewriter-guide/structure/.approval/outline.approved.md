@@ -2,7 +2,7 @@
 
 ## Summary
 
-How the paper tree works: containers, units, approval, and navigation.
+How the paper tree works: containers, units, approval, and \hl{yellow}{navigation}.
 
 ## Outline
 

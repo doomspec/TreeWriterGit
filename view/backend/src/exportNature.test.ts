@@ -48,27 +48,59 @@ describe("buildNatureMainTexDocument", () => {
   it("renders structured authors with superscript affiliation numbers and affiliation items", () => {
     const mainTex = buildNatureMainTexDocument({
       title: "Demo Paper",
-      authors: ["Ada Lovelace", "Alan Turing"],
+      authors: [
+        { firstName: "Ada", lastName: "Lovelace", affiliations: [1] },
+        { firstName: "Alan", lastName: "Turing", affiliations: [1, 2] },
+      ],
       affiliations: ["Dept of Computing, Cambridge", "Bletchley Park"],
-      authorAffiliations: [[1], [1, 2]],
       bodySections: ["introduction"],
     });
     expect(mainTex).toContain("\\author{Ada Lovelace$^{1}$, Alan Turing$^{1,2}$}");
     expect(mainTex).toContain("\\item Dept of Computing, Cambridge");
     expect(mainTex).toContain("\\item Bletchley Park");
     expect(mainTex).not.toContain("Author names TBD");
-    expect(mainTex).not.toContain("Affiliation TBD");
   });
 
-  it("lists authors without superscripts when no affiliation mapping is given", () => {
+  it("adds equal-contribution (†), corresponding (*), and ORCID notes", () => {
     const mainTex = buildNatureMainTexDocument({
       title: "Demo",
-      authors: ["Ada Lovelace", "Alan Turing"],
+      authors: [
+        { firstName: "Ada", lastName: "Lovelace", affiliations: [1], equalContribution: true, orcid: "0000-0002-1825-0097" },
+        { firstName: "Alan", lastName: "Turing", affiliations: [1], equalContribution: true, corresponding: true, email: "alan@x.org" },
+      ],
+      affiliations: ["Cambridge"],
       bodySections: ["introduction"],
     });
-    expect(mainTex).toContain("\\author{Ada Lovelace, Alan Turing}");
-    // No affiliations provided → placeholder item remains, but names still render.
-    expect(mainTex).toContain("\\item Affiliation TBD");
+    expect(mainTex).toContain("Ada Lovelace$^{1,\\dagger}$");
+    expect(mainTex).toContain("Alan Turing$^{1,\\dagger,*}$");
+    expect(mainTex).toContain("\\item[$\\dagger$] These authors contributed equally.");
+    expect(mainTex).toContain("\\item[$*$] Correspondence: Alan Turing (alan@x.org).");
+    expect(mainTex).toContain("\\item[ORCID] Ada Lovelace — 0000-0002-1825-0097");
+    // Dynamic notes replace the static correspondence line.
+    expect(mainTex).not.toContain("addressed to the corresponding author");
+  });
+
+  it("emits a CRediT Author contributions statement from author roles", () => {
+    const mainTex = buildNatureMainTexDocument({
+      title: "Demo",
+      authors: [
+        { firstName: "Ada", lastName: "Lovelace", affiliations: [], credit: ["Conceptualization", "Software"] },
+        { firstName: "Alan", lastName: "Turing", affiliations: [], credit: ["Methodology"] },
+      ],
+      bodySections: ["introduction"],
+    });
+    expect(mainTex).toContain("\\section*{Author contributions}");
+    expect(mainTex).toContain("A. Lovelace: Conceptualization, Software.");
+    expect(mainTex).toContain("A. Turing: Methodology.");
+  });
+
+  it("omits the CRediT statement when no author has roles", () => {
+    const mainTex = buildNatureMainTexDocument({
+      title: "Demo",
+      authors: [{ firstName: "Ada", lastName: "Lovelace", affiliations: [] }],
+      bodySections: ["introduction"],
+    });
+    expect(mainTex).not.toContain("Author contributions");
   });
 
   it("falls back to legacy author string / TBD placeholders when no authors are provided", () => {
@@ -83,12 +115,11 @@ describe("buildNatureMainTexDocument", () => {
   it("escapes LaTeX-special characters in author and affiliation text", () => {
     const mainTex = buildNatureMainTexDocument({
       title: "Demo",
-      authors: ["A & B_Lab"],
+      authors: [{ firstName: "A", lastName: "B_Lab", affiliations: [1] }],
       affiliations: ["Dept #3 & Co"],
-      authorAffiliations: [[1]],
       bodySections: ["introduction"],
     });
-    expect(mainTex).toContain("A \\& B\\_Lab");
+    expect(mainTex).toContain("A B\\_Lab");
     expect(mainTex).toContain("\\item Dept \\#3 \\& Co");
   });
 });

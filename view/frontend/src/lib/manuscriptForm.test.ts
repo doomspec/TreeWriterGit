@@ -44,7 +44,7 @@ describe("manuscriptForm", () => {
       title: "Grant",
       docType: "grant",
       templateId: "nsf-research-proposal",
-      authors: ["PI"],
+      authors: [{ firstName: "PI", lastName: "", affiliations: [] }],
       slug: "",
       targetWords: "5000",
       sectionOrderText: "specific-aims",
@@ -64,18 +64,21 @@ describe("manuscriptForm", () => {
     expect(payload.funder).toBe("NSF");
     expect(payload.tags).toEqual(["nsf", "2026"]);
     expect(payload.contributionMode).toBe("kernel");
-    expect(payload.authors).toEqual(["PI"]);
+    expect(payload.authors).toEqual([{ firstName: "PI", lastName: "", affiliations: [] }]);
   });
 
-  it("buildCreateManuscriptPayload carries affiliations and per-author mapping", () => {
+  it("buildCreateManuscriptPayload carries structured authors and affiliations", () => {
+    const authors = [
+      { firstName: "Ada", lastName: "Lovelace", affiliations: [1] },
+      { firstName: "Alan", lastName: "Turing", affiliations: [1, 2], corresponding: true },
+    ];
     const payload = buildCreateManuscriptPayload({
       title: "Paper",
       docType: "paper",
       templateId: "nature",
       journal: "Nature",
-      authors: ["Ada", "Alan"],
+      authors,
       affiliations: ["Cambridge", "Bletchley"],
-      authorAffiliations: [[1], [1, 2]],
       slug: "",
       targetWords: "3000",
       sectionOrderText: "introduction",
@@ -90,20 +93,21 @@ describe("manuscriptForm", () => {
       contributionMode: "",
       agentSummary: "",
     });
-    expect(payload.authors).toEqual(["Ada", "Alan"]);
+    expect(payload.authors).toEqual(authors);
     expect(payload.affiliations).toEqual(["Cambridge", "Bletchley"]);
-    expect(payload.authorAffiliations).toEqual([[1], [1, 2]]);
   });
 
-  it("buildCreateManuscriptPayload omits affiliations when none are given", () => {
+  it("buildCreateManuscriptPayload drops nameless authors and empty affiliations", () => {
     const payload = buildCreateManuscriptPayload({
       title: "Paper",
       docType: "paper",
       templateId: "nature",
       journal: "Nature",
-      authors: ["Ada"],
+      authors: [
+        { firstName: "Ada", lastName: "Lovelace", affiliations: [] },
+        { firstName: "", lastName: "", affiliations: [] },
+      ],
       affiliations: [],
-      authorAffiliations: [],
       slug: "",
       targetWords: "3000",
       sectionOrderText: "introduction",
@@ -118,8 +122,8 @@ describe("manuscriptForm", () => {
       contributionMode: "",
       agentSummary: "",
     });
+    expect(payload.authors).toEqual([{ firstName: "Ada", lastName: "Lovelace", affiliations: [] }]);
     expect(payload.affiliations).toBeUndefined();
-    expect(payload.authorAffiliations).toBeUndefined();
   });
 
   it("structurePreviewFolders lists sections notes and assets", () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
@@ -35,6 +35,28 @@ type PromptState =
   | { mode: "rename"; path: string; isDir: boolean; current: string }
   | null;
 
+/** A visible tree row in document order, respecting current expand state. */
+type FlatRow = { path: string; isDir: boolean; node: ModelNode };
+
+function flattenVisible(
+  nodes: ModelNode[],
+  expanded: Set<string>,
+  childrenByPath: Record<string, ModelNode[]>,
+): FlatRow[] {
+  const rows: FlatRow[] = [];
+  const walk = (list: ModelNode[]) => {
+    for (const node of list) {
+      const isDir = node.type === "directory";
+      rows.push({ path: node.path, isDir, node });
+      if (isDir && expanded.has(node.path)) {
+        walk(childrenByPath[node.path] ?? node.children ?? []);
+      }
+    }
+  };
+  walk(nodes);
+  return rows;
+}
+
 /**
  * Lazy-loading project-root file tree for Explorer mode with create / rename /
  * delete for files and folders (right-click menu + header buttons), a settable
@@ -64,7 +86,16 @@ export function ExplorerFileTree({
   const [menu, setMenu] = useState<{ x: number; y: number; target: ContextTarget } | null>(null);
   const [prompt, setPrompt] = useState<PromptState>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ path: string; isDir: boolean } | null>(null);
+  const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const activeRowRef = useRef<HTMLButtonElement | null>(null);
+  const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const registerRow = useCallback(
+    (path: string) => (el: HTMLButtonElement | null) => {
+      if (el) rowRefs.current.set(path, el);
+      else rowRefs.current.delete(path);
+    },
+    [],
+  );
 
   const reportError = useCallback(
     (err: unknown) => onError?.(err instanceof Error ? err.message : String(err)),
@@ -136,6 +167,85 @@ export function ExplorerFileTree({
     [childrenByPath, loadChildren],
   );
 
+  const visibleRows = useMemo(
+    () => flattenVisible(rootNodes, expanded, childrenByPath),
+    [rootNodes, expanded, childrenByPath],
+  );
+
+  // Default keyboard focus to the active file (if visible) or the first row,
+  // without fighting the user's own subsequent up/down/left/right movement.
+  useEffect(() => {
+    if (focusedPath != null && visibleRows.some((row) => row.path === focusedPath)) return;
+    if (visibleRows.length === 0) return;
+    const fallback = activeFile && visibleRows.some((row) => row.path === activeFile) ? activeFile : visibleRows[0].path;
+    setFocusedPath(fallback);
+  }, [visibleRows, activeFile, focusedPath]);
+
+  const moveFocus = useCallback((path: string) => {
+    setFocusedPath(path);
+    rowRefs.current.get(path)?.scrollIntoView({ block: "nearest" });
+  }, []);
+
+  const handleTreeKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (visibleRows.length === 0) return;
+      const index = visibleRows.findIndex((row) => row.path === focusedPath);
+      const current = index === -1 ? visibleRows[0] : visibleRows[index];
+      switch (event.key) {
+        case "ArrowDown": {
+          event.preventDefault();
+          moveFocus(visibleRows[Math.min(visibleRows.length - 1, index === -1 ? 0 : index + 1)].path);
+          break;
+        }
+        case "ArrowUp": {
+          event.preventDefault();
+          moveFocus(visibleRows[Math.max(0, index === -1 ? 0 : index - 1)].path);
+          break;
+        }
+        case "ArrowRight": {
+          event.preventDefault();
+          if (!current.isDir) break;
+          if (!expanded.has(current.path)) {
+            toggleDir(current.node);
+          } else {
+            const firstChild = (childrenByPath[current.path] ?? current.node.children ?? [])[0];
+            if (firstChild) moveFocus(firstChild.path);
+          }
+          break;
+        }
+        case "ArrowLeft": {
+          event.preventDefault();
+          if (current.isDir && expanded.has(current.path)) {
+            toggleDir(current.node);
+            break;
+          }
+          const parent = parentOf(current.path);
+          if (parent && visibleRows.some((row) => row.path === parent)) moveFocus(parent);
+          break;
+        }
+        case "Enter": {
+          event.preventDefault();
+          if (current.isDir) toggleDir(current.node);
+          else onOpenFile(current.path);
+          break;
+        }
+        case "Home": {
+          event.preventDefault();
+          moveFocus(visibleRows[0].path);
+          break;
+        }
+        case "End": {
+          event.preventDefault();
+          moveFocus(visibleRows[visibleRows.length - 1].path);
+          break;
+        }
+        default:
+          break;
+      }
+    },
+    [visibleRows, focusedPath, expanded, childrenByPath, toggleDir, onOpenFile, moveFocus],
+  );
+
   // Auto-expand the branch down to the active file and scroll it into view.
   useEffect(() => {
     if (!activeFile) return;
@@ -187,7 +297,7 @@ export function ExplorerFileTree({
         await reloadParent(path);
         if (state.parent) setExpanded((prev) => new Set(prev).add(state.parent));
         onOpenFile(path);
-      } else {
+      } else if (state.mode === "newFolder") {
         const res = await createFolder(state.parent, name);
         await reloadParent(res.path);
         setExpanded((prev) => new Set(prev).add(res.path));
@@ -220,11 +330,19 @@ export function ExplorerFileTree({
       return (
         <div key={node.path}>
           <button
+            ref={registerRow(node.path)}
             type="button"
+            tabIndex={-1}
             style={indentStyle}
-            onClick={() => toggleDir(node)}
+            onClick={() => {
+              setFocusedPath(node.path);
+              toggleDir(node);
+            }}
             onContextMenu={(event) => openContextMenu(event, { path: node.path, isDir: true })}
-            className="flex w-full items-center gap-1 py-0.5 pr-2 text-left text-xs text-foreground hover:bg-accent/50"
+            className={cn(
+              "flex w-full items-center gap-1 py-0.5 pr-2 text-left text-xs text-foreground hover:bg-accent/50",
+              focusedPath === node.path && "ring-1 ring-inset ring-primary",
+            )}
           >
             {isOpen ? (
               <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -255,18 +373,27 @@ export function ExplorerFileTree({
     }
 
     const active = node.path === activeFile;
+    const focused = focusedPath === node.path;
     return (
       <button
         key={node.path}
-        ref={active ? activeRowRef : undefined}
+        ref={(el) => {
+          registerRow(node.path)(el);
+          if (active) activeRowRef.current = el;
+        }}
         type="button"
+        tabIndex={-1}
         style={indentStyle}
         title={node.path}
-        onClick={() => onOpenFile(node.path)}
+        onClick={() => {
+          setFocusedPath(node.path);
+          onOpenFile(node.path);
+        }}
         onContextMenu={(event) => openContextMenu(event, { path: node.path, isDir: false })}
         className={cn(
           "flex w-full items-center gap-1 py-0.5 pr-2 text-left text-xs hover:bg-accent/50",
           active ? "bg-accent text-foreground" : "text-muted-foreground",
+          focused && "ring-1 ring-inset ring-primary",
         )}
       >
         <span className="w-3 shrink-0" aria-hidden="true" />
@@ -284,25 +411,25 @@ export function ExplorerFileTree({
         if (event.target === event.currentTarget) openContextMenu(event, null);
       }}
     >
-      <div className="flex h-[var(--workspace-pane-header-height,2.25rem)] shrink-0 items-center justify-between border-b border-border px-2">
-        <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="workspace-pane-header shrink-0 bg-[hsl(var(--sidebar-bg))]">
+        <span className="ui-pane-header__label uppercase tracking-wide">
           {rootPath ? basename(rootPath) : "Explorer"}
         </span>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="ui-pane-header__actions gap-0.5">
           <IconBtn
             label="New file"
             onClick={() => setPrompt({ mode: "newFile", parent: rootPath })}
           >
-            <FilePlus className="h-3 w-3" aria-hidden="true" />
+            <FilePlus className="sidebar-pane-icon" aria-hidden="true" />
           </IconBtn>
           <IconBtn
             label="New folder"
             onClick={() => setPrompt({ mode: "newFolder", parent: rootPath })}
           >
-            <FolderPlus className="h-3 w-3" aria-hidden="true" />
+            <FolderPlus className="sidebar-pane-icon" aria-hidden="true" />
           </IconBtn>
           <IconBtn label="Reload file tree" onClick={() => void loadRoot()}>
-            <RefreshCw className={cn("h-3 w-3", rootLoading && "animate-spin")} aria-hidden="true" />
+            <RefreshCw className={cn("sidebar-pane-icon", rootLoading && "animate-spin")} aria-hidden="true" />
           </IconBtn>
         </div>
       </div>
@@ -310,11 +437,11 @@ export function ExplorerFileTree({
       {rootPath ? (
         <div className="flex shrink-0 items-center gap-1 border-b border-border bg-muted/30 px-2 py-1">
           <IconBtn label="Back to project root" onClick={() => setRootPath("")}>
-            <Home className="h-3 w-3" aria-hidden="true" />
+            <Home className="sidebar-pane-icon" aria-hidden="true" />
           </IconBtn>
           {parentOf(rootPath) !== rootPath ? (
             <IconBtn label="Up one folder" onClick={() => setRootPath(parentOf(rootPath))}>
-              <ChevronRight className="h-3 w-3 rotate-180" aria-hidden="true" />
+              <ChevronRight className="sidebar-pane-icon rotate-180" aria-hidden="true" />
             </IconBtn>
           ) : null}
           <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={rootPath}>
@@ -323,7 +450,13 @@ export function ExplorerFileTree({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-1">
+      <div
+        role="tree"
+        aria-label="File tree"
+        tabIndex={0}
+        onKeyDown={handleTreeKeyDown}
+        className="min-h-0 flex-1 overflow-y-auto py-1 outline-none"
+      >
         {rootLoading && rootNodes.length === 0 ? (
           <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
         ) : rootNodes.length === 0 ? (
@@ -361,7 +494,11 @@ export function ExplorerFileTree({
                 ? "New folder"
                 : "Rename"
           }
-          label={prompt.mode === "newFile" ? "File name (with extension)" : "Name"}
+          label={
+            prompt.mode === "newFile"
+              ? "File name (with extension)"
+              : "Name"
+          }
           defaultValue={prompt.mode === "rename" ? prompt.current : ""}
           confirmLabel={prompt.mode === "rename" ? "Rename" : "Create"}
           onConfirm={(name) => void submitPrompt(name)}
@@ -401,7 +538,7 @@ function IconBtn({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+      className="sidebar-pane-icon-btn"
     >
       {children}
     </button>
@@ -570,7 +707,9 @@ function NameDialog({
 
   const submit = () => {
     const trimmed = value.trim();
-    if (!trimmed) return setError("Name is required");
+    if (!trimmed) {
+      return setError("Name is required");
+    }
     if (trimmed.includes("/") || trimmed === "." || trimmed === "..") {
       return setError("Invalid name");
     }

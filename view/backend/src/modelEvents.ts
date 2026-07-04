@@ -15,7 +15,11 @@ let treeVersion = 0;
 export function inferModelEventKind(path: string | null | undefined): ModelEventKind {
   if (!path) return "structure";
   const normalized = path.replace(/\\/g, "/");
-  if (normalized.endsWith("/draft.md") || normalized.endsWith("/outline.md")) {
+  if (
+    normalized.endsWith("/draft.md") ||
+    normalized.endsWith("/outline.md") ||
+    normalized.endsWith("/temp-notes.md")
+  ) {
     return "content";
   }
   return "structure";

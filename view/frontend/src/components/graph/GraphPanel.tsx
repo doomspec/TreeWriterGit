@@ -377,16 +377,41 @@ export function GraphPanel({
       )}
     >
       {!minimal ? (
-      <div className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
-        <div>
-          <h2 className="text-xs font-semibold uppercase text-muted-foreground">
+      <div
+        className={cn(
+          "flex shrink-0 border-b border-border py-2",
+          embedded
+            ? "flex-col gap-1.5 px-2"
+            : "min-h-10 flex-row flex-wrap items-center justify-between gap-2 px-4",
+        )}
+      >
+        <div className={cn("min-w-0", embedded && "w-full")}>
+          <h2
+            className={cn(
+              "text-xs font-semibold uppercase text-muted-foreground",
+              embedded && "text-center",
+            )}
+          >
             {scope === "local" ? "Local graph" : "Global graph"} · {filtered.nodes.length} nodes
           </h2>
           {filtered.focusId ? (
-            <p className="truncate text-[11px] text-muted-foreground">Focus: {filtered.focusId}</p>
+            <p
+              className={cn(
+                "text-[11px] leading-snug text-muted-foreground",
+                embedded ? "break-all text-center" : "truncate",
+              )}
+              title={`Focus: ${filtered.focusId}`}
+            >
+              Focus: {filtered.focusId}
+            </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2 text-[11px]",
+            embedded && "w-full justify-center",
+          )}
+        >
           <div className="inline-flex rounded-sm border border-border p-0.5">
             {(["local", "global"] as const).map((mode) => (
               <button

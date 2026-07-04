@@ -87,6 +87,14 @@ export function ResizableSidebarLayout({
   );
 }
 
+export const SIDEBAR_RAIL_WIDTH_PX = 36;
+
 export function clampSidebarWidth(width: number, min = 180, max = 520): number {
   return Math.min(max, Math.max(min, Math.round(width)));
+}
+
+/** Content column width when the icon rail is rendered separately. */
+export function sidebarContentWidth(totalWidth: number, minTotal = 180): number {
+  const total = clampSidebarWidth(totalWidth, minTotal);
+  return Math.max(minTotal - SIDEBAR_RAIL_WIDTH_PX, total - SIDEBAR_RAIL_WIDTH_PX);
 }

@@ -16,6 +16,7 @@ import {
   loadJournalTemplate,
   normalizeAffiliations,
   normalizeAuthorAffiliations,
+  normalizeAuthors,
   normalizeSectionOrder,
   scaffoldManuscript,
   scaffoldPaper,
@@ -25,6 +26,8 @@ import {
 } from "./papers.js";
 import { ModelFsError } from "./modelFs.js";
 import { buildCombinedMarkdown } from "./export.js";
+import { CREDIT_ROLES } from "@treewriter/shared";
+import { readContributorsRegistry } from "./contributorsRegistry.js";
 
 let modelRoot: string;
 
@@ -253,7 +256,7 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
       "methods",
       "results",
     ]);
-    expect(paperIndex.data.authors).toEqual(["Ada Lovelace"]);
+    expect(paperIndex.data.authors).toEqual([{ firstName: "Ada", lastName: "Lovelace" }]);
 
     for (const section of ["introduction", "methods", "results"]) {
       expect(existsSync(path.join(modelRoot, `papers/my-study/${section}/INDEX.md`))).toBe(true);
@@ -328,6 +331,29 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
     expect(detail.counts.drafted).toBe(1);
   });
 
+  it("returns draftWordCount and templateLabel in getPaperDetail", async () => {
+    await scaffoldPaper(modelRoot, { title: "Word Stats", journal: "PLOS ONE", authors: [] });
+    await writeIndex("papers/word-stats/introduction", {
+      kind: "section",
+      child_order: ["opening"],
+    });
+    await writeIndex("papers/word-stats/introduction/opening", {
+      kind: "unit",
+      title: "Opening",
+      status: "drafted",
+    });
+    await mkdir(path.join(modelRoot, "papers/word-stats/introduction/opening"), { recursive: true });
+    await writeFile(
+      path.join(modelRoot, "papers/word-stats/introduction/opening/draft.md"),
+      "One two three four five.\n",
+      "utf8",
+    );
+
+    const detail = await getPaperDetail(modelRoot, "word-stats");
+    expect(detail.draftWordCount).toBeGreaterThan(0);
+    expect(detail.templateLabel).toBe("PLOS ONE");
+  });
+
   it("returns containerCounts for sections, subsections, and units", async () => {
     await scaffoldPaper(modelRoot, { title: "Rollup", journal: "PLOS ONE", authors: [] });
     await writeIndex("papers/rollup/methods", {
@@ -348,6 +374,8 @@ describe("scaffoldPaper + listPapers + getPaperDetail", () => {
 
     const detail = await getPaperDetail(modelRoot, "rollup");
     expect(detail.containerCounts["papers/rollup/methods/prep/step-a"].total).toBe(1);
+    expect(detail.containerWordCounts["papers/rollup/methods/prep/step-a"]).toBeGreaterThan(0);
+    expect(detail.containerWordCounts["papers/rollup/methods"]).toBeGreaterThan(0);
   });
 
   it("returns pendingApprovalPaths for unapproved draft and outline files", async () => {
@@ -411,7 +439,10 @@ describe("updatePaper + deletePaper", () => {
     );
     expect(paperIndex.data.title).toBe("Updated Title");
     expect(paperIndex.content).toContain("# Updated Title");
-    expect(paperIndex.data.authors).toEqual(["Ada Lovelace", "Bob Jones"]);
+    expect(paperIndex.data.authors).toEqual([
+      { firstName: "Ada", lastName: "Lovelace" },
+      { firstName: "Bob", lastName: "Jones" },
+    ]);
     expect(paperIndex.data.target_words).toBe(8000);
     expect(paperIndex.data.section_order).toEqual(["abstract", "introduction"]);
     expect(paperIndex.data.status).toBe("Drafting");
@@ -516,7 +547,48 @@ describe("author affiliations", () => {
     expect(normalizeAuthorAffiliations(undefined, 2, 2)).toEqual([]);
   });
 
-  it("scaffoldManuscript persists affiliations + author_affiliations and getPaperDetail reads them back", async () => {
+  it("CRediT taxonomy has the full 14 roles", () => {
+    expect(CREDIT_ROLES).toHaveLength(14);
+  });
+
+  it("normalizeAuthors reads structured objects, clamps affiliations, validates ORCID and CRediT", () => {
+    const [a, b] = normalizeAuthors(
+      [
+        {
+          firstName: "Ada",
+          middleName: "Byron",
+          lastName: "Lovelace",
+          orcid: "0000-0002-1825-0097",
+          affiliations: [1, 5, 1],
+          corresponding: true,
+          email: "ada@x.org",
+          credit: ["Software", "not-a-role", "Conceptualization"],
+        },
+        { firstName: "Alan", lastName: "Turing", affiliations: [2], orcid: "bad", equalContribution: true },
+      ],
+      2,
+    );
+    expect(a.middleName).toBe("Byron");
+    expect(a.orcid).toBe("0000-0002-1825-0097");
+    expect(a.affiliations).toEqual([1]); // 5 out of range, dupe dropped
+    expect(a.corresponding).toBe(true);
+    expect(a.credit).toEqual(["Conceptualization", "Software"]); // filtered + canonical order
+    expect(b.orcid).toBeUndefined(); // "bad" rejected
+    expect(b.equalContribution).toBe(true);
+  });
+
+  it("normalizeAuthors upgrades legacy string authors + parallel author_affiliations", () => {
+    const authors = normalizeAuthors(["Ada Byron Lovelace", "Turing"], 2, [[1, 2], [1]]);
+    expect(authors[0]).toMatchObject({
+      firstName: "Ada",
+      middleName: "Byron",
+      lastName: "Lovelace",
+      affiliations: [1, 2],
+    });
+    expect(authors[1]).toMatchObject({ firstName: "Turing", lastName: "", affiliations: [1] });
+  });
+
+  it("scaffoldManuscript persists structured authors and getPaperDetail derives back-compat views", async () => {
     await writeTemplate("nature", {
       journal: "Nature",
       target_words: 3000,
@@ -525,14 +597,19 @@ describe("author affiliations", () => {
     const { slug } = await scaffoldManuscript(modelRoot, {
       title: "Aff Paper",
       journal: "Nature",
-      authors: ["Ada Lovelace", "Alan Turing"],
+      authors: [
+        { firstName: "Ada", lastName: "Lovelace", affiliations: [1] },
+        { firstName: "Alan", lastName: "Turing", affiliations: [1, 2], corresponding: true, credit: ["Software"] },
+      ],
       affiliations: ["Cambridge", "Bletchley"],
-      authorAffiliations: [[1], [1, 2]],
     });
     const detail = await getPaperDetail(modelRoot, slug);
-    expect(detail.authors).toEqual(["Ada Lovelace", "Alan Turing"]);
+    expect(detail.authorDetails.map((a) => a.lastName)).toEqual(["Lovelace", "Turing"]);
+    expect(detail.authorDetails[1].corresponding).toBe(true);
+    expect(detail.authorDetails[1].credit).toEqual(["Software"]);
+    expect(detail.authors).toEqual(["Ada Lovelace", "Alan Turing"]); // derived full names
     expect(detail.affiliations).toEqual(["Cambridge", "Bletchley"]);
-    expect(detail.authorAffiliations).toEqual([[1], [1, 2]]);
+    expect(detail.authorAffiliations).toEqual([[1], [1, 2]]); // derived
   });
 
   it("updateManuscript can add and later clear affiliations", async () => {
@@ -544,14 +621,13 @@ describe("author affiliations", () => {
     const { slug } = await scaffoldManuscript(modelRoot, {
       title: "Clear Paper",
       journal: "Nature",
-      authors: ["Ada Lovelace"],
+      authors: [{ firstName: "Ada", lastName: "Lovelace", affiliations: [] }],
     });
     await updateManuscript(modelRoot, {
       slug,
       title: "Clear Paper",
-      authors: ["Ada Lovelace"],
+      authors: [{ firstName: "Ada", lastName: "Lovelace", affiliations: [1] }],
       affiliations: ["Cambridge"],
-      authorAffiliations: [[1]],
     });
     let detail = await getPaperDetail(modelRoot, slug);
     expect(detail.affiliations).toEqual(["Cambridge"]);
@@ -560,11 +636,41 @@ describe("author affiliations", () => {
     await updateManuscript(modelRoot, {
       slug,
       title: "Clear Paper",
-      authors: ["Ada Lovelace"],
+      authors: [{ firstName: "Ada", lastName: "Lovelace", affiliations: [] }],
       affiliations: [],
     });
     detail = await getPaperDetail(modelRoot, slug);
     expect(detail.affiliations).toEqual([]);
-    expect(detail.authorAffiliations).toEqual([]);
+    expect(detail.authorAffiliations).toEqual([[]]);
+  });
+
+  it("scaffold and update persist authors into the global contributors registry", async () => {
+    await writeTemplate("nature", {
+      journal: "Nature",
+      target_words: 3000,
+      section_order: ["introduction", "results"],
+    });
+    const { slug } = await scaffoldManuscript(modelRoot, {
+      title: "Registry Paper",
+      journal: "Nature",
+      authors: [{ firstName: "Ada", lastName: "Lovelace", affiliations: [1] }],
+      affiliations: ["Cambridge"],
+    });
+    let registry = await readContributorsRegistry(modelRoot);
+    expect(registry.affiliations).toEqual(["Cambridge"]);
+    expect(registry.authors.map((author) => author.lastName)).toEqual(["Lovelace"]);
+
+    await updateManuscript(modelRoot, {
+      slug,
+      title: "Registry Paper",
+      authors: [
+        { firstName: "Ada", lastName: "Lovelace", affiliations: [1] },
+        { firstName: "Alan", lastName: "Turing", affiliations: [2] },
+      ],
+      affiliations: ["Cambridge", "Bletchley"],
+    });
+    registry = await readContributorsRegistry(modelRoot);
+    expect(registry.affiliations).toEqual(["Cambridge", "Bletchley"]);
+    expect(registry.authors.map((author) => author.lastName).sort()).toEqual(["Lovelace", "Turing"]);
   });
 });

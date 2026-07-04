@@ -4,7 +4,6 @@
 
 Onboarding documentation shipped as a real paper so you can see structure, units, figures, and export in action.
 
-
 ## Outline
 
 * [Quick Start](quick-start/INDEX.md)

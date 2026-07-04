@@ -105,6 +105,7 @@ export function createApp(config: AppConfig): AppRuntime {
 
   const json25mb = express.json({ limit: "25mb" });
   app.use("/api/model/figure/upload", json25mb);
+  app.use("/api/model/data/upload", json25mb);
   app.use("/api/model/references/import", json25mb);
   app.use("/api/model/bib/import", json25mb);
   app.use("/api/import/docx", json25mb);
@@ -333,6 +334,16 @@ export { attachWebSocketUpgrade } from "./app/registerWebSockets.js";
 export function createServer(config: AppConfig, port = Number(process.env.PORT ?? 4000)): HttpServerRuntime {
   const runtime = createApp(config);
   const host = process.env.HOST ?? "127.0.0.1";
+  const wsToken = process.env.TREEWRITER_WS_TOKEN?.trim();
+  const isLoopback =
+    host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]";
+  if (!isLoopback && !wsToken) {
+    console.error(
+      `[TreeWriter] Refusing to bind ${host} without TREEWRITER_WS_TOKEN. ` +
+        "Set TREEWRITER_WS_TOKEN and TREEWRITER_REST_AUTH=true for non-loopback hosts.",
+    );
+    process.exit(1);
+  }
   const server = runtime.app.listen(port, host);
   attachWebSocketUpgrade(runtime, server);
 

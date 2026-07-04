@@ -38,5 +38,5 @@ export function unapprovedSectionRowClass(options: {
 }
 
 export function unapprovedSectionTitle(title: string, highlight: boolean): string {
-  return cn("truncate", highlight && "text-amber-950 dark:text-amber-50");
+  return cn(title, highlight && "text-amber-950 dark:text-amber-50");
 }

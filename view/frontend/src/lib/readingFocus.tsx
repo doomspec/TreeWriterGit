@@ -10,6 +10,8 @@ import {
   type RefObject,
 } from "react";
 
+import { WORKSPACE_STORAGE_KEYS } from "@/lib/workspaceStorageSchema";
+
 type ReadingFocusContextValue = {
   active: boolean;
   enter: () => void;
@@ -21,7 +23,24 @@ type ReadingFocusContextValue = {
 
 const ReadingFocusContext = createContext<ReadingFocusContextValue | null>(null);
 
-const STORAGE_KEY = "treewriter.readingFocus.v1";
+const STORAGE_KEY = WORKSPACE_STORAGE_KEYS.readingFocus;
+const LEGACY_STORAGE_KEY = "treewriter.readingFocus.v1";
+
+function readReadingFocusPersisted(): boolean {
+  try {
+    const canonical = localStorage.getItem(STORAGE_KEY);
+    if (canonical !== null) return canonical === "true";
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy !== null) {
+      localStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      return legacy === "true";
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
 
 const noopFocusContext: ReadingFocusContextValue = {
   active: false,
@@ -33,13 +52,7 @@ const noopFocusContext: ReadingFocusContextValue = {
 };
 
 export function ReadingFocusProvider({ children }: { children: React.ReactNode }) {
-  const [active, setActive] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [active, setActive] = useState(() => readReadingFocusPersisted());
   const [extraChrome, setExtraChromeState] = useState<ReactNode>(null);
 
   const persist = useCallback((next: boolean) => {

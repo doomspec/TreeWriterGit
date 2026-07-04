@@ -1,8 +1,9 @@
 import { ArrowLeft } from "lucide-react";
 
+import { paperSlugFromPath } from "@/components/nav/PaperSelect";
+
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { TreeWriterBrand } from "@/components/layout/TreeWriterBrand";
-import { WorkspaceModeMenu } from "@/components/layout/WorkspaceModeMenu";
 import { WorkspaceChromeActions } from "@/components/layout/WorkspaceChromeActions";
 import { PaperSearchField } from "@/components/paper/PaperSearchField";
 import { Button } from "@/components/ui/button";
@@ -30,11 +31,10 @@ export function AppChromeHeader({
   backTitle = "Back",
   homeTitle = "Home",
   explorerMode = false,
-  onExplorerModeChange,
   aiPanelOpen = false,
-  aiPanelWidth = 0,
   onToggleAiPanel,
   onOpenTerminal,
+  onOpenHistory,
   onOpenSkills,
 }: {
   appView: "workspace" | "settings" | "info";
@@ -55,17 +55,13 @@ export function AppChromeHeader({
   backTitle?: string;
   homeTitle?: string;
   explorerMode?: boolean;
-  onExplorerModeChange?: (explorer: boolean) => void;
   aiPanelOpen?: boolean;
-  /** Width of the open assistant column (+ handle) — keeps header actions off the panel. */
-  aiPanelWidth?: number;
   onToggleAiPanel?: () => void;
   onOpenTerminal?: () => void;
+  onOpenHistory?: () => void;
   onOpenSkills?: () => void;
 }) {
   const { active: readingFocusActive, extraChrome } = useReadingFocus();
-  const reserveAssistantColumn =
-    appView === "workspace" && aiPanelOpen ? Math.max(0, aiPanelWidth) + 4 : 0;
   const alignBrandWithSidebar = appView === "workspace" && !explorerMode;
 
   return (
@@ -73,39 +69,36 @@ export function AppChromeHeader({
       className={cn(
         "app-chrome-header flex h-11 min-w-0 items-center gap-2 border-b border-border bg-card shadow-sm sm:gap-3",
         alignBrandWithSidebar ? "app-chrome-header--sidebar-aligned pr-2 sm:pr-4" : "px-2 sm:px-4",
-        readingFocusActive ? "fixed top-0 left-0 z-[60]" : "relative z-[60] shrink-0",
-        reserveAssistantColumn > 0 && "app-chrome-header--ai-panel-open",
+        readingFocusActive ? "fixed top-0 left-0 right-0 z-[60]" : "relative z-[60] shrink-0",
       )}
-      style={
-        reserveAssistantColumn > 0
-          ? readingFocusActive
-            ? { right: reserveAssistantColumn }
-            : { paddingRight: reserveAssistantColumn }
-          : undefined
-      }
     >
       {alignBrandWithSidebar ? (
-        <div className="app-chrome-header__brand-rail">
-          {onExplorerModeChange ? (
-            <WorkspaceModeMenu
-              explorerMode={explorerMode}
-              onChange={onExplorerModeChange}
-              railAligned
-            />
-          ) : (
+        <div className="app-chrome-header__brand flex shrink-0 items-center gap-0.5">
+          <div className="app-chrome-header__brand-rail">
             <TreeWriterBrand
               explorerMode={explorerMode}
               onHomeClick={onHomeClick}
               homeTitle={homeTitle}
               railAligned
             />
+          </div>
+          {onHomeClick ? (
+            <button
+              type="button"
+              onClick={onHomeClick}
+              className="shrink-0 rounded-md px-0.5 text-sm font-semibold tracking-tight text-foreground transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title={homeTitle}
+              aria-label={homeTitle}
+            >
+              TreeWriter
+            </button>
+          ) : (
+            <span className="shrink-0 px-0.5 text-sm font-semibold tracking-tight text-foreground">TreeWriter</span>
           )}
         </div>
       ) : null}
       <div className="app-chrome-header__lead flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-3">
-        {!alignBrandWithSidebar && appView === "workspace" && onExplorerModeChange ? (
-          <WorkspaceModeMenu explorerMode={explorerMode} onChange={onExplorerModeChange} />
-        ) : !alignBrandWithSidebar ? (
+        {!alignBrandWithSidebar ? (
           <TreeWriterBrand explorerMode={explorerMode} onHomeClick={onHomeClick} homeTitle={homeTitle} />
         ) : null}
         {appView === "workspace" && !explorerMode ? (
@@ -174,6 +167,7 @@ export function AppChromeHeader({
             aiPanelOpen={aiPanelOpen}
             onToggleAiPanel={onToggleAiPanel}
             onOpenTerminal={onOpenTerminal}
+            onOpenHistory={onOpenHistory}
             onOpenSkills={onOpenSkills}
           />
         </div>

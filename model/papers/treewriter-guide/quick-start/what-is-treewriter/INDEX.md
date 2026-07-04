@@ -1,11 +1,11 @@
 ---
 kind: unit
 title: What TreeWriter is
-status: approved
+status: drafted
 links: []
 approved_at: '2026-06-29T13:25:22.663Z'
 approved_by: yakavetsiv
-edited_at: null
+edited_at: '2026-07-04T21:35:12.064Z'
 edited_by: null
 ai_assisted: false
 ai_provider: null

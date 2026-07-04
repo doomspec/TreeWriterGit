@@ -1,5 +1,10 @@
 /** Shared API contracts — keep frontend and backend in sync. */
 
+export * from "./credit.js";
+export * from "./contributorsRegistry.js";
+export * from "./markdownWordCount.js";
+import type { AuthorEntry } from "./credit.js";
+
 export type DocumentType = "paper" | "grant" | "report";
 
 export type ContributionMode = "kernel" | "repository";
@@ -54,6 +59,8 @@ export type SectionRollup = {
   path: string;
   title: string;
   counts: UnitStatusCounts;
+  /** Combined draft word count for units under this section. */
+  draftWordCount: number;
 };
 
 export type PendingReviewChangeSummary = {
@@ -77,12 +84,19 @@ export type PendingReviewItem = {
 
 export type ManuscriptDetail = ManuscriptSummary & {
   templateId: string | null;
+  /** Structured authors (name parts, ORCID, affiliations, flags, CRediT roles). */
+  authorDetails: AuthorEntry[];
+  /** @deprecated Derived full-name strings from `authorDetails` — kept for back-compat. */
   authors: string[];
   /** Affiliation lines, in order; numbered by position (1-based) in the LaTeX title block. */
   affiliations: string[];
-  /** Parallel to `authors`: each author's 1-based affiliation indices (empty = no superscript). */
+  /** @deprecated Derived from `authorDetails[].affiliations` — kept for back-compat. */
   authorAffiliations: number[][];
   targetWords: number;
+  /** Combined unit draft word count (all statuses). */
+  draftWordCount: number;
+  /** Human-readable template label from template_id, when set. */
+  templateLabel: string | null;
   sectionOrder: string[];
   overleafRepoPath: string | null;
   overleafGitUrl: string | null;
@@ -94,6 +108,8 @@ export type ManuscriptDetail = ManuscriptSummary & {
   agentSummary: string | null;
   sections: SectionRollup[];
   containerCounts: Record<string, UnitStatusCounts>;
+  /** Combined draft word count per folder path (paper, sections, subsections, units). */
+  containerWordCounts: Record<string, number>;
   pendingApprovalPaths: string[];
   pendingReviews: PendingReviewItem[];
 };

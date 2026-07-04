@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
-  Bot,
   ChevronDown,
   ChevronRight,
   RefreshCw,
@@ -10,27 +9,17 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DispatchWorkspace,
-  type DispatchPaneTab,
-} from "@/components/dispatch/DispatchWorkspace";
 import { DispatchSkillsPanel } from "@/components/dispatch/DispatchSkillsPanel";
 import { AiChatThread } from "@/components/assistant/AiChatThread";
-import type { AgentDispatchIntent } from "@/lib/agentDispatchPanel";
-import { useDispatchSessions } from "@/lib/useDispatchSessions";
+import type { AgentDispatchAction } from "@/lib/agentDispatchClient";
 import { useAiChatSession } from "@/lib/aiChat/useAiChatSession";
-import {
-  loadDispatchPanelState,
-  scheduleSaveDispatchPanelState,
-} from "@/lib/dispatchPanelState";
+import type { ChatSessionFile } from "@/lib/aiChat/sessionClient";
 import { cn } from "@/lib/utils";
 
 /**
  * Right-docked AI assistant panel — the single agent surface (see
- * plans/ai-assistant-panel.md, Stage 2). Top to bottom: chat transcript
- * (wired in Stage 4), input, then collapsible Terminal and Dispatch
- * sections. The user initiates an agent session in the terminal section;
- * the chat then substitutes terminal interaction with repo-versioned traces.
+ * plans/ai-assistant-panel.md, Stage 2). Top to bottom: chat transcript,
+ * input, then collapsible Skills and Terminal sections.
  */
 export function AiAssistantPanel({
   onClose,
@@ -38,9 +27,6 @@ export function AiAssistantPanel({
   refreshVersion,
   isUnit = false,
   canFanOut = false,
-  dispatchIntent = null,
-  onDispatchIntentConsumed,
-  initialDispatchTab,
   onSendToTerminal,
   onError,
   onReconnect,
@@ -49,23 +35,22 @@ export function AiAssistantPanel({
   connectionState,
   terminalOpen,
   onTerminalOpenChange,
-  dispatchOpen,
-  onDispatchOpenChange,
   skillsOpen,
   onSkillsOpenChange,
   onEditSkill,
+  onOpenFile,
   subscribeOutput,
   getTerminalSessionId,
   getLastInputLine,
+  requestedHistoryOpenAt,
+  requestedDispatchAction,
+  onNavigateToUnit,
 }: {
   onClose: () => void;
   currentPath: string;
   refreshVersion: number;
   isUnit?: boolean;
   canFanOut?: boolean;
-  dispatchIntent?: AgentDispatchIntent | null;
-  onDispatchIntentConsumed?: () => void;
-  initialDispatchTab?: DispatchPaneTab;
   onSendToTerminal: (command: string) => void;
   onError: (message: string) => void;
   onReconnect: () => void;
@@ -74,21 +59,21 @@ export function AiAssistantPanel({
   connectionState: string;
   terminalOpen: boolean;
   onTerminalOpenChange: (open: boolean | ((prev: boolean) => boolean)) => void;
-  dispatchOpen: boolean;
-  onDispatchOpenChange: (open: boolean | ((prev: boolean) => boolean)) => void;
   skillsOpen: boolean;
   onSkillsOpenChange: (open: boolean | ((prev: boolean) => boolean)) => void;
   onEditSkill: (filename: string) => void;
+  /** Open a model-relative file path clicked in a chat message. */
+  onOpenFile?: (path: string) => void;
   subscribeOutput: (listener: (chunk: string) => void) => () => void;
   getTerminalSessionId: () => string | null;
   getLastInputLine: () => string;
+  /** Bumped externally (e.g. from the header's "..." menu) to open the chat session history. */
+  requestedHistoryOpenAt?: number;
+  /** Externally triggered dispatch hot action — stages prompt in chat composer. */
+  requestedDispatchAction?: { action: AgentDispatchAction } | null;
+  /** Navigate to a unit/section path (e.g. when resuming a history session). */
+  onNavigateToUnit?: (path: string) => void;
 }) {
-  const [dispatchTab, setDispatchTab] = useState<DispatchPaneTab>("run");
-  const [selectedSessionFilename, setSelectedSessionFilename] = useState<string | null>(null);
-  const [skillsVersion, setSkillsVersion] = useState(0);
-
-  const { sessions, reload, markStatus } = useDispatchSessions(currentPath, refreshVersion);
-
   const chat = useAiChatSession({
     unitPath: currentPath,
     connectionState,
@@ -100,32 +85,16 @@ export function AiAssistantPanel({
     onLaunchProvider: () => onTerminalOpenChange(true),
   });
 
-  useEffect(() => {
-    setSelectedSessionFilename(loadDispatchPanelState(currentPath)?.selectedSessionFilename ?? null);
-  }, [currentPath]);
-
-  useEffect(() => {
-    if (!currentPath) return;
-    scheduleSaveDispatchPanelState(currentPath, { selectedSessionFilename });
-  }, [currentPath, selectedSessionFilename]);
-
-  useEffect(() => {
-    if (initialDispatchTab) setDispatchTab(initialDispatchTab);
-  }, [initialDispatchTab]);
-
-  // An incoming dispatch intent means the user asked to run the agent on
-  // something specific — surface the dispatch section.
-  useEffect(() => {
-    if (!dispatchIntent) return;
-    setDispatchTab("run");
-    onDispatchOpenChange(true);
-  }, [dispatchIntent, onDispatchOpenChange]);
-
   // xterm needs a refit whenever the terminal section geometry changes.
   useEffect(() => {
     const raf = window.requestAnimationFrame(() => onLayoutChange?.());
     return () => window.cancelAnimationFrame(raf);
-  }, [terminalOpen, dispatchOpen, skillsOpen, onLayoutChange]);
+  }, [terminalOpen, skillsOpen, onLayoutChange]);
+
+  const handleResumeSession = (session: ChatSessionFile) => {
+    onNavigateToUnit?.(session.unitPath);
+    chat.resumeFromHistory(session);
+  };
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-border bg-card">
@@ -169,7 +138,39 @@ export function AiAssistantPanel({
         isUnit={isUnit}
         canFanOut={canFanOut}
         onError={onError}
+        onOpenFile={onOpenFile}
+        requestedHistoryOpenAt={requestedHistoryOpenAt}
+        requestedDispatchAction={requestedDispatchAction}
+        resumeNotice={chat.resumeNotice}
+        onClearResumeNotice={chat.clearResumeNotice}
+        onResumeSession={handleResumeSession}
       />
+
+      <section className="flex min-h-0 shrink-0 flex-col border-t border-border">
+        <button
+          type="button"
+          className="flex h-8 shrink-0 items-center gap-1.5 px-2 text-left hover:bg-accent/40"
+          aria-expanded={skillsOpen}
+          onClick={() => onSkillsOpenChange((open) => !open)}
+        >
+          {skillsOpen ? (
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+          )}
+          <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="ui-label flex-1 normal-case">Skills</span>
+        </button>
+        {skillsOpen ? (
+          <div className="flex h-72 min-h-0 flex-col overflow-hidden">
+            <DispatchSkillsPanel
+              onError={onError}
+              onSkillsChanged={() => {}}
+              onEditSkill={onEditSkill}
+            />
+          </div>
+        ) : null}
+      </section>
 
       <section className="flex min-h-0 shrink-0 flex-col border-t border-border">
         <div className="flex h-8 shrink-0 items-center gap-0.5 pr-1.5">
@@ -204,7 +205,6 @@ export function AiAssistantPanel({
             </Button>
           ) : null}
         </div>
-        {/* Keep the host mounted when collapsed so xterm doesn't detach. */}
         <div
           className={cn(
             "assistant-terminal-host relative min-h-0 overflow-hidden bg-terminal",
@@ -213,75 +213,6 @@ export function AiAssistantPanel({
         >
           <div ref={terminalHostRef} className="terminal-mount" />
         </div>
-      </section>
-
-      <section className="flex min-h-0 shrink-0 flex-col border-t border-border">
-        <button
-          type="button"
-          className="flex h-8 shrink-0 items-center gap-1.5 px-2 text-left hover:bg-accent/40"
-          aria-expanded={dispatchOpen}
-          onClick={() => onDispatchOpenChange((open) => !open)}
-        >
-          {dispatchOpen ? (
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-          ) : (
-            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-          )}
-          <Bot className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span className="ui-label flex-1 normal-case">AI dispatch</span>
-          {sessions.length > 0 ? (
-            <span className="ui-badge-neutral shrink-0 text-[10px]">{sessions.length}</span>
-          ) : null}
-        </button>
-        {dispatchOpen ? (
-          <div className="flex h-80 min-h-0 flex-col overflow-hidden">
-            <DispatchWorkspace
-              activeTab={dispatchTab}
-              onTabChange={setDispatchTab}
-              currentPath={currentPath}
-              refreshVersion={refreshVersion}
-              isUnit={isUnit}
-              canFanOut={canFanOut}
-              dispatchIntent={dispatchIntent}
-              onDispatchIntentConsumed={onDispatchIntentConsumed}
-              onSendToTerminal={onSendToTerminal}
-              onError={onError}
-              onLayoutChange={onLayoutChange}
-              onSessionsReload={reload}
-              sessions={sessions}
-              selectedSessionFilename={selectedSessionFilename}
-              onSelectSession={(session) => setSelectedSessionFilename(session?.filename ?? null)}
-              onMarkStatus={markStatus}
-              skillsVersion={skillsVersion}
-            />
-          </div>
-        ) : null}
-      </section>
-
-      <section className="flex min-h-0 shrink-0 flex-col border-t border-border">
-        <button
-          type="button"
-          className="flex h-8 shrink-0 items-center gap-1.5 px-2 text-left hover:bg-accent/40"
-          aria-expanded={skillsOpen}
-          onClick={() => onSkillsOpenChange((open) => !open)}
-        >
-          {skillsOpen ? (
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-          ) : (
-            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-          )}
-          <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span className="ui-label flex-1 normal-case">Skills</span>
-        </button>
-        {skillsOpen ? (
-          <div className="flex h-72 min-h-0 flex-col overflow-hidden">
-            <DispatchSkillsPanel
-              onError={onError}
-              onSkillsChanged={() => setSkillsVersion((v) => v + 1)}
-              onEditSkill={onEditSkill}
-            />
-          </div>
-        ) : null}
       </section>
     </div>
   );

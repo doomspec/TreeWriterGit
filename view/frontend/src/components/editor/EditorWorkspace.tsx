@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
-import { Columns2, Eye, FileCode2 } from "lucide-react";
+import { AlertTriangle, Columns2, Eye, FileCode2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { BibEntrySourcePane } from "@/components/editor/BibEntrySourcePane";
 import { BibFilePreview } from "@/components/editor/BibFilePreview";
+import {
+  MAIN_BIB_MANUAL_EDIT_MESSAGE,
+  MainBibManualEditDialog,
+} from "@/components/editor/MainBibManualEditDialog";
 import { EditorAiActionsMenu } from "@/components/editor/EditorAiActionsMenu";
 import { FigurePreviewPanel } from "@/components/editor/FigurePreviewPanel";
 import { EquationPreviewPanel } from "@/components/editor/EquationPreviewPanel";
@@ -26,6 +30,7 @@ import {
   mergeWorkspaceDefaults,
   scheduleSaveWorkspacePreferences,
 } from "@/lib/workspacePreferences";
+import { refreshPaperPendingPaths } from "@/lib/refreshPaperPending";
 import { cn } from "@/lib/utils";
 
 function captionFromDraft(content: string): string {
@@ -40,7 +45,6 @@ function BibMainBibWorkspace({
   getPathVersion,
   layout,
   onLayoutChange,
-  editorChrome,
   dualPaneSplit,
   onDualPaneSplitChange,
   onError,
@@ -48,15 +52,12 @@ function BibMainBibWorkspace({
   onNavigate,
   onModelChanged,
   paperPath,
-  layoutToggleButtons,
 }: {
   activeFile: string;
   refreshVersion: number;
   getPathVersion: (path: string) => number;
   layout: EditorLayout;
   onLayoutChange: (layout: EditorLayout) => void;
-  editorChrome: React.ReactNode;
-  layoutToggleButtons: React.ReactNode;
   dualPaneSplit: number;
   onDualPaneSplitChange: (percent: number) => void;
   onError: (message: string) => void;
@@ -70,29 +71,112 @@ function BibMainBibWorkspace({
   const { summary } = useBibLibrarySummary();
   const loadFullBibPref = mergeWorkspaceDefaults(loadWorkspacePreferences()).loadLargeBibSource;
   const [fullSourceOptIn, setFullSourceOptIn] = useState(() => loadFullBibPref);
-  // References sidebar shows a LIST of many entries; BibFilePreview's own
-  // entry list would be redundant alongside it, so hide that one.
+  const [manualEditAccepted, setManualEditAccepted] = useState(false);
+  const [manualEditDialogOpen, setManualEditDialogOpen] = useState(false);
+  const [pendingManualAction, setPendingManualAction] = useState<"loadFull" | "source" | null>(null);
   const hideEntryList = nav.sidebarPanel === "references" && nav.sidebarPanelOpen;
 
   const showFullSource = layout === "source" || fullSourceOptIn;
-  /**
-   * The raw-source pane shows ONE entry's BibTeX text — not a list, so it's
-   * not redundant with the references sidebar and clicking a reference
-   * there should still show it alongside the verification form. Only hide
-   * it when there's genuinely no room (narrow layout).
-   */
   const hideBibSourcePane = layout !== "source" && windowWidth < 1280;
+  const inManualMode = showFullSource;
+
+  const applyManualEdit = useCallback(
+    (action: "loadFull" | "source") => {
+      if (action === "loadFull") {
+        setFullSourceOptIn(true);
+        scheduleSaveWorkspacePreferences({ loadLargeBibSource: true });
+      } else {
+        onLayoutChange("source");
+      }
+    },
+    [onLayoutChange],
+  );
+
+  const requestManualEdit = useCallback(
+    (action: "loadFull" | "source") => {
+      if (manualEditAccepted) {
+        applyManualEdit(action);
+        return;
+      }
+      setPendingManualAction(action);
+      setManualEditDialogOpen(true);
+    },
+    [applyManualEdit, manualEditAccepted],
+  );
 
   const handleLoadFullSource = useCallback(() => {
-    setFullSourceOptIn(true);
-    scheduleSaveWorkspacePreferences({ loadLargeBibSource: true });
-  }, []);
+    requestManualEdit("loadFull");
+  }, [requestManualEdit]);
+
+  const handleLayoutChange = useCallback(
+    (next: EditorLayout) => {
+      if (next === "source") {
+        requestManualEdit("source");
+        return;
+      }
+      onLayoutChange(next);
+    },
+    [onLayoutChange, requestManualEdit],
+  );
+
+  const handleOpenReferenceManager = useCallback(() => {
+    setManualEditDialogOpen(false);
+    setPendingManualAction(null);
+    setFullSourceOptIn(false);
+    scheduleSaveWorkspacePreferences({ loadLargeBibSource: false });
+    if (layout === "source") onLayoutChange("split");
+    nav.setSidebarPanel("references");
+    nav.setSidebarPanelOpen(true);
+    nav.openFile(
+      "main.bib",
+      nav.selectedBibCiteKey ? { citeKey: nav.selectedBibCiteKey } : undefined,
+    );
+  }, [layout, nav, onLayoutChange]);
+
+  const handleProceedManually = useCallback(() => {
+    setManualEditAccepted(true);
+    setManualEditDialogOpen(false);
+    const action = pendingManualAction;
+    setPendingManualAction(null);
+    if (action) applyManualEdit(action);
+  }, [applyManualEdit, pendingManualAction]);
 
   const handleBackToEntryView = useCallback(() => {
     setFullSourceOptIn(false);
     scheduleSaveWorkspacePreferences({ loadLargeBibSource: false });
     if (layout === "source") onLayoutChange("split");
   }, [layout, onLayoutChange]);
+
+  const layoutToggleButtons = (
+    <div className="inline-flex items-center gap-0.5 rounded-md border border-border p-0.5">
+      {(
+        [
+          { id: "preview" as const, icon: Eye, label: "Preview" },
+          { id: "split" as const, icon: Columns2, label: "Split" },
+          { id: "source" as const, icon: FileCode2, label: "Source" },
+        ] as const
+      ).map(({ id, icon: Icon, label }) => (
+        <Button
+          key={id}
+          type="button"
+          variant={layout === id ? "default" : "ghost"}
+          size="icon"
+          className="h-6 w-6"
+          aria-label={label}
+          title={label}
+          onClick={() => handleLayoutChange(id)}
+        >
+          <Icon className="h-3 w-3" aria-hidden="true" />
+        </Button>
+      ))}
+    </div>
+  );
+
+  const editorChrome = (
+    <div className="flex h-10 shrink-0 items-center justify-end gap-3 border-b border-border bg-card px-3">
+      {layoutToggleButtons}
+    </div>
+  );
 
   const fullSourceEditor = (
     <MarkdownEditor
@@ -155,6 +239,24 @@ function BibMainBibWorkspace({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <MainBibManualEditDialog
+        open={manualEditDialogOpen}
+        onOpenReferenceManager={handleOpenReferenceManager}
+        onProceedManually={handleProceedManually}
+        onCancel={() => {
+          setManualEditDialogOpen(false);
+          setPendingManualAction(null);
+        }}
+      />
+      {inManualMode && manualEditAccepted ? (
+        <div
+          className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-950 dark:text-amber-100"
+          role="status"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>{MAIN_BIB_MANUAL_EDIT_MESSAGE}</span>
+        </div>
+      ) : null}
       {!splitWithSource ? editorChrome : null}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {layout === "source" ? (
@@ -590,6 +692,11 @@ export function EditorWorkspace({
   const isPaperEditor = Boolean(paperPath && unitPath === paperPath);
   const isBibFile = activeFile.toLowerCase().endsWith(".bib");
 
+  useEffect(() => {
+    if (!paperPath) return;
+    void refreshPaperPendingPaths(paperPath);
+  }, [paperPath, refreshVersion]);
+
   const layoutButtons: { id: EditorLayout; icon: typeof FileCode2; label: string }[] = isBibFile
     ? [
         { id: "preview", icon: Eye, label: "Preview" },
@@ -644,12 +751,10 @@ export function EditorWorkspace({
         getPathVersion={getPathVersion}
         layout={layout}
         onLayoutChange={onLayoutChange}
-        editorChrome={editorChrome}
-        layoutToggleButtons={layoutToggleButtons}
         dualPaneSplit={dualPaneSplit}
         onDualPaneSplitChange={onDualPaneSplitChange}
         onError={onError}
-        linkContextPath={linkContextPath}
+        linkContextPath={linkContextPath ?? activeFile}
         onNavigate={onNavigate}
         onModelChanged={onModelChanged}
         paperPath={paperPath}
@@ -712,3 +817,5 @@ export function EditorWorkspace({
     </div>
   );
 }
+
+export { BibMainBibWorkspace };

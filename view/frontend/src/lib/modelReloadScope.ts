@@ -2,11 +2,6 @@ import { subtreeRootForChange } from "@/lib/model/modelTreeMerge";
 import { PAPERS_ROOT } from "@/lib/modelTree";
 import type { ReloadModelScope } from "@/lib/useModelTree";
 
-/**
- * Chooses which subtree to reload after a model change.
- *
- * Precedence: `activeFile` subtree → `browsePath` (if not papers root) → `paperPath`.
- */
 export function resolveModelReloadScope(options: {
   browsePath?: string | null;
   paperPath?: string | null;

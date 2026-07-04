@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, Loader2, MessageSquare, Paperclip, X } from "lucide-react";
+import { ChevronLeft, Loader2, MessageSquare, Paperclip, Play, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ChatBubble } from "@/components/assistant/AiChatThread";
 import { formatSessionAt } from "@/components/dispatch/dispatchHistoryUtils";
+import { shortPathLabel } from "@/lib/shortPathLabel";
 import {
   listChatSessions,
   readChatSession,
@@ -12,19 +13,27 @@ import {
 } from "@/lib/aiChat/sessionClient";
 
 /**
- * Read-only browser for past chat sessions of the current unit
+ * Read-only browser for past chat sessions of the current paper
  * (plans/ai-assistant-panel.md, Stage 7). Lists trace summaries, then loads
  * and renders a picked session's turns with the same bubble styling as the
- * live thread — no send/attach affordances, this is history, not a session.
+ * live thread. Bridged sessions can be continued into the live chat.
  */
 export function ChatHistoryPanel({
+  paperPath,
   unitPath,
   onClose,
   onError,
+  onOpenFile,
+  onResumeSession,
 }: {
+  /** Paper root path — list reloads when this changes. */
+  paperPath: string;
+  /** Any path under the paper — used for API validation. */
   unitPath: string;
   onClose: () => void;
   onError: (message: string) => void;
+  onOpenFile?: (path: string) => void;
+  onResumeSession?: (session: ChatSessionFile) => void;
 }) {
   const [sessions, setSessions] = useState<ChatSessionSummary[] | null>(null);
   const [selected, setSelected] = useState<ChatSessionFile | null>(null);
@@ -34,20 +43,25 @@ export function ChatHistoryPanel({
     let cancelled = false;
     setSessions(null);
     setSelected(null);
+    if (!paperPath) {
+      setSessions([]);
+      return;
+    }
     void listChatSessions(unitPath)
       .then((data) => {
         if (!cancelled) setSessions(data);
       })
       .catch((err) => {
-        if (cancelled) return;
-        setSessions([]);
-        onError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) {
+          setSessions([]);
+          onError(err instanceof Error ? err.message : String(err));
+        }
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unitPath]);
+  }, [paperPath, unitPath]);
 
   const openSession = async (summary: ChatSessionSummary) => {
     setLoadingFilename(summary.filename);
@@ -59,6 +73,12 @@ export function ChatHistoryPanel({
     } finally {
       setLoadingFilename(null);
     }
+  };
+
+  const handleContinue = () => {
+    if (!selected || !onResumeSession) return;
+    onResumeSession(selected);
+    onClose();
   };
 
   return (
@@ -80,7 +100,9 @@ export function ChatHistoryPanel({
           <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         )}
         <span className="min-w-0 flex-1 truncate text-xs font-medium">
-          {selected ? `${selected.provider} · ${formatSessionAt(selected.startedAt)}` : "Session history"}
+          {selected
+            ? `${selected.provider} · ${formatSessionAt(selected.startedAt)}`
+            : "Session history"}
         </span>
         <Button
           type="button"
@@ -96,26 +118,52 @@ export function ChatHistoryPanel({
       </div>
 
       {selected ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2.5 py-2">
-          {selected.contextFiles?.length ? (
-            <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Paperclip className="h-3 w-3 shrink-0" aria-hidden="true" />
-              {selected.contextFiles.join(", ")}
+        <>
+          <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-2.5 py-1.5">
+            <p className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground" title={selected.unitPath}>
+              {shortPathLabel(selected.unitPath)}
             </p>
-          ) : null}
-          {selected.turns.length === 0 ? (
-            <p className="mt-4 text-center text-xs text-muted-foreground">No turns recorded.</p>
-          ) : (
-            selected.turns.map((turn, index) => <ChatBubble key={index} turn={turn} />)
-          )}
-        </div>
+            {selected.mode === "bridged" && selected.turns.length > 0 && onResumeSession ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 shrink-0 gap-1 px-2 text-[10px]"
+                onClick={handleContinue}
+              >
+                <Play className="h-3 w-3" aria-hidden="true" />
+                Continue
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2.5 py-2">
+            {selected.contextFiles?.length ? (
+              <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <Paperclip className="h-3 w-3 shrink-0" aria-hidden="true" />
+                {selected.contextFiles.join(", ")}
+              </p>
+            ) : null}
+            {selected.turns.length === 0 ? (
+              <p className="mt-4 text-center text-xs text-muted-foreground">No turns recorded.</p>
+            ) : (
+              selected.turns.map((turn, index) => (
+                <ChatBubble
+                  key={index}
+                  turn={turn}
+                  currentPath={selected.unitPath}
+                  onOpenFile={onOpenFile}
+                />
+              ))
+            )}
+          </div>
+        </>
       ) : sessions === null ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
         </div>
       ) : sessions.length === 0 ? (
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          No past sessions for this unit yet.
+          No past sessions for this paper yet.
         </p>
       ) : (
         <ul className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5" role="list">
@@ -140,6 +188,9 @@ export function ChatHistoryPanel({
                     <span className="whitespace-nowrap text-muted-foreground">
                       {formatSessionAt(session.startedAt)}
                     </span>
+                  </span>
+                  <span className="mt-0.5 block truncate text-[10px] text-muted-foreground" title={session.unitPath}>
+                    {shortPathLabel(session.unitPath)}
                   </span>
                   <span className="mt-0.5 block text-[10px] text-muted-foreground">
                     {session.turnCount} turn{session.turnCount === 1 ? "" : "s"}

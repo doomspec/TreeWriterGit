@@ -2,6 +2,7 @@ import { ApiError, getApiBaseUrl, request, requestArrayBuffer } from "@/lib/apiC
 import { markSelfSave } from "@/lib/recentSelfSaves";
 import type { ModelNode } from "@/lib/modelTree";
 import type {
+  AuthorEntry,
   ContributionMode,
   DocumentType,
   DraftEditMeta,
@@ -20,6 +21,8 @@ import type {
   UnitStatusCounts,
   DocxImportResult,
   DocxImportPreview,
+  ContributorsRegistry,
+  ContributorsRegistryResponse,
 } from "@treewriter/shared";
 
 export { ApiError, getApiBaseUrl, request };
@@ -199,6 +202,11 @@ export function fetchPaperDetail(slug: string) {
   return request<{ paper: PaperDetail }>(`/api/papers?slug=${encodeURIComponent(slug)}`);
 }
 
+export async function fetchContributorsRegistry(): Promise<ContributorsRegistry> {
+  const response = await request<ContributorsRegistryResponse>("/api/contributors");
+  return response.registry;
+}
+
 export function fetchManuscriptTemplates(docType?: DocumentType) {
   const params = docType ? `?docType=${encodeURIComponent(docType)}` : "";
   return request<{ templates: ManuscriptTemplate[] }>(`/api/manuscript/templates${params}`);
@@ -213,9 +221,8 @@ export function createManuscript(body: {
   docType?: DocumentType;
   templateId?: string;
   journal?: string;
-  authors: string[];
+  authors: AuthorEntry[];
   affiliations?: string[];
-  authorAffiliations?: number[][];
   slug?: string;
   targetWords?: number;
   sectionOrder?: string[];
@@ -255,9 +262,8 @@ export function createPaper(body: {
 export function updateManuscript(body: {
   slug: string;
   title: string;
-  authors: string[];
+  authors: AuthorEntry[];
   affiliations?: string[];
-  authorAffiliations?: number[][];
   journal?: string;
   templateId?: string;
   targetWords?: number;

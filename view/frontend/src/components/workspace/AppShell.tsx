@@ -1,9 +1,3 @@
-/**
- * App shell — top-level layout and view routing.
- *
- * View modes: `workspace` (Writer IDE), `settings`, `info` (guide), and optional `explorerMode`
- * (file-tree IDE). Workspace mode nests WorkspaceProvider → sidebar + WorkspaceRouter.
- */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const SettingsPage = lazy(() =>
@@ -13,14 +7,15 @@ const InfoPage = lazy(() =>
   import("@/components/help/InfoPage").then((m) => ({ default: m.InfoPage })),
 );
 import { AppChromeHeader } from "@/components/layout/AppChromeHeader";
-import type { DispatchPaneTab } from "@/components/dispatch/DispatchWorkspace";
 import { WorkspaceSidebarShell } from "@/components/layout/WorkspaceSidebarShell";
+import { sidebarContentWidth } from "@/components/layout/ResizableSidebarLayout";
 import { WorkspaceRouter } from "@/components/workspace/WorkspaceRouter";
 import { ExplorerWorkspace } from "@/components/explorer/ExplorerWorkspace";
 import { SkillEditorWorkspace } from "@/components/editor/SkillEditorWorkspace";
-import { AiAssistantPanel } from "@/components/assistant/AiAssistantPanel";
+import { AiAssistantPanelHost } from "@/components/assistant/AiAssistantPanelHost";
 import { AiAssistantSplit } from "@/components/assistant/AiAssistantSplit";
 import { SidebarPanelRegistry } from "@/components/workspace/sidebar/SidebarPanelRegistry";
+import { DocxImportModalProvider } from "@/components/paper/DocxImportModalContext";
 import { ErrorToast } from "@/components/layout/ErrorToast";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { DocumentOutlineProvider } from "@/lib/documentOutline";
@@ -30,7 +25,7 @@ import { parentPath, PAPERS_ROOT } from "@/lib/modelTree";
 import { resolveModelReloadScope } from "@/lib/modelReloadScope";
 import { paperSlugFromPath } from "@/components/nav/PaperSelect";
 import { gitSyncHasError, isViewSyncPaused } from "@/lib/gitSync";
-import { resolveViewSyncWithHarness } from "@/lib/agentDispatchClient";
+import { resolveViewSyncWithHarness, type AgentDispatchAction } from "@/lib/agentDispatchClient";
 import { AgentDispatchPanelContext } from "@/lib/agentDispatchPanel";
 import { useGitSyncState } from "@/lib/useGitSyncState";
 import { useTerminalSession } from "@/lib/useTerminalSession";
@@ -43,6 +38,7 @@ import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigati
 import { cn } from "@/lib/utils";
 import { DEFAULT_GUIDE_PAPER_SLUG } from "@/lib/defaultGuidePaper";
 import { usePaperPendingReviews } from "@/lib/usePaperPendingReviews";
+import { resolveActivePaperSlug } from "@/lib/activePaperSlug";
 import { approveDraftAtPath } from "@/lib/draftApproval";
 import {
   applyEditorPanePreset,
@@ -98,8 +94,9 @@ function AppShell({
   const ws = useWorkspace();
   const layout = useWorkspaceLayout();
   const nav = useWorkspaceNavigationContext();
+  const reviewPaperSlug = resolveActivePaperSlug(nav.paperSlug, nav.lastPaperPath);
   const { totalCount: pendingReviewCount, items: pendingReviewItems, reload: reloadPendingReviews } =
-    usePaperPendingReviews(nav.paperSlug, nav.refreshVersion, ws.setError);
+    usePaperPendingReviews(reviewPaperSlug, nav.refreshVersion, ws.setError);
 
   const pendingAiReviewCount = useMemo(
     () => pendingReviewItems.filter((item) => item.aiAssisted).length,
@@ -140,6 +137,13 @@ function AppShell({
     errorRef.current = ws.setError;
   }, [errorRef, ws.setError]);
   const readingFocus = useReadingFocus();
+  const openDocxImportRef = useRef<(() => void) | undefined>(undefined);
+
+  const handleOpenDocxImport = useCallback(() => {
+    nav.setSidebarPanel("paperInfo");
+    nav.setSidebarPanelOpen(true);
+    openDocxImportRef.current?.();
+  }, [nav]);
 
   useEffect(() => {
     if (readingFocus.active) {
@@ -148,11 +152,11 @@ function AppShell({
   }, [nav.setSidebarPanelOpen, readingFocus.active]);
   const { preference: themePreference, setPreference: setThemePreference, cyclePreference } =
     useTheme();
-  const [agentPanelFocus, setAgentPanelFocus] = useState<"terminal" | "dispatch" | null>(null);
-  const [requestedDispatchTab, setRequestedDispatchTab] = useState<DispatchPaneTab | undefined>(
-    undefined,
-  );
-  const [editingSkillFilename, setEditingSkillFilename] = useState<string | null>(null);
+  const [agentPanelFocus, setAgentPanelFocus] = useState<"terminal" | null>(null);
+  const [requestedDispatchAction, setRequestedDispatchAction] = useState<{
+    action: AgentDispatchAction;
+  } | null>(null);
+  const [editingSkillPath, setEditingSkillPath] = useState<string | null>(null);
 
   const {
     terminalHostRef,
@@ -168,7 +172,7 @@ function AppShell({
     enabled: layout.aiPanelOpen,
     refitTriggers: useMemo(
       () => [
-        nav.sidebarTab,
+        nav.sidebarPanel,
         nav.currentPath,
         nav.activeFile,
         layout.aiPanelOpen,
@@ -177,7 +181,7 @@ function AppShell({
         layout.sidebarWidth,
       ],
       [
-        nav.sidebarTab,
+        nav.sidebarPanel,
         nav.currentPath,
         nav.activeFile,
         layout.aiPanelOpen,
@@ -197,14 +201,12 @@ function AppShell({
 
   const openAgentDispatch = useCallback(
     (intent: Parameters<typeof nav.setDispatchIntent>[0]) => {
-      setAgentPanelFocus("dispatch");
-      setRequestedDispatchTab("run");
+      if (!intent) return;
       layout.setAiPanelOpen(true);
-      layout.setAiPanelDispatchOpen(true);
-      nav.setDispatchIntent(intent);
+      setRequestedDispatchAction({ action: intent.action });
       refitTerminal();
     },
-    [layout, nav, refitTerminal],
+    [layout, refitTerminal],
   );
 
   const openTerminalPanel = useCallback(() => {
@@ -214,29 +216,20 @@ function AppShell({
       return;
     }
     setAgentPanelFocus("terminal");
-    setRequestedDispatchTab(undefined);
     layout.setAiPanelOpen(true);
     layout.setAiPanelTerminalOpen(true);
     refitTerminal();
   }, [agentPanelFocus, layout, refitTerminal]);
 
+  const [requestedHistoryOpenAt, setRequestedHistoryOpenAt] = useState(0);
+  const openHistoryPanel = useCallback(() => {
+    layout.setAiPanelOpen(true);
+    setRequestedHistoryOpenAt((n) => n + 1);
+  }, [layout]);
   const openSkillsPanel = useCallback(() => {
     layout.setAiPanelOpen(true);
     layout.setAiPanelSkillsOpen(true);
   }, [layout]);
-
-  const openDispatchPanel = useCallback(() => {
-    if (layout.aiPanelOpen && agentPanelFocus === "dispatch") {
-      layout.setAiPanelOpen(false);
-      setAgentPanelFocus(null);
-      return;
-    }
-    setAgentPanelFocus("dispatch");
-    setRequestedDispatchTab("run");
-    layout.setAiPanelOpen(true);
-    layout.setAiPanelDispatchOpen(true);
-    refitTerminal();
-  }, [agentPanelFocus, layout, refitTerminal]);
 
   const agentDispatchPanelValue = useMemo(
     () => ({ openDispatch: openAgentDispatch }),
@@ -267,8 +260,7 @@ function AppShell({
 
   const handleHome = useCallback(() => {
     ws.setAppView("workspace");
-    nav.handleSidebarTabChange("papers");
-    nav.setSidebarPanel("papers");
+    nav.focusPaperInfoPanel();
     nav.navigateTo(nav.lastPaperPath ?? PAPERS_ROOT);
   }, [nav, ws]);
 
@@ -343,7 +335,7 @@ function AppShell({
             appView={ws.appView}
             browsePath={nav.browsePath}
             onNavigate={nav.navigateTo}
-            breadcrumbVariant={nav.sidebarTab === "papers" ? "papers" : "default"}
+            breadcrumbVariant="papers"
             tree={nav.tree}
             refreshVersion={nav.refreshVersion}
             onOpenFile={nav.openFile}
@@ -358,17 +350,24 @@ function AppShell({
             onBack={handleFocusBack}
             backTitle={focusBackTitle}
             explorerMode={ws.explorerMode}
-            onExplorerModeChange={ws.setExplorerMode}
             aiPanelOpen={layout.aiPanelOpen}
-            aiPanelWidth={layout.aiPanelWidth}
             onToggleAiPanel={() => layout.setAiPanelOpen((open) => !open)}
             onOpenTerminal={openTerminalPanel}
+            onOpenHistory={openHistoryPanel}
             onOpenSkills={openSkillsPanel}
           />
+          <DocxImportModalProvider
+            paperSlug={nav.exportPaperSlug}
+            paperPath={nav.paperPath}
+            browsePath={nav.browsePath}
+            activeFile={nav.activeFile}
+            onError={ws.setError}
+            onComplete={reloadActiveModel}
+            openRef={openDocxImportRef}
+          >
           {ws.explorerMode ? null : (
           <AppCommands
             appView={ws.appView}
-            sidebarTab={nav.sidebarTab}
             editorLayout={layout.editorLayout}
             canGoUp={nav.canGoUp}
             canCreateUnit={nav.canCreateUnit}
@@ -380,7 +379,6 @@ function AppShell({
             pendingAiReviewCount={pendingAiReviewCount}
             selectedBibCiteKey={nav.selectedBibCiteKey}
             onSetAppView={ws.setAppView}
-            onSetSidebarTab={nav.handleSidebarTabChange}
             onSetSidebarPanel={nav.setSidebarPanel}
             onToggleSidebarPanel={nav.toggleSidebarPanel}
             onNavigateUp={handleNavigateUp}
@@ -397,24 +395,29 @@ function AppShell({
             onApproveAllAiChanges={() => void handleApproveAllAiChanges()}
             onOpenMainBib={handleOpenMainBib}
             onShowUnverifiedReferences={handleShowUnverifiedReferences}
+            onOpenDocxImport={handleOpenDocxImport}
           />
           )}
 
           {ws.appView === "workspace" && ws.explorerMode ? (
+            <div
+              className={cn(
+                "flex min-h-0 min-w-0 flex-1 flex-col",
+                readingFocus.active && "reading-focus-shell",
+              )}
+            >
+              <div className="reading-focus-shell__main flex min-h-0 min-w-0 flex-1 flex-col">
             <AiAssistantSplit
               open={layout.aiPanelOpen}
               width={layout.aiPanelWidth}
               onWidthChange={layout.setAiPanelWidth}
               panel={
-                <AiAssistantPanel
+                <AiAssistantPanelHost
                   onClose={() => layout.setAiPanelOpen(false)}
                   currentPath={ws.explorerActiveTab ?? ""}
                   refreshVersion={nav.refreshVersion}
                   isUnit={false}
                   canFanOut={false}
-                  dispatchIntent={null}
-                  initialDispatchTab={requestedDispatchTab}
-                  onDispatchIntentConsumed={nav.clearDispatchIntent}
                   onSendToTerminal={sendToTerminal}
                   onError={ws.setError}
                   onReconnect={reconnectTerminal}
@@ -426,26 +429,39 @@ function AppShell({
                   subscribeOutput={subscribeOutput}
                   getTerminalSessionId={getTerminalSessionId}
                   getLastInputLine={getLastInputLine}
-                  dispatchOpen={layout.aiPanelDispatchOpen}
-                  onDispatchOpenChange={layout.setAiPanelDispatchOpen}
                   skillsOpen={layout.aiPanelSkillsOpen}
                   onSkillsOpenChange={layout.setAiPanelSkillsOpen}
-                  onEditSkill={setEditingSkillFilename}
+                  onEditSkill={setEditingSkillPath}
+                  onOpenFile={(path) =>
+                    ws.openExplorerTab(path.startsWith("model/") ? path : `model/${path}`)
+                  }
+                  requestedHistoryOpenAt={requestedHistoryOpenAt}
+                  requestedDispatchAction={requestedDispatchAction}
                 />
               }
             >
-              {editingSkillFilename ? (
+              {editingSkillPath ? (
                 <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace">
                   <SkillEditorWorkspace
-                    filename={editingSkillFilename}
-                    onClose={() => setEditingSkillFilename(null)}
+                    skillPath={editingSkillPath}
+                    onClose={() => setEditingSkillPath(null)}
                     onError={ws.setError}
                   />
                 </section>
               ) : (
-                <ExplorerWorkspace />
+                <ExplorerWorkspace
+                  gitSync={gitSync}
+                  gitStatusLabel={gitStatusLabel}
+                  connectionState={connectionState}
+                  onGitClick={() => void runGitSync()}
+                  pinned={nav.sidebarPinned}
+                  sidebarWidth={layout.sidebarWidth}
+                  onWidthChange={layout.setSidebarWidth}
+                />
               )}
             </AiAssistantSplit>
+              </div>
+            </div>
           ) : ws.appView === "settings" ? (
             <Suspense fallback={<LoadingSkeleton className="p-6" lines={6} />}>
               <SettingsPage
@@ -464,8 +480,7 @@ function AppShell({
               onBack={() => ws.setAppView("workspace")}
               onOpenInPapers={() => {
                 ws.setAppView("workspace");
-                nav.handleSidebarTabChange("papers");
-                nav.setSidebarPanel("papers");
+                nav.focusSectionsPanel();
                 nav.navigateTo(`papers/${DEFAULT_GUIDE_PAPER_SLUG}`);
               }}
               filesCount={nav.files.length}
@@ -493,8 +508,8 @@ function AppShell({
                   )}
                   style={
                     {
-                      "--sidebar-rail-width": "36px",
                       "--sidebar-width": `${layout.sidebarWidth}px`,
+                      "--sidebar-content-width": `${sidebarContentWidth(layout.sidebarWidth)}px`,
                     } as React.CSSProperties
                   }
                 >
@@ -505,19 +520,16 @@ function AppShell({
                     readingFocusActive={readingFocus.active}
                     graphAvailable={Boolean(nav.graphFetchRoot)}
                     sidebarWidth={layout.sidebarWidth}
-                    agentPanelOpen={layout.aiPanelOpen}
-                    agentPanelFocus={agentPanelFocus}
+                    explorerMode={ws.explorerMode}
                     appView={ws.appView}
                     gitSync={gitSync}
                     gitStatusLabel={gitStatusLabel}
                     connectionState={connectionState}
                     themePreference={themePreference}
                     onSelectPanel={nav.setSidebarPanel}
-                    onTogglePanel={nav.toggleSidebarPanel}
-                    onTogglePin={nav.toggleSidebarPin}
+                    onCyclePanelLayout={nav.cycleSidebarPanelLayout}
                     onWidthChange={layout.setSidebarWidth}
-                    onOpenTerminalPanel={openTerminalPanel}
-                    onOpenDispatchPanel={openDispatchPanel}
+                    onExplorerModeChange={ws.setExplorerMode}
                     onGitClick={handleGitBadgeClick}
                     onSetAppView={ws.setAppView}
                     onCycleTheme={cyclePreference}
@@ -528,18 +540,14 @@ function AppShell({
                         tree={nav.tree}
                         browsePath={nav.browsePath}
                         activeFile={nav.activeFile}
-                        searchQuery={nav.searchQuery}
                         refreshVersion={nav.refreshVersion}
                         graphFetchRoot={nav.graphFetchRoot}
                         graphFocusPath={nav.graphFocusPath}
                         graphScope={nav.graphScope}
                         exportPaperSlug={nav.exportPaperSlug}
                         paperPath={nav.paperPath}
-                        onSearchChange={nav.setSearchQuery}
                         onNavigate={nav.navigateTo}
                         onOpenFile={nav.openFile}
-                        onSearchSelect={nav.handleSearchSelect}
-                        onLoadSubtree={nav.loadTreePath}
                         onGraphScopeChange={nav.setGraphScope}
                         onPaperCreated={(path) => {
                           nav.reloadModel({ path: path.split("/").slice(0, 2).join("/") || path });
@@ -547,7 +555,6 @@ function AppShell({
                         }}
                         onModelChanged={reloadActiveModel}
                         onError={ws.setError}
-                        onSidebarTabChange={nav.handleSidebarTabChange}
                       />
                     }
                   />
@@ -557,17 +564,12 @@ function AppShell({
                     width={layout.aiPanelWidth}
                     onWidthChange={layout.setAiPanelWidth}
                     panel={
-                      <AiAssistantPanel
+                      <AiAssistantPanelHost
                         onClose={() => layout.setAiPanelOpen(false)}
                         currentPath={nav.browsePath}
                         refreshVersion={nav.refreshVersion}
                         isUnit={nav.isUnit}
                         canFanOut={nav.isPaperSection && !nav.isUnit}
-                        dispatchIntent={nav.dispatchIntent}
-                        initialDispatchTab={
-                          requestedDispatchTab ?? (nav.dispatchIntent ? "run" : undefined)
-                        }
-                        onDispatchIntentConsumed={nav.clearDispatchIntent}
                         onSendToTerminal={sendToTerminal}
                         onError={ws.setError}
                         onReconnect={reconnectTerminal}
@@ -579,19 +581,21 @@ function AppShell({
                         subscribeOutput={subscribeOutput}
                         getTerminalSessionId={getTerminalSessionId}
                         getLastInputLine={getLastInputLine}
-                        dispatchOpen={layout.aiPanelDispatchOpen}
-                        onDispatchOpenChange={layout.setAiPanelDispatchOpen}
                         skillsOpen={layout.aiPanelSkillsOpen}
                         onSkillsOpenChange={layout.setAiPanelSkillsOpen}
-                        onEditSkill={setEditingSkillFilename}
+                        onEditSkill={setEditingSkillPath}
+                        onOpenFile={(path) => nav.openFile(path)}
+                        onNavigateToUnit={nav.navigateTo}
+                        requestedHistoryOpenAt={requestedHistoryOpenAt}
+                        requestedDispatchAction={requestedDispatchAction}
                       />
                     }
                   >
                   <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-workspace">
-                    {editingSkillFilename ? (
+                    {editingSkillPath ? (
                       <SkillEditorWorkspace
-                        filename={editingSkillFilename}
-                        onClose={() => setEditingSkillFilename(null)}
+                        skillPath={editingSkillPath}
+                        onClose={() => setEditingSkillPath(null)}
                         onError={ws.setError}
                       />
                     ) : (
@@ -610,6 +614,8 @@ function AppShell({
               </div>
             </div>
           )}
+
+          </DocxImportModalProvider>
 
           <NamePromptDialog
             open={nav.createPrompt !== null}

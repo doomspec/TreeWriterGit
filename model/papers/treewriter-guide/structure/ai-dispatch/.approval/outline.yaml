@@ -1,11 +1,11 @@
-content_hash: null
-git_commit: null
-git_file_blob: null
-approved_at: null
+content_hash: "sha256:784809f4aaca4639d78792d2a26865214c88faeed3f50465cf9e2b07ea0c8431"
+git_commit: "eabe197e1ee0c6c60f46dce84f6bcac375c018f7"
+git_file_blob: "sha1:fc62786ccde1b0f673c1f5625fa271481c68b846"
+approved_at: "2026-07-04T12:36:34.457Z"
 approved_by: null
 approvers: []
 edited_by: null
-edited_at: "2026-07-03T04:04:47.699Z"
+edited_at: null
 ai_assisted: false
 ai_provider: null
-status: "drafted"
+status: "approved"

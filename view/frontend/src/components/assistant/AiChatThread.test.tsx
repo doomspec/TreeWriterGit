@@ -2,7 +2,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { AiChatThread } from "@/components/assistant/AiChatThread";
+import { AiChatThread, ChatBubble } from "@/components/assistant/AiChatThread";
 
 vi.mock("@/lib/agentDispatchClient", async () => {
   const actual = await vi.importActual<typeof import("@/lib/agentDispatchClient")>(
@@ -19,7 +19,10 @@ vi.mock("@/modelApi", async () => {
 vi.mock("@/lib/aiChat/sessionClient", async () => {
   const actual =
     await vi.importActual<typeof import("@/lib/aiChat/sessionClient")>("@/lib/aiChat/sessionClient");
-  return { ...actual, listChatSessions: vi.fn().mockResolvedValue([]) };
+  return {
+    ...actual,
+    listChatSessions: vi.fn().mockResolvedValue([]),
+  };
 });
 
 const { previewAgentDispatch } = await import("@/lib/agentDispatchClient");
@@ -70,6 +73,45 @@ describe("AiChatThread", () => {
   it("shows a fallback context pointer when nothing is open", () => {
     render(<AiChatThread {...baseProps({ currentPath: "", status: "idle" })} />);
     expect(screen.getByText("No section or unit open")).toBeTruthy();
+  });
+
+  it("opens session history when requestedHistoryOpenAt is bumped externally", () => {
+    const { rerender } = render(<AiChatThread {...baseProps({ requestedHistoryOpenAt: 0 })} />);
+    expect(screen.queryByText("Session history")).not.toBeTruthy();
+    rerender(<AiChatThread {...baseProps({ requestedHistoryOpenAt: 1 })} />);
+    expect(screen.getByText("Session history")).toBeTruthy();
+    expect(screen.getByText("demo · all sections")).toBeTruthy();
+  });
+
+  it("shows resume notice banner when provided", () => {
+    render(
+      <AiChatThread
+        {...baseProps({
+          resumeNotice: "Provider session expired — continuing with a fresh CLI session.",
+        })}
+      />,
+    );
+    expect(
+      screen.getByText("Provider session expired — continuing with a fresh CLI session."),
+    ).toBeTruthy();
+  });
+
+  it("runs a dispatch hot action when requestedDispatchAction is set externally", async () => {
+    vi.mocked(previewAgentDispatch).mockResolvedValue({
+      prompt: "Draft this unit.",
+      command: "claude -p ...",
+      outputPath: "papers/demo/1-intro/some-unit/draft.md",
+    });
+    const { rerender } = render(<AiChatThread {...baseProps()} />);
+    rerender(
+      <AiChatThread {...baseProps({ requestedDispatchAction: { action: "draft" } })} />,
+    );
+    await act(async () => {});
+    expect(previewAgentDispatch).toHaveBeenCalledWith({
+      unitPath: "papers/demo/1-intro/some-unit",
+      action: "draft",
+    });
+    expect(screen.getByText(/Make draft prompt built/i)).toBeTruthy();
   });
 
   it("shows unit hot-command actions for a unit, collapsed behind an AI actions toggle", () => {
@@ -303,5 +345,34 @@ describe("AiChatThread", () => {
     render(<AiChatThread {...baseProps({ onDetach })} />);
     fireEvent.click(screen.getByRole("button", { name: /End chat session/i }));
     expect(onDetach).toHaveBeenCalled();
+  });
+});
+
+describe("ChatBubble file links", () => {
+  afterEach(() => cleanup());
+
+  it("renders a file path as a link and opens it on click", () => {
+    const onOpenFile = vi.fn();
+    render(
+      <ChatBubble
+        turn={{ role: "assistant", text: "I edited papers/x/intro/draft.md for you.", at: "" }}
+        currentPath="papers/x/intro"
+        onOpenFile={onOpenFile}
+      />,
+    );
+    const link = screen.getByRole("button", { name: "papers/x/intro/draft.md" });
+    fireEvent.click(link);
+    expect(onOpenFile).toHaveBeenCalledWith("papers/x/intro/draft.md");
+  });
+
+  it("renders plain text (no link buttons) when onOpenFile is not provided", () => {
+    render(
+      <ChatBubble
+        turn={{ role: "assistant", text: "See papers/x/intro/draft.md", at: "" }}
+        currentPath="papers/x/intro"
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /draft\.md/ })).not.toBeTruthy();
+    expect(screen.getByText(/See papers\/x\/intro\/draft\.md/)).toBeTruthy();
   });
 });

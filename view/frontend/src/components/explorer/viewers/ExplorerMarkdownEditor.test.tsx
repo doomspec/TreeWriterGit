@@ -56,6 +56,7 @@ beforeAll(() => {
 });
 
 import { ExplorerMarkdownEditor } from "@/components/explorer/viewers/ExplorerMarkdownEditor";
+import { ReadingFocusProvider } from "@/lib/readingFocus";
 
 describe("ExplorerMarkdownEditor", () => {
   afterEach(() => cleanup());
@@ -66,6 +67,7 @@ describe("ExplorerMarkdownEditor", () => {
       expect(screen.queryByText("Loading…")).not.toBeTruthy();
     });
     expect(screen.queryByRole("button", { name: "Comment" })).not.toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Highlight selection" })).not.toBeTruthy();
     expect(screen.getByRole("button", { name: "Source" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Split" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
@@ -99,5 +101,19 @@ describe("ExplorerMarkdownEditor", () => {
     await waitFor(() => expect(textarea.value).toContain("# Hello"));
     fireEvent.change(textarea, { target: { value: "# Edited\n" } });
     expect(textarea.value).toBe("# Edited\n");
+  });
+
+  it("uses centered reading layout and focus edit bar when reading focus is active", async () => {
+    window.localStorage.setItem("treewriter.readingFocus.v1", "true");
+    render(
+      <ReadingFocusProvider>
+        <ExplorerMarkdownEditor path="view/integrated-terminal.md" />
+      </ReadingFocusProvider>,
+    );
+    await waitFor(() => expect(screen.queryByText("Loading…")).not.toBeTruthy());
+    expect(document.querySelector(".reading-focus-pane")).toBeTruthy();
+    expect(screen.getByText("integrated-terminal.md")).toBeTruthy();
+    expect(screen.queryByTitle("view/integrated-terminal.md")).not.toBeTruthy();
+    window.localStorage.removeItem("treewriter.readingFocus.v1");
   });
 });

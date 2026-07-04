@@ -1,4 +1,5 @@
-import type { DocumentType, ManuscriptTemplate } from "@treewriter/shared";
+import type { AuthorEntry, DocumentType, ManuscriptTemplate } from "@treewriter/shared";
+import { authorFullName } from "@treewriter/shared";
 
 export const DOC_TYPE_LABELS: Record<DocumentType, string> = {
   paper: "Paper",
@@ -60,9 +61,8 @@ export function buildCreateManuscriptPayload(input: {
   docType: DocumentType;
   templateId: string;
   journal?: string;
-  authors: string[];
+  authors: AuthorEntry[];
   affiliations?: string[];
-  authorAffiliations?: number[][];
   slug: string;
   targetWords: string;
   sectionOrderText: string;
@@ -77,7 +77,8 @@ export function buildCreateManuscriptPayload(input: {
   contributionMode: "" | "kernel" | "repository";
   agentSummary: string;
 }) {
-  const authorList = input.authors.map((a) => a.trim()).filter(Boolean);
+  // Keep only authors with a real name; the backend normalizes further.
+  const authorList = input.authors.filter((a) => authorFullName(a).trim().length > 0);
   const affiliationList = (input.affiliations ?? []).map((a) => a.trim()).filter(Boolean);
   const tagList = input.tags
     .split(",")
@@ -90,10 +91,6 @@ export function buildCreateManuscriptPayload(input: {
     journal: input.docType === "paper" ? input.journal?.trim() : undefined,
     authors: authorList,
     affiliations: affiliationList.length > 0 ? affiliationList : undefined,
-    authorAffiliations:
-      affiliationList.length > 0 && input.authorAffiliations?.some((a) => a.length > 0)
-        ? input.authorAffiliations
-        : undefined,
     slug: input.slug.trim() || undefined,
     targetWords: Number(input.targetWords),
     sectionOrder: parseSectionOrder(input.sectionOrderText),

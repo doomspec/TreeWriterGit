@@ -3,6 +3,7 @@ import type { Express } from "express";
 import {
   registerAgentRoutes,
   registerCommentsRoutes,
+  registerContributorsRoutes,
   registerExportRoutes,
   registerImportRoutes,
   registerModelRoutes,
@@ -19,6 +20,7 @@ export function registerAppRoutes(app: Express, deps: ServerDeps): void {
   registerSettingsRoutes(app, deps);
   registerZoteroRoutes(app, deps);
   registerCommentsRoutes(app, deps);
+  registerContributorsRoutes(app, deps);
   registerPresenceRoutes(app, deps);
   registerPapersRoutes(app, deps);
   registerExportRoutes(app, deps);

@@ -335,7 +335,14 @@ export function MarkdownToolbar({
         }
       }}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-0.5">
+      <div
+        className={cn(
+          "markdown-toolbar__controls flex items-center gap-0.5",
+          embedded || inline
+            ? "w-max max-w-none shrink-0 flex-nowrap"
+            : "min-w-0 flex-wrap",
+        )}
+      >
         {commentItem ? (
           <Button
             type="button"
@@ -343,7 +350,7 @@ export function MarkdownToolbar({
             size="sm"
             className={cn(
               "relative h-7 shrink-0 gap-1 text-[10px]",
-              inline ? "w-7 px-0" : "px-2",
+              inline || embedded ? "w-7 px-0" : "px-2",
             )}
             title={commentItem.title}
             aria-label={commentItem.label}
@@ -397,7 +404,9 @@ export function MarkdownToolbar({
               />
             ))
           : null}
-        <HighlightToolbarButton disabled={disabled} onInsertHighlight={onInsertHighlight} />
+        {onInsertHighlight ? (
+          <HighlightToolbarButton disabled={disabled} onInsertHighlight={onInsertHighlight} />
+        ) : null}
         {noteItem && inline ? (
           <ToolbarIconButton
             item={noteItem}

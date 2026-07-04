@@ -46,6 +46,25 @@ export function overleafCloneDir(repoRoot: string, paperSlug: string): string {
   return path.join(repoRoot, ".overleaf", paperSlug.trim());
 }
 
+/** Resolve and validate an Overleaf clone path — must live under repoRoot/.overleaf/{slug}. */
+export function resolveOverleafRepoPath(
+  repoRoot: string,
+  paperSlug: string,
+  configuredPath?: string | null,
+): string {
+  const allowed = path.resolve(overleafCloneDir(repoRoot, paperSlug));
+  const raw = configuredPath?.trim();
+  if (!raw) return allowed;
+  const resolved = path.resolve(raw);
+  if (resolved !== allowed) {
+    throw new ModelFsError(
+      `overleaf_repo_path must resolve to ${allowed} (got ${resolved})`,
+      400,
+    );
+  }
+  return resolved;
+}
+
 /** Normalize Overleaf Git Bridge URLs and bare project ids. */
 export function parseOverleafGitUrl(raw: string): { projectId: string; httpsCloneUrl: string } {
   let input = raw.trim().replace(/^git\s+clone\s+/i, "").trim();
@@ -189,11 +208,7 @@ export async function connectOverleafProject(
   const configuredPath = parsed.data.overleaf_repo_path
     ? String(parsed.data.overleaf_repo_path)
     : "";
-  const defaultPath = overleafCloneDir(repoRoot, paperSlug);
-  const targetPath =
-    configuredPath && (existsSync(configuredPath) || configuredPath.startsWith(repoRoot))
-      ? configuredPath
-      : defaultPath;
+  const targetPath = resolveOverleafRepoPath(repoRoot, paperSlug, configuredPath || null);
 
   let action: OverleafConnectResult["action"];
   try {
@@ -237,16 +252,18 @@ const INLINE_NOTE_PATTERN = /\\([a-zA-Z]{1,12})\{([^}]*)\}/g;
 
 async function readOverleafRepoPath(
   modelRoot: string,
+  repoRoot: string,
   paperSlug: string,
 ): Promise<{ overleafPath: string; paperRel: string }> {
   const { paperRel, parsed } = await readPaperIndex(modelRoot, paperSlug);
-  const overleafPath = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
-  if (!overleafPath) {
+  const configured = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
+  if (!configured.trim()) {
     throw new ModelFsError(
       "Paper is not connected to Overleaf. Use Export → Connect Overleaf first.",
       400,
     );
   }
+  const overleafPath = resolveOverleafRepoPath(repoRoot, paperSlug, configured);
   if (!existsSync(overleafPath)) {
     throw new ModelFsError(`Overleaf repo path does not exist: ${overleafPath}`, 404);
   }
@@ -283,17 +300,7 @@ export async function pushToOverleaf(
   includeDrafts = false,
   validation?: ExportValidationConfig,
 ): Promise<OverleafPushResult> {
-  const { parsed } = await readPaperIndex(modelRoot, paperSlug);
-  const overleafPath = parsed.data.overleaf_repo_path ? String(parsed.data.overleaf_repo_path) : "";
-  if (!overleafPath) {
-    throw new ModelFsError(
-      "Paper is not connected to Overleaf. Use Export → Connect Overleaf first.",
-      400,
-    );
-  }
-  if (!existsSync(overleafPath)) {
-    throw new ModelFsError(`Overleaf repo path does not exist: ${overleafPath}`, 404);
-  }
+  const { overleafPath, paperRel } = await readOverleafRepoPath(modelRoot, repoRoot, paperSlug);
 
   const bundle = await exportModularPaper(modelRoot, repoRoot, {
     paperSlug,
@@ -347,9 +354,10 @@ export async function pushToOverleaf(
 /** Parse \\todo / TODO comments from main.tex and section files; write feedback notes. */
 export async function importOverleafFeedback(
   modelRoot: string,
+  repoRoot: string,
   paperSlug: string,
 ): Promise<OverleafImportResult> {
-  const { overleafPath, paperRel } = await readOverleafRepoPath(modelRoot, paperSlug);
+  const { overleafPath, paperRel } = await readOverleafRepoPath(modelRoot, repoRoot, paperSlug);
   const texPaths: string[] = [];
   const mainPath = path.join(overleafPath, "main.tex");
   if (existsSync(mainPath)) texPaths.push(mainPath);

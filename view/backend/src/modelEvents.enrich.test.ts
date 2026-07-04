@@ -20,6 +20,7 @@ describe("enrichModelEvent", () => {
 
   it("infers comments kind for comment events", () => {
     expect(inferModelEventKind("papers/demo/unit/draft.md")).toBe("content");
+    expect(inferModelEventKind("papers/demo/unit/temp-notes.md")).toBe("content");
     expect(inferModelEventKind("papers/demo/unit/INDEX.md")).toBe("structure");
   });
 });

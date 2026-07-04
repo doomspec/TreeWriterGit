@@ -1,6 +1,7 @@
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { visualizer } from "rollup-plugin-visualizer";
 
 const FAVICON_PATH =
   /^\/(favicon[^/?]*|apple-touch-icon[^/?]*|android-chrome[^/?]*|site\.webmanifest|safari-pinned-tab[^/?]*)(\?.*)?$/;
@@ -8,6 +9,9 @@ const FAVICON_PATH =
 export default defineConfig({
   plugins: [
     react(),
+    ...(process.env.ANALYZE === "1"
+      ? [visualizer({ filename: "dist/stats.html", gzipSize: true, open: false })]
+      : []),
     {
       name: "favicon-no-cache",
       configureServer(server) {

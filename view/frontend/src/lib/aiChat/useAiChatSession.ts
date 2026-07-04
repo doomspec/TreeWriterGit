@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { usePtyChatSession, type PtyChatStatus } from "@/lib/aiChat/usePtyChatSession";
 import { useBridgedChatSession, type BridgedChatStatus } from "@/lib/aiChat/useBridgedChatSession";
 import { isBridgedProvider } from "@/lib/aiChat/providers";
+import type { ChatSessionFile } from "@/lib/aiChat/sessionClient";
 
 /**
  * Dispatches to bridged mode (known providers: claude/codex/gemini/hermes —
@@ -44,6 +45,19 @@ export function useAiChatSession(options: {
     setMode(null);
   }, [bridged, pty]);
 
+  const resumeFromHistory = useCallback(
+    (session: ChatSessionFile): boolean => {
+      if (session.mode !== "bridged") {
+        options.onError?.("PTY sessions cannot be resumed from history — view only.");
+        return false;
+      }
+      pty.detach();
+      setMode("bridged");
+      return bridged.resume(session);
+    },
+    [bridged, options, pty],
+  );
+
   const active = mode === "bridged" ? bridged : mode === "pty" ? pty : null;
 
   return useMemo(
@@ -52,13 +66,16 @@ export function useAiChatSession(options: {
       provider: active?.provider ?? "unknown",
       turns: active?.turns ?? [],
       pendingText: active?.pendingText ?? "",
+      resumeNotice: mode === "bridged" ? bridged.resumeNotice : null,
       suggestedProvider: pty.suggestedProvider,
       mode,
       attach,
+      resumeFromHistory,
       send: (text: string, contextPaths?: string[]) => active?.send(text, contextPaths),
       stop: () => active?.stop(),
       detach,
+      clearResumeNotice: bridged.clearResumeNotice,
     }),
-    [active, attach, detach, mode, pty.suggestedProvider],
+    [active, attach, bridged.clearResumeNotice, bridged.resumeNotice, detach, mode, pty.suggestedProvider, resumeFromHistory],
   );
 }

@@ -2,9 +2,13 @@ import { useEffect, useLayoutEffect, useRef, useState, createContext, useContext
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
+import { computeFloatingMenuTop } from "@/lib/floatingMenuPosition";
 import { cn } from "@/lib/utils";
+import { registerSidebarFloatingMenuOpen } from "@/lib/sidebarFloatingMenu";
 
 const PopoverMenuCloseContext = createContext<(() => void) | null>(null);
+
+type MenuPosition = { top: number; left?: number; right?: number };
 
 export function PopoverMenu({
   trigger,
@@ -31,11 +35,12 @@ export function PopoverMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [position, setPosition] = useState<MenuPosition | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
+    const unregister = registerSidebarFloatingMenuOpen();
+    const onOutsideClick = (event: MouseEvent) => {
       const target = event.target as Node;
       if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
       setOpen(false);
@@ -43,10 +48,15 @@ export function PopoverMenu({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    window.addEventListener("mousedown", onPointerDown);
+    // Defer until after the opening click finishes bubbling.
+    const attachId = window.requestAnimationFrame(() => {
+      window.addEventListener("click", onOutsideClick);
+    });
     window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener("mousedown", onPointerDown);
+      unregister();
+      window.cancelAnimationFrame(attachId);
+      window.removeEventListener("click", onOutsideClick);
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
@@ -61,17 +71,20 @@ export function PopoverMenu({
       const menu = menuRef.current;
       if (!button) return;
       const rect = button.getBoundingClientRect();
-      const menuWidth = menu?.offsetWidth ?? 220;
-      const left =
-        align === "end"
-          ? Math.max(8, rect.right - menuWidth)
-          : Math.min(window.innerWidth - menuWidth - 8, rect.left);
-      setPosition({ top: rect.bottom + 6, left });
+      const menuHeight = menu?.offsetHeight ?? 0;
+      const top = computeFloatingMenuTop(rect, menuHeight || 120);
+      if (align === "end") {
+        setPosition({ top, right: window.innerWidth - rect.right });
+      } else {
+        setPosition({ top, left: Math.max(8, rect.left) });
+      }
     };
     updatePosition();
+    const frame = window.requestAnimationFrame(updatePosition);
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
     return () => {
+      window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
@@ -92,7 +105,10 @@ export function PopoverMenu({
         aria-haspopup="menu"
         disabled={disabled}
         title={title}
-        onClick={() => setOpen((value) => !value)}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
       >
         {triggerNode}
       </Button>
@@ -101,15 +117,18 @@ export function PopoverMenu({
             <div
               ref={menuRef}
               role="menu"
+              data-sidebar-floating-menu
               className={cn(
-                // Above the app chrome header (z-[60]) and sidebar sticky
-                // panel header (z-[55]) — a portal-rendered dropdown must
-                // never render under either, but stays below full-screen
-                // modals/command palette (z-[100]+).
+                // Above the app chrome header (z-[60]) — a portal-rendered
+                // dropdown must never render under it, but stays below
+                // full-screen modals/command palette (z-[100]+).
                 "fixed z-[90] min-w-[12rem] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg",
                 menuClassName,
               )}
-              style={{ top: position.top, left: position.left }}
+              style={{
+                top: position.top,
+                ...(position.right != null ? { right: position.right } : { left: position.left }),
+              }}
             >
               <PopoverMenuCloseContext.Provider value={() => setOpen(false)}>
                 {children}

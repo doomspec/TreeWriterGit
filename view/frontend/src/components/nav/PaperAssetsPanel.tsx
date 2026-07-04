@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  BookOpen,
   ChevronRight,
   Image,
+  Plus,
   Settings2,
   Sigma,
   Table2,
@@ -14,30 +14,113 @@ import {
   type AssetTab,
 } from "@/components/editor/AssetManagerModal";
 import { AssetSearchField } from "@/components/editor/AssetSearchField";
+import { NamePromptDialog } from "@/components/ui/NamePromptDialog";
 import { Button } from "@/components/ui/button";
+import { createNode, type NodeKind } from "@/modelApi";
 import {
   fetchPaperAssets,
   type EquationMetadata,
   type PaperAssetsBundle,
-  type ReferenceMetadata,
   type TableMetadata,
 } from "@/lib/paperAssets";
-import { filterPaperAssets, filteredAssetCount, totalAssetCount } from "@/lib/assetSearch";
-import { ensureCitedReferences, ensureReferenceIndex, searchReferences } from "@/lib/referenceSearchCache";
+import { filterPaperAssets } from "@/lib/assetSearch";
 import type { FigureMetadata } from "@/lib/figures";
 import { cn } from "@/lib/utils";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
+
+type AssetFolder = "figures" | "tables" | "equations";
+
+const ASSET_CREATE: Record<
+  AssetFolder,
+  { kind: NodeKind; label: string; createTitle: string; createPrompt: string }
+> = {
+  figures: {
+    kind: "figure",
+    label: "figure",
+    createTitle: "New figure",
+    createPrompt: "Figure folder name",
+  },
+  tables: {
+    kind: "table",
+    label: "table",
+    createTitle: "New table",
+    createPrompt: "Table folder name",
+  },
+  equations: {
+    kind: "equation",
+    label: "equation",
+    createTitle: "New equation",
+    createPrompt: "Equation folder name",
+  },
+};
+
+function AssetGroupActions({
+  createTitle,
+  manageTitle,
+  onCreate,
+  onManage,
+}: {
+  createTitle: string;
+  manageTitle: string;
+  onCreate: () => void;
+  onManage: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center pr-0.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6"
+        title={createTitle}
+        aria-label={createTitle}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onCreate();
+        }}
+      >
+        <Plus className="h-3 w-3" aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6"
+        title={manageTitle}
+        aria-label={manageTitle}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onManage();
+        }}
+      >
+        <Settings2 className="h-3 w-3" aria-hidden="true" />
+      </Button>
+    </div>
+  );
+}
 
 function AssetGroup({
   title,
   icon: Icon,
   emptyLabel,
+  createLabel,
+  showCreateEmpty,
   count,
   countLabel,
   active,
   onOpen,
+  onCreate,
   onManage,
-  manageIcon: ManageIcon = Settings2,
   manageTitle = "Manage…",
   collapsible = false,
   defaultExpanded = true,
@@ -46,12 +129,14 @@ function AssetGroup({
   title: string;
   icon: typeof Image;
   emptyLabel: string;
+  createLabel: string;
+  showCreateEmpty: boolean;
   count: number;
   countLabel?: string;
   active?: boolean;
   onOpen: () => void;
+  onCreate: () => void;
   onManage: () => void;
-  manageIcon?: typeof Settings2;
   manageTitle?: string;
   collapsible?: boolean;
   defaultExpanded?: boolean;
@@ -61,6 +146,17 @@ function AssetGroup({
   const body =
     count > 0 ? (
       <ul className="mt-1 space-y-0.5 px-2 pb-2">{children}</ul>
+    ) : showCreateEmpty ? (
+      <div className="px-2 pb-2 pt-1">
+        <button
+          type="button"
+          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+          onClick={onCreate}
+        >
+          <Plus className="h-3 w-3 shrink-0" aria-hidden="true" />
+          {createLabel}
+        </button>
+      </div>
     ) : (
       <p className="px-3 pb-2 pt-1 text-[11px] text-muted-foreground">{emptyLabel}</p>
     );
@@ -89,25 +185,12 @@ function AssetGroup({
             </span>
           </span>
           <div className="flex shrink-0 items-center pr-0.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              title={manageTitle ?? "Manage…"}
-              aria-label={manageTitle ?? "Manage…"}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onManage();
-              }}
-            >
-              <ManageIcon className="h-3 w-3" aria-hidden="true" />
-            </Button>
+            <AssetGroupActions
+              createTitle={createLabel}
+              manageTitle={manageTitle ?? "Manage…"}
+              onCreate={onCreate}
+              onManage={onManage}
+            />
           </div>
         </summary>
         {body}
@@ -136,22 +219,12 @@ function AssetGroup({
             {countLabel ?? (count > 0 ? `${count} item${count === 1 ? "" : "s"}` : "Empty")}
           </span>
         </button>
-        <div className="flex shrink-0 items-center pr-0.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            title={manageTitle ?? "Manage…"}
-            aria-label={manageTitle ?? "Manage…"}
-            onClick={(event) => {
-              event.stopPropagation();
-              onManage();
-            }}
-          >
-            <ManageIcon className="h-3 w-3" aria-hidden="true" />
-          </Button>
-        </div>
+        <AssetGroupActions
+          createTitle={createLabel}
+          manageTitle={manageTitle ?? "Manage…"}
+          onCreate={onCreate}
+          onManage={onManage}
+        />
       </div>
       {body}
     </div>
@@ -186,7 +259,7 @@ function AssetRow({
   );
 }
 
-export function PaperAssetsPanel({
+export function AssetsPanel({
   paperPath,
   currentPath,
   activeFile,
@@ -195,6 +268,7 @@ export function PaperAssetsPanel({
   onOpenFile,
   onModelChanged,
   onError,
+  className,
 }: {
   paperPath: string | null;
   currentPath: string;
@@ -204,29 +278,23 @@ export function PaperAssetsPanel({
   onOpenFile: (path: string, options?: { citeKey?: string }) => void;
   onModelChanged: () => void;
   onError: (message: string) => void;
+  className?: string;
 }) {
   const nav = useWorkspaceNavigationContext();
   const [assets, setAssets] = useState<PaperAssetsBundle | null>(null);
-  const [citedReferences, setCitedReferences] = useState<ReferenceMetadata[]>([]);
-  const [referenceResults, setReferenceResults] = useState<ReferenceMetadata[]>([]);
-  const [referencesLoading, setReferencesLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
   const [managerTab, setManagerTab] = useState<AssetTab>("figures");
   const [managerMode, setManagerMode] = useState<AssetManagerMode>("manage");
+  const [createFolder, setCreateFolder] = useState<AssetFolder | null>(null);
+  const [creatingAsset, setCreatingAsset] = useState(false);
 
   const openManager = (tab: AssetTab, mode: AssetManagerMode = "manage") => {
     setManagerTab(tab);
     setManagerMode(mode);
     setManagerOpen(true);
   };
-
-  const canInsert = Boolean(
-    activeFile &&
-      nav.insertEditorSnippet &&
-      (activeFile.endsWith("/draft.md") || activeFile.endsWith("/outline.md")),
-  );
 
   const loadAssets = useCallback(async () => {
     if (!paperPath) {
@@ -254,64 +322,7 @@ export function PaperAssetsPanel({
     void loadAssets();
   }, [loadAssets, refreshVersion]);
 
-  useEffect(() => {
-    if (!paperPath) {
-      setCitedReferences([]);
-      return;
-    }
-    let cancelled = false;
-    void ensureCitedReferences(paperPath)
-      .then((references) => {
-        if (!cancelled) setCitedReferences(references);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          onError(err instanceof Error ? err.message : String(err));
-          setCitedReferences([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [onError, paperPath, refreshVersion]);
-
-  useEffect(() => {
-    if (!paperPath) {
-      setReferenceResults([]);
-      return;
-    }
-    const query = searchQuery.trim();
-    if (!query) {
-      setReferenceResults([]);
-      return;
-    }
-    let cancelled = false;
-    setReferencesLoading(true);
-    void ensureReferenceIndex(paperPath)
-      .then((references) => {
-        if (!cancelled) {
-          setReferenceResults(searchReferences(references, query, 50));
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          onError(err instanceof Error ? err.message : String(err));
-          setReferenceResults([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setReferencesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [onError, paperPath, refreshVersion, searchQuery]);
-
-  const openAsset = (item: FigureMetadata | TableMetadata | EquationMetadata | ReferenceMetadata) => {
-    if ("citeKey" in item && item.citeKey) {
-      onOpenFile("main.bib", { citeKey: item.citeKey });
-      return;
-    }
+  const openAsset = (item: FigureMetadata | TableMetadata | EquationMetadata) => {
     if ("kind" in item && item.kind.endsWith("-note") && item.outlinePath?.endsWith(".md")) {
       onOpenFile(item.outlinePath);
       return;
@@ -319,10 +330,7 @@ export function PaperAssetsPanel({
     onNavigate(item.path);
   };
 
-  const isActive = (item: FigureMetadata | TableMetadata | EquationMetadata | ReferenceMetadata): boolean => {
-    if ("citeKey" in item) {
-      return activeFile === item.path;
-    }
+  const isActive = (item: FigureMetadata | TableMetadata | EquationMetadata): boolean => {
     if (currentPath === item.path || currentPath.startsWith(`${item.path}/`)) return true;
     if (item.outlinePath && activeFile === item.outlinePath) return true;
     if ("draftPath" in item && item.draftPath && activeFile === item.draftPath) return true;
@@ -331,7 +339,7 @@ export function PaperAssetsPanel({
 
   if (!paperPath) {
     return (
-      <p className="px-3 py-4 text-[11px] text-muted-foreground">Select a paper to view figures, tables, equations, and references.</p>
+      <p className="px-3 py-4 text-[11px] text-muted-foreground">Select a paper to view figures, tables, and equations.</p>
     );
   }
 
@@ -345,20 +353,14 @@ export function PaperAssetsPanel({
     equations: [],
     referenceCount: 0,
   };
-  const referenceCount = allAssets.referenceCount;
-  const assetsForCounts = { ...allAssets, referenceCount };
   const isSearching = searchQuery.trim().length > 0;
-  const filteredAssets = filterPaperAssets(
-    assetsForCounts,
-    searchQuery,
-    isSearching ? referenceResults : [],
-  );
+  const filteredAssets = filterPaperAssets(allAssets, searchQuery);
   const figures = filteredAssets.figures;
   const tables = filteredAssets.tables;
   const equations = filteredAssets.equations;
-  const references = isSearching ? filteredAssets.references : [];
-  const totalCount = totalAssetCount(assetsForCounts);
-  const visibleCount = filteredAssetCount(filteredAssets);
+  const totalCount =
+    allAssets.figures.length + allAssets.tables.length + allAssets.equations.length;
+  const visibleCount = figures.length + tables.length + equations.length;
 
   const groupCountLabel = (filtered: number, total: number) => {
     if (!isSearching || total === 0) return undefined;
@@ -367,20 +369,30 @@ export function PaperAssetsPanel({
     return `${filtered} of ${total}`;
   };
 
-  const isAssetFolderActive = (folder: "figures" | "tables" | "equations") => {
+  const isAssetFolderActive = (folder: AssetFolder) => {
     const folderPath = `${paperPath}/${folder}`;
     return currentPath === folderPath || currentPath.startsWith(`${folderPath}/`);
   };
 
-  const literaturePath = `${paperPath}/notes/literature`;
-  const isReferencesActive =
-    activeFile === "main.bib" ||
-    currentPath === literaturePath ||
-    currentPath.startsWith(`${literaturePath}/`);
+  const handleCreateConfirm = async (name: string) => {
+    if (!paperPath || !createFolder) return;
+    const cfg = ASSET_CREATE[createFolder];
+    setCreatingAsset(true);
+    try {
+      const result = await createNode(`${paperPath}/${createFolder}`, name, cfg.kind);
+      setCreateFolder(null);
+      handleModelChanged();
+      onNavigate(result.path);
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingAsset(false);
+    }
+  };
 
   return (
     <>
-      <div className="min-h-0 overflow-auto py-1">
+      <div className={cn("min-h-0 overflow-auto py-1", className)}>
         <AssetSearchField
           value={searchQuery}
           onChange={setSearchQuery}
@@ -397,11 +409,15 @@ export function PaperAssetsPanel({
           title="Figures"
           icon={Image}
           emptyLabel={isSearching ? "No figures match your search" : "No figures yet"}
+          createLabel="Create figure"
+          showCreateEmpty={!isSearching}
           count={figures.length}
           countLabel={groupCountLabel(figures.length, allAssets.figures.length)}
           active={isAssetFolderActive("figures")}
           onOpen={() => onNavigate(`${paperPath}/figures`)}
+          onCreate={() => setCreateFolder("figures")}
           onManage={() => openManager("figures")}
+          manageTitle="Manage figures"
         >
           {figures.map((figure) => (
             <AssetRow
@@ -420,11 +436,15 @@ export function PaperAssetsPanel({
           title="Tables"
           icon={Table2}
           emptyLabel={isSearching ? "No tables match your search" : "No tables yet"}
+          createLabel="Create table"
+          showCreateEmpty={!isSearching}
           count={tables.length}
           countLabel={groupCountLabel(tables.length, allAssets.tables.length)}
           active={isAssetFolderActive("tables")}
           onOpen={() => onNavigate(`${paperPath}/tables`)}
+          onCreate={() => setCreateFolder("tables")}
           onManage={() => openManager("tables")}
+          manageTitle="Manage tables"
         >
           {tables.map((table) => (
             <AssetRow
@@ -443,11 +463,15 @@ export function PaperAssetsPanel({
           title="Equations"
           icon={Sigma}
           emptyLabel={isSearching ? "No equations match your search" : "No equations yet"}
+          createLabel="Create equation"
+          showCreateEmpty={!isSearching}
           count={equations.length}
           countLabel={groupCountLabel(equations.length, allAssets.equations.length)}
           active={isAssetFolderActive("equations")}
           onOpen={() => onNavigate(`${paperPath}/equations`)}
+          onCreate={() => setCreateFolder("equations")}
           onManage={() => openManager("equations")}
+          manageTitle="Manage equations"
         >
           {equations.map((equation) => (
             <AssetRow
@@ -460,59 +484,20 @@ export function PaperAssetsPanel({
           ))}
         </AssetGroup>
         ) : null}
-
-        {!isSearching || referenceCount > 0 ? (
-        <AssetGroup
-          title="References"
-          icon={BookOpen}
-          emptyLabel={
-            isSearching
-              ? referencesLoading
-                ? "Searching references…"
-                : "No references match your search"
-              : referenceCount > 0
-                ? "Cited in this paper"
-                : "No citations yet — use [@citeKey] in drafts"
-          }
-          count={!isSearching && referenceCount > 0 ? citedReferences.length : references.length}
-          countLabel={
-            isSearching
-              ? groupCountLabel(references.length, referenceCount)
-              : referenceCount > 0
-                ? `${referenceCount} cited reference${referenceCount === 1 ? "" : "s"}`
-                : undefined
-          }
-          active={isReferencesActive}
-          collapsible
-          defaultExpanded
-          onOpen={() => onOpenFile("main.bib")}
-          onManage={() => openManager("references", canInsert ? "insert" : "manage")}
-          manageTitle={canInsert ? "Insert citations…" : "Manage references…"}
-        >
-          {!isSearching && referenceCount > 0 ? (
-            citedReferences.map((ref) => (
-              <AssetRow
-                key={ref.citeKey}
-                label={`@${ref.citeKey}`}
-                hint={ref.missingFromLibrary ? "Missing from main.bib" : ref.title}
-                active={activeFile === "main.bib"}
-                onClick={() => openAsset(ref)}
-              />
-            ))
-          ) : (
-            references.map((ref) => (
-              <AssetRow
-                key={ref.path}
-                label={`@${ref.citeKey}`}
-                hint={ref.title}
-                active={activeFile === "main.bib"}
-                onClick={() => openAsset(ref)}
-              />
-            ))
-          )}
-        </AssetGroup>
-        ) : null}
       </div>
+
+      <NamePromptDialog
+        open={createFolder !== null}
+        title={createFolder ? ASSET_CREATE[createFolder].createTitle : "New asset"}
+        label={createFolder ? ASSET_CREATE[createFolder].createPrompt : "Name"}
+        confirmLabel={creatingAsset ? "Creating…" : "Create"}
+        onConfirm={(name) => {
+          if (!creatingAsset) void handleCreateConfirm(name);
+        }}
+        onCancel={() => {
+          if (!creatingAsset) setCreateFolder(null);
+        }}
+      />
 
       <AssetManagerModal
         open={managerOpen}
