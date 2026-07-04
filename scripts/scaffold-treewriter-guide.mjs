@@ -41,6 +41,26 @@ function titleCase(slug) {
   return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+async function writeApprovalSnapshot(abs, kind, content, approvedBy = "treewriter-guide-scaffold") {
+  const approvalDir = path.join(abs, ".approval");
+  await mkdir(approvalDir, { recursive: true });
+  const body = content.endsWith("\n") ? content : `${content}\n`;
+  await writeFile(path.join(approvalDir, `${kind}.approved.md`), body, "utf8");
+  const now = new Date().toISOString();
+  await writeFile(
+    path.join(approvalDir, `${kind}.yaml`),
+    [
+      "content_hash: null",
+      "git_commit: null",
+      "git_file_blob: null",
+      `approved_at: ${JSON.stringify(now)}`,
+      `approved_by: ${JSON.stringify(approvedBy)}`,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
 async function makeApprovedUnit(relPath, { title, idea, draft, links = [] }) {
   const abs = path.join(modelRoot, relPath);
   await mkdir(abs, { recursive: true });
@@ -62,10 +82,10 @@ async function makeApprovedUnit(relPath, { title, idea, draft, links = [] }) {
   );
   const outline = `# ${title}\n\n## Summary\n\n${idea}\n`;
   await writeFile(path.join(abs, "outline.md"), outline, "utf8");
-  await writeFile(path.join(abs, "outline.approved.md"), outline, "utf8");
+  await writeApprovalSnapshot(abs, "outline", outline);
   const body = draft.endsWith("\n") ? draft : `${draft}\n`;
   await writeFile(path.join(abs, "draft.md"), body, "utf8");
-  await writeFile(path.join(abs, "draft.approved.md"), body, "utf8");
+  await writeApprovalSnapshot(abs, "draft", body);
   console.log("  unit:", relPath);
 }
 
@@ -126,7 +146,7 @@ async function makeFigure(relPath, { title, caption, mermaidSource }) {
   );
   const cap = caption.endsWith("\n") ? caption : `${caption}\n`;
   await writeFile(path.join(abs, "draft.md"), cap, "utf8");
-  await writeFile(path.join(abs, "draft.approved.md"), cap, "utf8");
+  await writeApprovalSnapshot(abs, "draft", cap);
   await writeFile(path.join(abs, "source.mmd"), mermaidSource, "utf8");
   console.log(" figure:", relPath);
 }

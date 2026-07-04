@@ -212,7 +212,7 @@ export async function countUnitsUnder(
   return counts;
 }
 
-const CONTAINER_SKIP = new Set(["notes", ".sessions", ".trash", ...PAPER_ASSET_DIRS]);
+const CONTAINER_SKIP = new Set(["notes", ".sessions", ".trash", ".approval", ...PAPER_ASSET_DIRS]);
 
 function normalizeUnitStatus(raw: string): UnitStatus {
   if (raw === "approved" || raw === "drafted") return raw;

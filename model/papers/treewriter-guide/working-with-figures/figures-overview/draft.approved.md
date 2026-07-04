@@ -1,3 +1,0 @@
-Figures live in `papers/{slug}/figures/{name}/`. Each figure unit has **INDEX.md** (`kind: figure`, `figure_source`), **outline.md** (panel plan), **draft.md** (caption for export), and image or `.mmd` source files.
-
-Example caption in `draft.md`: **Fig 1.** Workflow overview. (A) … (B) …

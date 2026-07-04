@@ -7,7 +7,7 @@ import { PAPER_ASSET_DIRS } from "./errors.js";
 import { isManuscriptRoot } from "./manuscriptKind.js";
 import { resolveChildPath, resolveModelPath } from "./paths.js";
 
-const SKIP_CHILDREN = new Set(["notes", ".sessions", ".trash", ...PAPER_ASSET_DIRS]);
+const SKIP_CHILDREN = new Set(["notes", ".sessions", ".trash", ".approval", ...PAPER_ASSET_DIRS]);
 
 export async function readIndexData(
   modelRoot: string,

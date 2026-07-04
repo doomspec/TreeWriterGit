@@ -45,6 +45,7 @@ export function legacyApprovedManuscriptRel(unitRel: string, kind: ManuscriptKin
   return `${unitRel}/${approvedDocName(kind)}`;
 }
 
+/** Prefer `{unit}/.approval/{kind}.approved.md`; fall back to legacy `{unit}/{kind}.approved.md`. */
 export function resolveApprovedManuscriptRel(
   modelRoot: string,
   unitRel: string,
