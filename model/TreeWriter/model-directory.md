@@ -21,3 +21,5 @@ Every folder uses **three coordinated files** (units include all three; containe
 See [[phase-2-paper-model]] and [[purpose-of-index]] for schemas and the agent contract.
 
 This structure turns the repository into a tree-shaped knowledge model where each node is a folder with hidden INDEX metadata, a visible outline, and optional draft prose.
+
+**Meta-doc folders** (for example `model/TreeWriter/`) use `kind: section` in `INDEX.md` and hold loose reference `.md` files — not unit folders. Do not add `outline.md` unless the folder is a real manuscript unit.

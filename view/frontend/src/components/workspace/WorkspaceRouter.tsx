@@ -12,6 +12,7 @@ import {
   parentPath,
 } from "@/lib/modelTree";
 import { resolveModelReloadScope } from "@/lib/modelReloadScope";
+import { resolveWorkspaceView } from "@/lib/resolveWorkspaceView";
 import { useWorkspaceLayout } from "@/lib/workspace/WorkspaceLayoutContext";
 import { useWorkspaceNavigationContext } from "@/lib/workspace/WorkspaceNavigationContext";
 
@@ -22,6 +23,16 @@ type WorkspaceRouterProps = {
   onDispatchComplete: () => void;
 };
 
+/**
+ * Workspace route switcher — maps navigation state to the main editor shell.
+ *
+ * Priority (see also {@link resolveWorkspaceView}):
+ * 1. PaperWorkspace — paper root (+ paper-level outline/draft)
+ * 2. TableWorkspace — table builder folder
+ * 3. SectionWorkspace — section container (composed draft, approve-children)
+ * 4. EditorWorkspace — unit / figure / equation / loose `.md` file
+ * 5. FolderBrowse — directory listing
+ */
 export function WorkspaceRouter({
   onError,
   onSendToTerminal,
@@ -89,43 +100,18 @@ export function WorkspaceRouter({
     );
   }
 
-  if (nav.unitPath || nav.activeFile) {
-    const editorContainerPath =
-      nav.unitPath ?? manuscriptContainerPathFromFile(nav.activeFile) ?? null;
-    const editorContainerNode = editorContainerPath ? findNode(nav.tree, editorContainerPath) : null;
-    return (
-      <EditorWorkspace
-        unitPath={editorContainerPath}
-        activeFile={nav.activeFile ?? (editorContainerPath ? outlinePathFor(editorContainerPath) : "")}
-        refreshVersion={nav.refreshVersion}
-        getPathVersion={nav.getPathVersion}
-        layout={layout.editorLayout}
-        onLayoutChange={layout.setEditorLayout}
-        onError={onError}
-        linkContextPath={nav.unitPath ?? parentPath(nav.activeFile ?? "")}
-        onNavigate={nav.handleMarkdownNavigate}
-        dualPaneSplit={layout.dualPaneSplit}
-        onDualPaneSplitChange={layout.setDualPaneSplit}
-        assetPreviewSplit={layout.assetPreviewSplit}
-        onAssetPreviewSplitChange={layout.setAssetPreviewSplit}
-        activePane={layout.dualPaneActive}
-        onActivePaneChange={layout.setDualPaneActive}
-        {...paneLayoutProps}
-        onSendToTerminal={onSendToTerminal}
-        onBeforeDispatch={onBeforeDispatch}
-        onDispatchComplete={onDispatchComplete}
-        isFigure={nav.unitPath ? nav.isFigure : isFigureFolder(editorContainerNode)}
-        isEquation={nav.unitPath ? nav.isEquation : isEquationFolder(editorContainerNode)}
-        onModelChanged={reloadScopedModel}
-        paperPath={nav.paperPath}
-      />
-    );
-  }
+  const view = resolveWorkspaceView({
+    paperWorkspacePath: nav.paperWorkspacePath,
+    tablePath: nav.tablePath,
+    sectionPath: nav.sectionPath,
+    unitPath: nav.unitPath,
+    activeFile: nav.activeFile,
+  });
 
-  if (nav.sectionPath) {
+  if (view.kind === "section") {
     return (
       <SectionWorkspace
-        sectionPath={nav.sectionPath}
+        sectionPath={view.path}
         refreshVersion={nav.refreshVersion}
         onNavigate={nav.navigateTo}
         onOpenFile={nav.openFile}
@@ -137,6 +123,39 @@ export function WorkspaceRouter({
         getPathVersion={nav.getPathVersion}
         {...paneLayoutProps}
         onDispatchComplete={onDispatchComplete}
+      />
+    );
+  }
+
+  if (view.kind === "editor") {
+    const editorContainerPath =
+      view.unitPath ?? manuscriptContainerPathFromFile(view.activeFile) ?? null;
+    const editorContainerNode = editorContainerPath ? findNode(nav.tree, editorContainerPath) : null;
+    return (
+      <EditorWorkspace
+        unitPath={editorContainerPath}
+        activeFile={view.activeFile ?? (editorContainerPath ? outlinePathFor(editorContainerPath) : "")}
+        refreshVersion={nav.refreshVersion}
+        getPathVersion={nav.getPathVersion}
+        layout={layout.editorLayout}
+        onLayoutChange={layout.setEditorLayout}
+        onError={onError}
+        linkContextPath={view.unitPath ?? parentPath(view.activeFile ?? "")}
+        onNavigate={nav.handleMarkdownNavigate}
+        dualPaneSplit={layout.dualPaneSplit}
+        onDualPaneSplitChange={layout.setDualPaneSplit}
+        assetPreviewSplit={layout.assetPreviewSplit}
+        onAssetPreviewSplitChange={layout.setAssetPreviewSplit}
+        activePane={layout.dualPaneActive}
+        onActivePaneChange={layout.setDualPaneActive}
+        {...paneLayoutProps}
+        onSendToTerminal={onSendToTerminal}
+        onBeforeDispatch={onBeforeDispatch}
+        onDispatchComplete={onDispatchComplete}
+        isFigure={view.unitPath ? nav.isFigure : isFigureFolder(editorContainerNode)}
+        isEquation={view.unitPath ? nav.isEquation : isEquationFolder(editorContainerNode)}
+        onModelChanged={reloadScopedModel}
+        paperPath={nav.paperPath}
       />
     );
   }

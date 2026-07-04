@@ -1,4 +1,4 @@
-import { useCallback, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 
 import {
   findNode,
@@ -67,6 +67,14 @@ type UseWorkspaceNavigationOptions = {
   setSelectedBibCiteKey: Dispatch<SetStateAction<string | null>>;
 };
 
+/**
+ * Navigation actions for browse path, active file, and markdown link targets.
+ *
+ * **openFile** sets `browsePath` to the file's parent folder. When that differs from the
+ * current browse path, the prior path is saved so **backToSectionView** can restore it.
+ *
+ * **navigateTo** opens units with their outline; containers clear `activeFile`.
+ */
 export function useWorkspaceNavigation({
   tree,
   sidebarTab,
@@ -78,6 +86,9 @@ export function useWorkspaceNavigation({
   setSearchQuery,
   setSelectedBibCiteKey,
 }: UseWorkspaceNavigationOptions) {
+  /** Browse path to restore when leaving a nested file view (e.g. unit opened from section). */
+  const focusReturnPathRef = useRef<string | null>(null);
+
   const openFile = useCallback(
     (path: string, options?: OpenFileOptions) => {
       const folder = parentPath(path);
@@ -89,6 +100,9 @@ export function useWorkspaceNavigation({
         }
         const nextPath =
           sidebarTab === "papers" && folder !== "" && !isUnderPapers(folder) ? PAPERS_ROOT : folder;
+        if (folder !== current && current) {
+          focusReturnPathRef.current = current;
+        }
         return nextPath;
       });
       setActiveFile(path);
@@ -102,6 +116,7 @@ export function useWorkspaceNavigation({
 
   const navigateTo = useCallback(
     (path: string) => {
+      focusReturnPathRef.current = null;
       const normalized =
         sidebarTab === "papers" && path !== "" && !isUnderPapers(path) ? PAPERS_ROOT : path;
       const target = resolveModelPathTarget(tree, normalized);
@@ -130,11 +145,17 @@ export function useWorkspaceNavigation({
   );
 
   const backToSectionView = useCallback(() => {
+    const restorePath = focusReturnPathRef.current;
+    focusReturnPathRef.current = null;
     setActiveFile(null);
-  }, [setActiveFile]);
+    if (restorePath) {
+      setCurrentPath(restorePath);
+    }
+  }, [setActiveFile, setCurrentPath]);
 
   const handleSidebarTabChange = useCallback(
     (tab: WorkspaceNavTab) => {
+      focusReturnPathRef.current = null;
       setSidebarTab(tab);
       if (tab === "papers") {
         setCurrentPath((path) => (isUnderPapers(path) ? path : PAPERS_ROOT));
