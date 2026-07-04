@@ -340,6 +340,10 @@ Severity scoped to **localhost single-user**. Items fixed in M7–M11 and polish
 ### Recently fixed
 - **12.18 (fixed)** Architecture doc + PRD API table (M-docs).
 - **12.22 (fixed)** Section workspace heading clip (M6.5).
+- **12.23 (fixed)** `WorkspaceRouter` evaluated `activeFile` before `sectionPath` — section files opened plain editor instead of `SectionWorkspace`.
+- **12.24 (fixed)** Back button from nested unit file now restores prior browse path (not only clears `activeFile`).
+- **12.25 (fixed)** `model/TreeWriter/` mis-detected as unit (stray `outline.md`); meta-doc folders use explicit `kind: section`.
+- **12.26 (fixed)** treewriter-guide legacy `*.approved.md` migrated to `.approval/`; scaffold emits canonical layout only.
 - **F4/F6 polish (fixed)** Context checklist, shortcuts, fan-out; CSL lookup, approved-only export, batch export.
 
 ---

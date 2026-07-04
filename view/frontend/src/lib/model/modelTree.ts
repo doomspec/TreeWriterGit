@@ -58,7 +58,12 @@ import { INDEX_DOC, OUTLINE_DOC, DRAFT_DOC } from "../modelPaths";
 import { findNode, type NavigateTarget } from "./modelTreeQuery";
 import { resolveOutlineTarget } from "../modelOutline";
 
-/** Folder with outline.md (and optionally draft.md) — editable outline + draft pair. */
+/**
+ * Folder with outline.md (and optionally draft.md) — editable outline + draft pair.
+ *
+ * When `INDEX.md` lacks an explicit `kind`, presence of outline/draft files implies a unit.
+ * Meta-doc folders should set `kind: section` (or another container kind) to avoid mis-detection.
+ */
 export function isUnitFolder(node: ModelNode | null): boolean {
   if (!node) return false;
   const kind = folderNodeKind(node);
