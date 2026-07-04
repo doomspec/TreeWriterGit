@@ -1,7 +1,5 @@
 import { ArrowLeft } from "lucide-react";
 
-import { paperSlugFromPath } from "@/components/nav/PaperSelect";
-
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { TreeWriterBrand } from "@/components/layout/TreeWriterBrand";
 import { WorkspaceModeMenu } from "@/components/layout/WorkspaceModeMenu";
@@ -34,7 +32,10 @@ export function AppChromeHeader({
   explorerMode = false,
   onExplorerModeChange,
   aiPanelOpen = false,
+  aiPanelWidth = 0,
   onToggleAiPanel,
+  onOpenTerminal,
+  onOpenSkills,
 }: {
   appView: "workspace" | "settings" | "info";
   browsePath: string;
@@ -56,23 +57,57 @@ export function AppChromeHeader({
   explorerMode?: boolean;
   onExplorerModeChange?: (explorer: boolean) => void;
   aiPanelOpen?: boolean;
+  /** Width of the open assistant column (+ handle) — keeps header actions off the panel. */
+  aiPanelWidth?: number;
   onToggleAiPanel?: () => void;
+  onOpenTerminal?: () => void;
+  onOpenSkills?: () => void;
 }) {
   const { active: readingFocusActive, extraChrome } = useReadingFocus();
+  const reserveAssistantColumn =
+    appView === "workspace" && aiPanelOpen ? Math.max(0, aiPanelWidth) + 4 : 0;
+  const alignBrandWithSidebar = appView === "workspace" && !explorerMode;
 
   return (
     <header
       className={cn(
-        "app-chrome-header flex h-11 items-center gap-2 border-b border-border bg-card px-2 shadow-sm sm:gap-3 sm:px-4",
-        readingFocusActive ? "fixed inset-x-0 top-0 z-[60]" : "relative z-[60] shrink-0",
+        "app-chrome-header flex h-11 min-w-0 items-center gap-2 border-b border-border bg-card shadow-sm sm:gap-3",
+        alignBrandWithSidebar ? "app-chrome-header--sidebar-aligned pr-2 sm:pr-4" : "px-2 sm:px-4",
+        readingFocusActive ? "fixed top-0 left-0 z-[60]" : "relative z-[60] shrink-0",
+        reserveAssistantColumn > 0 && "app-chrome-header--ai-panel-open",
       )}
+      style={
+        reserveAssistantColumn > 0
+          ? readingFocusActive
+            ? { right: reserveAssistantColumn }
+            : { paddingRight: reserveAssistantColumn }
+          : undefined
+      }
     >
-      <div className="app-chrome-header__lead flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3">
-        {appView === "workspace" && onExplorerModeChange ? (
+      {alignBrandWithSidebar ? (
+        <div className="app-chrome-header__brand-rail">
+          {onExplorerModeChange ? (
+            <WorkspaceModeMenu
+              explorerMode={explorerMode}
+              onChange={onExplorerModeChange}
+              railAligned
+            />
+          ) : (
+            <TreeWriterBrand
+              explorerMode={explorerMode}
+              onHomeClick={onHomeClick}
+              homeTitle={homeTitle}
+              railAligned
+            />
+          )}
+        </div>
+      ) : null}
+      <div className="app-chrome-header__lead flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-3">
+        {!alignBrandWithSidebar && appView === "workspace" && onExplorerModeChange ? (
           <WorkspaceModeMenu explorerMode={explorerMode} onChange={onExplorerModeChange} />
-        ) : (
-          <TreeWriterBrand onHomeClick={onHomeClick} homeTitle={homeTitle} />
-        )}
+        ) : !alignBrandWithSidebar ? (
+          <TreeWriterBrand explorerMode={explorerMode} onHomeClick={onHomeClick} homeTitle={homeTitle} />
+        ) : null}
         {appView === "workspace" && !explorerMode ? (
           <>
             <div className="hidden h-4 w-px shrink-0 bg-border md:block" aria-hidden="true" />
@@ -90,7 +125,14 @@ export function AppChromeHeader({
               </Button>
             ) : null}
             {extraChrome ? (
-              <div className="editor-pane-toggle-host flex shrink-0 items-center">{extraChrome}</div>
+              <div
+                className={cn(
+                  "editor-pane-toggle-host flex shrink-0 items-center",
+                  aiPanelOpen && "hidden min-[1100px]:flex",
+                )}
+              >
+                {extraChrome}
+              </div>
             ) : null}
             <div className="hidden min-w-0 shrink md:block">
               <Breadcrumbs
@@ -104,7 +146,10 @@ export function AppChromeHeader({
             </div>
             {paperPath && onSearchChange && onSearchSelect ? (
               <PaperSearchField
-                className="min-w-0 flex-1"
+                className={cn(
+                  "min-w-0 flex-1",
+                  aiPanelOpen ? "hidden min-[960px]:block" : "min-w-[8rem] max-w-md",
+                )}
                 paperPath={paperPath}
                 searchQuery={searchQuery}
                 onSearchChange={onSearchChange}
@@ -122,12 +167,16 @@ export function AppChromeHeader({
         ) : null}
       </div>
 
-      {appView === "workspace" && !explorerMode ? (
-        <WorkspaceChromeActions
-          onRefreshModel={onRefreshModel}
-          aiPanelOpen={aiPanelOpen}
-          onToggleAiPanel={onToggleAiPanel}
-        />
+      {appView === "workspace" ? (
+        <div className="app-chrome-header__actions ml-auto flex shrink-0 items-center">
+          <WorkspaceChromeActions
+            onRefreshModel={onRefreshModel}
+            aiPanelOpen={aiPanelOpen}
+            onToggleAiPanel={onToggleAiPanel}
+            onOpenTerminal={onOpenTerminal}
+            onOpenSkills={onOpenSkills}
+          />
+        </div>
       ) : null}
     </header>
   );

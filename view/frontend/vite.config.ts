@@ -2,7 +2,8 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-const FAVICON_PATH = /^\/(favicon[^/?]*|apple-touch-icon[^/?]*|safari-pinned-tab[^/?]*)(\?.*)?$/;
+const FAVICON_PATH =
+  /^\/(favicon[^/?]*|apple-touch-icon[^/?]*|android-chrome[^/?]*|site\.webmanifest|safari-pinned-tab[^/?]*)(\?.*)?$/;
 
 export default defineConfig({
   plugins: [

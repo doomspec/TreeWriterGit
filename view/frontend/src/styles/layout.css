@@ -543,9 +543,36 @@
   display: none;
 }
 
+/* App chrome — logo column matches sidebar icon rail (w-9) */
+.app-chrome-header--sidebar-aligned {
+  padding-left: 0;
+  gap: 0;
+}
+
+.app-chrome-header__brand-rail {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 var(--sidebar-rail-width, 2.25rem);
+  width: var(--sidebar-rail-width, 2.25rem);
+  align-items: center;
+  justify-content: center;
+}
+
+.app-chrome-header--sidebar-aligned .app-chrome-header__lead {
+  min-width: 0;
+  padding-left: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .app-chrome-header--sidebar-aligned .app-chrome-header__lead {
+    padding-left: 0.75rem;
+  }
+}
+
 /* App chrome — prevent badge/tab overlap on narrow viewports */
 .app-chrome-header__lead {
   flex: 1 1 auto;
+  min-width: 0;
 }
 
 .editor-pane-toggle-host {
@@ -554,6 +581,8 @@
 
 .app-chrome-header__actions {
   flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
 }
 
 /* Editor pane container — wrap toolbar when pane is narrow (dual-pane split) */

@@ -1,3 +1,9 @@
+/**
+ * App shell — top-level layout and view routing.
+ *
+ * View modes: `workspace` (Writer IDE), `settings`, `info` (guide), and optional `explorerMode`
+ * (file-tree IDE). Workspace mode nests WorkspaceProvider → sidebar + WorkspaceRouter.
+ */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const SettingsPage = lazy(() =>
@@ -214,6 +220,11 @@ function AppShell({
     refitTerminal();
   }, [agentPanelFocus, layout, refitTerminal]);
 
+  const openSkillsPanel = useCallback(() => {
+    layout.setAiPanelOpen(true);
+    layout.setAiPanelSkillsOpen(true);
+  }, [layout]);
+
   const openDispatchPanel = useCallback(() => {
     if (layout.aiPanelOpen && agentPanelFocus === "dispatch") {
       layout.setAiPanelOpen(false);
@@ -326,6 +337,7 @@ function AppShell({
             readingFocus.active && "reading-focus-mode",
             ws.explorerMode && "explorer-theme",
           )}
+          style={{ "--sidebar-rail-width": "2.25rem" } as React.CSSProperties}
         >
           <AppChromeHeader
             appView={ws.appView}
@@ -348,7 +360,10 @@ function AppShell({
             explorerMode={ws.explorerMode}
             onExplorerModeChange={ws.setExplorerMode}
             aiPanelOpen={layout.aiPanelOpen}
+            aiPanelWidth={layout.aiPanelWidth}
             onToggleAiPanel={() => layout.setAiPanelOpen((open) => !open)}
+            onOpenTerminal={openTerminalPanel}
+            onOpenSkills={openSkillsPanel}
           />
           {ws.explorerMode ? null : (
           <AppCommands
