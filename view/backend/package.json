@@ -20,7 +20,7 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "gray-matter": "^4.0.3",
-    "js-yaml": "^4.2.0",
+    "js-yaml": "^4.3.0",
     "jszip": "^3.10.1",
     "markdown-docx": "^1.6.0",
     "marked": "^18.0.5",

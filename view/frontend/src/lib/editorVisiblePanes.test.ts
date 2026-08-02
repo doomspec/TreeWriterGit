@@ -22,16 +22,24 @@ describe("toggleEditorPane", () => {
   });
 
   it("allows two panes", () => {
-    expect(toggleEditorPane(DEFAULT_EDITOR_VISIBLE_PANES, "notes", "outline")).toEqual({
+    expect(toggleEditorPane({ outline: true, draft: false, notes: false }, "notes")).toEqual({
       outline: true,
       draft: false,
       notes: true,
     });
   });
 
-  it("drops the non-active pane when enabling a third", () => {
-    expect(toggleEditorPane(DEFAULT_EDITOR_VISIBLE_PANES, "notes", "draft")).toEqual({
-      outline: false,
+  it("keeps existing panes when enabling a third", () => {
+    expect(toggleEditorPane(DEFAULT_EDITOR_VISIBLE_PANES, "notes")).toEqual({
+      outline: true,
+      draft: true,
+      notes: true,
+    });
+  });
+
+  it("allows all three panes to stay visible", () => {
+    expect(toggleEditorPane(DEFAULT_EDITOR_VISIBLE_PANES, "notes")).toEqual({
+      outline: true,
       draft: true,
       notes: true,
     });
@@ -75,13 +83,13 @@ describe("hideEditorPane", () => {
 });
 
 describe("normalizeEditorVisiblePanes", () => {
-  it("collapses three visible panes to two", () => {
+  it("keeps three visible panes", () => {
     expect(
       normalizeEditorVisiblePanes({ outline: true, draft: true, notes: true }),
     ).toEqual({
       outline: true,
       draft: true,
-      notes: false,
+      notes: true,
     });
   });
 });

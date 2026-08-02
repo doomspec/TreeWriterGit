@@ -5,7 +5,6 @@ import { ResizableDualPane } from "@/components/layout/ResizableDualPane";
 import { ResizableVerticalSplit } from "@/components/layout/ResizableVerticalSplit";
 import {
   countVisibleEditorPanes,
-  isDraftNotesSplit,
   shouldSyncDocumentOutlineForPanes,
   type EditorPaneId,
   type EditorVisiblePanes,
@@ -84,20 +83,25 @@ function buildPaneLayout({
     return sole;
   }
 
-  if (isDraftNotesSplit(visiblePanes)) {
-    if (!notesPane) {
-      return draftPane;
-    }
+  if (visiblePanes.outline && visiblePanes.draft && visiblePanes.notes && notesPane) {
     return (
       <ResizableVerticalSplit
         className="min-h-0 flex-1"
         splitPercent={notesSplitPercent}
         onSplitChange={onNotesSplitChange ?? (() => {})}
-        handleLabel="Resize draft and notes"
-        minPercent={20}
-        maxPercent={75}
-        top={draftPane}
-        bottom={notesPane ?? draftPane}
+        handleLabel="Resize outline and draft above notes"
+        minPercent={35}
+        maxPercent={85}
+        top={
+          <ResizableDualPane
+            splitPercent={splitPercent}
+            onSplitChange={onSplitChange}
+            className={readingFocusActive ? "reading-focus-dual-pane" : undefined}
+            left={outlinePane}
+            right={draftPane}
+          />
+        }
+        bottom={notesPane}
       />
     );
   }

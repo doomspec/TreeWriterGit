@@ -60,12 +60,7 @@ export function normalizeEditorVisiblePanes(
   };
   const count = countVisibleEditorPanes(merged);
   if (count === 0) return { ...DEFAULT_EDITOR_VISIBLE_PANES };
-  if (count <= 2) return merged;
-  return {
-    outline: merged.outline,
-    draft: merged.draft || merged.notes,
-    notes: false,
-  };
+  return merged;
 }
 
 export function migrateLegacyPanePrefs(
@@ -82,24 +77,14 @@ export function migrateLegacyPanePrefs(
 export function toggleEditorPane(
   current: EditorVisiblePanes,
   pane: EditorPaneId,
-  activePane?: EditorPaneId,
 ): EditorVisiblePanes {
   const turningOn = !current[pane];
-  let next: EditorVisiblePanes = { ...current, [pane]: turningOn };
+  const next: EditorVisiblePanes = { ...current, [pane]: turningOn };
 
-  let count = countVisibleEditorPanes(next);
+  const count = countVisibleEditorPanes(next);
   if (count === 0) {
     return { ...current, [pane]: true };
   }
-  if (count <= 2) {
-    return next;
-  }
-
-  const candidates = EDITOR_PANE_IDS.filter((id) => id !== pane && next[id]);
-  const toDisable = activePane
-    ? (candidates.find((id) => id !== activePane) ?? candidates[0])
-    : candidates[0];
-  next = { ...next, [toDisable]: false };
   return next;
 }
 
@@ -120,7 +105,7 @@ export function focusEditorPane(
   if (current[pane]) {
     return { visible: current, active: pane };
   }
-  const visible = toggleEditorPane(current, pane, activePane);
+  const visible = toggleEditorPane(current, pane);
   return { visible, active: pane };
 }
 
@@ -150,7 +135,7 @@ export function focusOrToggleEditorPane(
     return { visible: current, active: pane };
   }
   const turningOn = !current[pane];
-  const visible = toggleEditorPane(current, pane, activePane);
+  const visible = toggleEditorPane(current, pane);
   return {
     visible,
     active: turningOn ? pane : reconcileActiveEditorPane(visible, activePane),

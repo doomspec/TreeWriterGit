@@ -9,7 +9,7 @@ import { useReadingFocus } from "@/lib/readingFocus";
 import type { DualPaneActive } from "@/lib/workspacePreferences";
 
 export function useReadingFocusSplitPaneTitles(visiblePanes: EditorVisiblePanes): boolean {
-  return countVisibleEditorPanes(visiblePanes) === 2;
+  return countVisibleEditorPanes(visiblePanes) >= 2;
 }
 
 export function ReadingFocusExtra({
