@@ -75,11 +75,15 @@
 
 .section-tree-row__title {
   flex: 1 1 0%;
+  display: -webkit-box;
   min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: normal;
   white-space: normal;
-  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.28;
 }
 
 .section-tree-row__meta .sidebar-pane-icon-btn {

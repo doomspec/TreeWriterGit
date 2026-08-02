@@ -1,8 +1,9 @@
 import {
-  applyEditorPanePreset,
-  availableEditorPanePresets,
-  matchingEditorPanePreset,
-  type EditorPanePresetId,
+  EDITOR_PANE_IDS,
+  countVisibleEditorPanes,
+  reconcileActiveEditorPane,
+  toggleEditorPane,
+  type EditorPaneId,
   type EditorVisiblePanes,
 } from "@/lib/editorVisiblePanes";
 import type { DualPaneActive } from "@/lib/workspacePreferences";
@@ -17,14 +18,11 @@ export type EditorPaneToggleProps = {
   className?: string;
 };
 
-const PRESET_LABELS: Record<EditorPanePresetId, string> = {
-  split: "Split",
-  write: "Write",
-  plan: "Plan",
+const PANE_LABELS: Record<EditorPaneId, string> = {
+  outline: "Outline",
+  draft: "Draft",
   notes: "Notes",
 };
-
-const PRESET_CHIP_IDS: EditorPanePresetId[] = ["plan", "split", "write"];
 
 export function EditorPaneToggle({
   visiblePanes,
@@ -34,36 +32,43 @@ export function EditorPaneToggle({
   showNotes = true,
   className,
 }: EditorPaneToggleProps) {
-  const handlePresetClick = (presetId: EditorPanePresetId) => {
-    const next = applyEditorPanePreset(presetId, showNotes);
-    onVisiblePanesChange(next.visible);
-    onActivePaneChange(next.active);
+  const handlePaneClick = (pane: EditorPaneId) => {
+    const wasVisible = visiblePanes[pane];
+    const next = toggleEditorPane(visiblePanes, pane);
+    onVisiblePanesChange(next);
+    onActivePaneChange(wasVisible ? reconcileActiveEditorPane(next, activePane) : pane);
   };
 
-  const activePreset = matchingEditorPanePreset(visiblePanes, activePane, showNotes);
-  const chips = PRESET_CHIP_IDS.filter((id) => availableEditorPanePresets(showNotes).includes(id));
+  const visibleCount = countVisibleEditorPanes(visiblePanes);
+  const panes = EDITOR_PANE_IDS.filter((id) => showNotes || id !== "notes");
 
   return (
     <div
       className={cn("editor-pane-toggle editor-pane-toggle--presets-only", className)}
       role="group"
-      aria-label="Editor layout presets"
-      title="Switch between Split (outline + draft), Write (draft + notes), and Plan (outline only)."
+      aria-label="Editor panes"
+      title="Choose which editor panes are open."
     >
-      {chips.map((presetId) => (
-        <button
-          key={presetId}
-          type="button"
-          className={cn(
-            "editor-pane-toggle__preset",
-            activePreset === presetId && "editor-pane-toggle__preset--active",
-          )}
-          aria-pressed={activePreset === presetId}
-          onClick={() => handlePresetClick(presetId)}
-        >
-          {PRESET_LABELS[presetId]}
-        </button>
-      ))}
+      {panes.map((pane) => {
+        const isVisible = visiblePanes[pane];
+        const disabled = isVisible && visibleCount === 1;
+        return (
+          <button
+            key={pane}
+            type="button"
+            className={cn(
+              "editor-pane-toggle__preset",
+              isVisible && "editor-pane-toggle__preset--active",
+            )}
+            aria-pressed={isVisible}
+            disabled={disabled}
+            title={`${isVisible ? "Hide" : "Show"} ${PANE_LABELS[pane].toLowerCase()} pane`}
+            onClick={() => handlePaneClick(pane)}
+          >
+            {PANE_LABELS[pane]}
+          </button>
+        );
+      })}
     </div>
   );
 }

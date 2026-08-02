@@ -201,8 +201,8 @@ function ChildOrderList({
 
   const renderItem = (child: PaperSectionItem, index: number, dragEnabled: boolean) => {
     const childActive = currentPath === child.path || currentPath.startsWith(`${child.path}/`);
-    const textSize = "text-[10px]";
-    const rowPad = "py-0";
+    const textSize = "text-[11px]";
+    const rowPad = "py-0.5";
     const { highlight, pending, unapproved } = sectionNeedsHighlight(
       child.path,
       containerCounts[child.path],
@@ -249,6 +249,7 @@ function ChildOrderList({
           ) : null}
           <button
             type="button"
+            title={child.title}
             className={sectionTreeNavButtonClass({
               active: childActive,
               highlight,
@@ -482,11 +483,12 @@ export function SectionOrderList({
               </div>
               <button
                 type="button"
+                title={section.title}
                 className={sectionTreeNavButtonClass({
                   active,
                   highlight,
                   textSize: "text-[11px]",
-                  rowPad: "py-0",
+                  rowPad: "py-0.5",
                 })}
                 onClick={() => onTreeItemClick(section.path)}
               >

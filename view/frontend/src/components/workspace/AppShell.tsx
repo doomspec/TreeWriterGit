@@ -41,10 +41,8 @@ import { usePaperPendingReviews } from "@/lib/usePaperPendingReviews";
 import { resolveActivePaperSlug } from "@/lib/activePaperSlug";
 import { approveDraftAtPath } from "@/lib/draftApproval";
 import {
-  applyEditorPanePreset,
-  focusEditorPane,
+  focusOrToggleEditorPane,
   type EditorPaneId,
-  type EditorPanePresetId,
 } from "@/lib/editorVisiblePanes";
 
 export function AppRoot() {
@@ -264,22 +262,13 @@ function AppShell({
     nav.navigateTo(nav.lastPaperPath ?? PAPERS_ROOT);
   }, [nav, ws]);
 
-  const handleFocusEditorPane = useCallback(
+  const handleToggleEditorPane = useCallback(
     (pane: EditorPaneId) => {
-      const next = focusEditorPane(layout.editorVisiblePanes, pane, layout.dualPaneActive);
+      const next = focusOrToggleEditorPane(layout.editorVisiblePanes, pane, layout.dualPaneActive);
       layout.setEditorVisiblePanes(next.visible);
       layout.setDualPaneActive(next.active);
     },
     [layout],
-  );
-
-  const handleApplyEditorPanePreset = useCallback(
-    (preset: EditorPanePresetId) => {
-      const next = applyEditorPanePreset(preset, nav.notesPaneAvailable);
-      layout.setEditorVisiblePanes(next.visible);
-      layout.setDualPaneActive(next.active);
-    },
-    [layout, nav.notesPaneAvailable],
   );
 
   const handleOpenMainBib = useCallback(
@@ -390,8 +379,7 @@ function AppShell({
             onSetEditorLayout={layout.setEditorLayout}
             onGitSync={() => void runGitSync()}
             onCycleTheme={cyclePreference}
-            onFocusEditorPane={handleFocusEditorPane}
-            onApplyEditorPanePreset={handleApplyEditorPanePreset}
+            onToggleEditorPane={handleToggleEditorPane}
             onApproveAllAiChanges={() => void handleApproveAllAiChanges()}
             onOpenMainBib={handleOpenMainBib}
             onShowUnverifiedReferences={handleShowUnverifiedReferences}
@@ -646,4 +634,3 @@ function AppShell({
     </AgentDispatchPanelContext.Provider>
   );
 }
-

@@ -83,6 +83,11 @@
     background-color: hsl(var(--primary) / 0.1);
   }
 
+  .editor-pane-toggle__preset:disabled {
+    cursor: default;
+    opacity: 0.75;
+  }
+
   .editor-pane-toggle__preset--active {
     color: hsl(var(--primary));
     background-color: hsl(var(--primary) / 0.16);
